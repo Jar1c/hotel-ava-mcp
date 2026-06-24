@@ -36,15 +36,25 @@ export default function Home() {
   return (
     <div>
       {/* Hero + Search */}
-      <section className="px-base py-section">
-        <div className="mx-auto" style={{ maxWidth: "var(--container-max)" }}>
-          <div className="text-center mb-xl">
-            <h1 className="typo-display-xl text-ink mb-md">Welcome to Hotel Ava</h1>
-            <p className="typo-body-md text-body max-w-2xl mx-auto">
-              Experience personalized luxury at Hotel Ava. Browse our curated rooms, enjoy premium amenities, and let our smart recommendations find the perfect stay for you.
-            </p>
+      <section className="relative h-[500px] md:h-[600px]">
+        <div
+          className="absolute inset-0 bg-cover bg-center"
+          style={{
+            backgroundImage: "url('https://images.unsplash.com/photo-1566073771259-6a8506099945?w=1920&h=900&fit=crop')",
+          }}
+        >
+          <div className="absolute inset-0 bg-gradient-to-t from-scrim/80 via-scrim/30 to-scrim/50" />
+        </div>
+        <div className="relative h-full flex flex-col justify-end pb-xl px-base">
+          <div className="mx-auto w-full" style={{ maxWidth: "var(--container-max)" }}>
+            <div className="mb-lg">
+              <h1 className="typo-display-xl text-on-primary mb-sm">Find Your Perfect Stay</h1>
+              <p className="typo-body-md text-on-primary/90 max-w-xl">
+                Discover luxury accommodations and create unforgettable memories at Hotel Ava.
+              </p>
+            </div>
+            <SearchBar />
           </div>
-          <SearchBar />
         </div>
       </section>
 

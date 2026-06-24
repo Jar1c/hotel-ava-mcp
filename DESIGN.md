@@ -54,10 +54,10 @@ The shape language is **soft**. Buttons are 8px radius (`{rounded.sm}`), propert
 ## Typography
 
 ### Font Family
-The system runs **'Inter'** (Body) and **'Cormorant Garamond'** (Display) via Google Fonts for everything.
+The system runs **'Playfair Display'** (Display/Headings) and **'Lato'** (Body) via Google Fonts for everything.
 Fallback: `-apple-system, system-ui, "Segoe UI", Roboto, sans-serif`.
 
-Inter replaces Montserrat for body text — it has tighter letter-spacing and reads cleaner at small sizes (room meta lines, captions), which matters for a content-dense booking interface.
+Playfair Display is an elegant serif font perfect for luxury hotel branding. Lato provides clean readability for body text.
 
 ### Hierarchy
 

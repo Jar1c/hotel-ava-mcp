@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { Link } from "react-router-dom"
-import { Mail, Lock, User, Eye, EyeOff } from "lucide-react"
+import { Mail, Lock, Eye, EyeOff } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
 export default function Login() {
@@ -14,16 +14,30 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-[80vh] flex items-center justify-center px-base py-section">
-      <div style={{ width: "100%", maxWidth: "28rem" }}>
-        <div className="bg-canvas rounded-lg border border-hairline shadow-dropdown p-xl">
-          <div className="text-center mb-xl">
-            <Link to="/" className="typo-display-lg text-secondary">
-              Hotel Ava
-            </Link>
-            <h1 className="typo-display-xl text-ink mt-md mb-sm">Welcome Back</h1>
-            <p className="typo-body-sm text-muted">Sign in to manage your bookings</p>
-          </div>
+    <div className="min-h-screen flex">
+      <div className="hidden lg:block lg:w-1/2 relative">
+        <img
+          src="https://images.unsplash.com/photo-1551882547-ff40c63fe5fa?w=1200&h=1600&fit=crop"
+          alt="Hotel"
+          className="absolute inset-0 w-full h-full object-cover"
+        />
+        <div className="absolute inset-0 bg-gradient-to-t from-scrim/70 to-scrim/20" />
+        <div className="absolute bottom-12 left-12 right-12">
+          <h2 className="typo-display-lg text-on-primary mb-sm">Hotel Ava</h2>
+          <p className="typo-body-sm text-on-primary/80 max-w-md">
+            Experience luxury accommodations and world-class hospitality.
+          </p>
+        </div>
+      </div>
+
+      <div className="w-full lg:w-1/2 flex items-center justify-center px-lg py-xl bg-canvas">
+        <div style={{ width: "100%", maxWidth: "24rem" }}>
+          <Link to="/" className="block mb-xl text-center lg:text-left">
+            <span className="typo-display-lg text-primary">Hotel Ava</span>
+          </Link>
+
+          <h1 className="typo-display-xl text-ink mb-sm text-center lg:text-left">Welcome back</h1>
+          <p className="typo-body-sm text-muted mb-xl text-center lg:text-left">Sign in to continue to your account</p>
 
           <form onSubmit={handleSubmit} className="space-y-md">
             <div>
@@ -35,7 +49,7 @@ export default function Login() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="your@email.com"
-                  className="w-full pl-10 pr-3 py-2 rounded-sm border border-hairline bg-canvas typo-body-sm text-ink placeholder:text-muted-soft focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                  className="w-full pl-10 pr-3 py-2.5 rounded-sm border border-hairline bg-canvas typo-body-sm text-ink placeholder:text-muted-soft focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
                 />
               </div>
             </div>
@@ -49,7 +63,7 @@ export default function Login() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Enter your password"
-                  className="w-full pl-10 pr-10 py-2 rounded-sm border border-hairline bg-canvas typo-body-sm text-ink placeholder:text-muted-soft focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                  className="w-full pl-10 pr-10 py-2.5 rounded-sm border border-hairline bg-canvas typo-body-sm text-ink placeholder:text-muted-soft focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
                 />
                 <button
                   type="button"
@@ -73,7 +87,7 @@ export default function Login() {
 
             <Button
               type="submit"
-              className="w-full bg-primary text-on-primary hover:bg-primary-active"
+              className="w-full bg-primary text-on-primary hover:bg-primary-active py-2.5"
             >
               Sign In
             </Button>
@@ -85,12 +99,7 @@ export default function Login() {
             <div className="flex-1 h-px bg-hairline" />
           </div>
 
-          <Button variant="outline" className="w-full">
-            <User className="h-4 w-4 mr-2" />
-            Continue as Guest
-          </Button>
-
-          <p className="text-center mt-lg typo-body-sm text-muted">
+          <p className="text-center typo-body-sm text-muted">
             Don&apos;t have an account?{" "}
             <a
               href="/register"
@@ -98,7 +107,7 @@ export default function Login() {
               rel="noopener noreferrer"
               className="text-primary hover:text-primary-active font-medium"
             >
-              Create one
+              Sign up
             </a>
           </p>
         </div>

@@ -28,8 +28,8 @@
 
   --color-scrim: #1A1A18;
 
-  --font-family-body: "Inter", -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
-  --font-family-display: "Cormorant Garamond", -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
+  --font-family-body: "Lato", -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
+  --font-family-display: "Playfair Display", -apple-system, system-ui, "Segoe UI", Georgia, serif;
 
   --spacing-xs: 4px;
   --spacing-sm: 8px;
