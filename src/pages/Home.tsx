@@ -36,23 +36,25 @@ export default function Home() {
   return (
     <div>
       {/* Hero + Search */}
-      <section className="relative h-[500px] md:h-[600px]">
+      <section className="relative">
         <div
           className="absolute inset-0 bg-cover bg-center"
           style={{
             backgroundImage: "url('https://images.unsplash.com/photo-1566073771259-6a8506099945?w=1920&h=900&fit=crop')",
           }}
         >
-          <div className="absolute inset-0 bg-gradient-to-t from-scrim/80 via-scrim/30 to-scrim/50" />
+          <div className="absolute inset-0 bg-scrim/60" />
         </div>
-        <div className="relative h-full flex flex-col justify-end pb-xl px-base">
-          <div className="mx-auto w-full" style={{ maxWidth: "var(--container-max)" }}>
-            <div className="mb-lg">
-              <h1 className="typo-display-xl text-on-primary mb-sm">Find Your Perfect Stay</h1>
-              <p className="typo-body-md text-on-primary/90 max-w-xl">
-                Discover luxury accommodations and create unforgettable memories at Hotel Ava.
-              </p>
-            </div>
+        <div className="relative pt-section pb-xxl px-base text-center">
+          <div className="mx-auto" style={{ maxWidth: "var(--container-max)" }}>
+            <p className="typo-caption uppercase tracking-widest text-secondary mb-md">Welcome to Hotel Ava</p>
+            <h1 className="typo-display-xl text-on-primary mb-md max-w-3xl mx-auto">
+              Experience the finest luxury accommodation for your stay
+            </h1>
+          </div>
+        </div>
+        <div className="relative px-base" style={{ marginTop: "-60px" }}>
+          <div className="mx-auto" style={{ maxWidth: "800px" }}>
             <SearchBar />
           </div>
         </div>
