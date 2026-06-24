@@ -8,7 +8,7 @@
 
 - [x] **Phase 1: UI/UX Foundation** - Establish responsive design system, component library, and navigation foundation
 - [ ] **Phase 2: Guest Authentication** - Enable guest and admin authentication with session management
-- [ ] **Phase 3: Room Search & Booking** - Complete room discovery and booking workflow for guests
+- [x] **Phase 3: Room Search & Booking** - Complete room discovery and booking workflow for guests
 - [ ] **Phase 4: Admin Dashboard** - Deliver management interface with occupancy, revenue, and bookings views
 - [ ] **Phase 5: Backend Integration** - Connect all features to Supabase with real data persistence
 
@@ -55,8 +55,12 @@ Plans:
   1. Guest can search for available rooms using date range, guest count, and price filters
   2. Guest can browse room listings displayed as cards with images, prices, and key amenities
   3. Guest can view a room's detail page with photo gallery and comprehensive description
-**Plans**: TBD
+**Plans**: 2 plans
 **UI hint**: yes
+
+Plans:
+- [x] 03-01-PLAN.md — Room listing page with filters, sort, and room cards
+- [x] 03-02-PLAN.md — Room detail page with photo gallery and reservation card
 
 ### Phase 4: Admin Dashboard
 **Goal**: Admin can monitor and manage hotel operations through analytics and booking controls
@@ -90,7 +94,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 1. UI/UX Foundation | 3/3 | Complete | 2026-06-24 |
 | 2. Guest Authentication | 0/2 | Not started | - |
-| 3. Room Search & Booking | 0/3 | Not started | - |
+| 3. Room Search & Booking | 2/2 | Complete | 2026-06-24 |
 | 4. Admin Dashboard | 0/2 | Not started | - |
 | 5. Backend Integration | 0/2 | Not started | - |
 
