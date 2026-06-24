@@ -1,0 +1,11 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "permission": {
+    "read": {
+      "D:/download/Capstone2/Hotel Ava/.opencode/gsd-core/*": "allow"
+    },
+    "external_directory": {
+      "D:/download/Capstone2/Hotel Ava/.opencode/gsd-core/*": "allow"
+    }
+  }
+}

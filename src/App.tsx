@@ -1,0 +1,21 @@
+import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import RootLayout from './layouts/RootLayout'
+import Home from './pages/Home'
+import Rooms from './pages/Rooms'
+import Login from './pages/Login'
+import NotFound from './pages/NotFound'
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route element={<RootLayout />}>
+          <Route index element={<Home />} />
+          <Route path="rooms" element={<Rooms />} />
+          <Route path="login" element={<Login />} />
+          <Route path="*" element={<NotFound />} />
+        </Route>
+      </Routes>
+    </BrowserRouter>
+  )
+}

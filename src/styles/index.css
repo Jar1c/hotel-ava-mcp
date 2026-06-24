@@ -1,0 +1,153 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #800080;
+  --color-primary-active: #6b0e7a;
+  --color-primary-disabled: #f0d3e3;
+  --color-secondary: #2F4849;
+
+  --color-canvas: #ffffff;
+  --color-surface-soft: #f7f7f7;
+  --color-surface-strong: #f2f2f2;
+
+  --color-hairline: #dddddd;
+  --color-hairline-soft: #ebebeb;
+  --color-border-strong: #c1c1c1;
+
+  --color-ink: #222222;
+  --color-body: #3f3f3f;
+  --color-muted: #6a6a6a;
+  --color-muted-soft: #929292;
+  --color-star-rating: #222222;
+  --color-on-primary: #ffffff;
+
+  --color-error: #c13515;
+  --color-error-hover: #b32505;
+  --color-legal-link: #428bff;
+
+  --color-scrim: #000000;
+
+  --font-family-body: "Montserrat", -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
+  --font-family-display: "Cormorant Garamond", -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
+
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 12px;
+  --spacing-base: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 32px;
+  --spacing-xxl: 48px;
+  --spacing-section: 64px;
+
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --radius-xl: 32px;
+  --radius-full: 9999px;
+
+  --shadow-card-hover: 0 0 0 1px rgba(0,0,0,0.02), 0 2px 6px 0 rgba(0,0,0,0.04), 0 4px 8px 0 rgba(0,0,0,0.1);
+  --shadow-dropdown: 0 0 0 1px rgba(0,0,0,0.02), 0 2px 6px 0 rgba(0,0,0,0.04), 0 4px 8px 0 rgba(0,0,0,0.1);
+
+  --container-max: 1280px;
+
+  --breakpoint-mobile: 744px;
+  --breakpoint-tablet: 1128px;
+  --breakpoint-desktop: 1280px;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-family-body);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    margin: 0;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-family-display);
+    margin: 0;
+  }
+
+  .typo-rating-display {
+    font-size: 64px;
+    font-weight: 700;
+    line-height: 1.1;
+    letter-spacing: -1px;
+  }
+
+  .typo-display-xl {
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1.43;
+    letter-spacing: 0;
+  }
+
+  .typo-display-lg {
+    font-size: 22px;
+    font-weight: 500;
+    line-height: 1.18;
+    letter-spacing: -0.44px;
+  }
+
+  .typo-display-md {
+    font-size: 21px;
+    font-weight: 700;
+    line-height: 1.43;
+    letter-spacing: 0;
+  }
+
+  .typo-title-md {
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 1.25;
+    letter-spacing: 0;
+  }
+
+  .typo-body-md {
+    font-size: 16px;
+    font-weight: 400;
+    line-height: 1.5;
+    letter-spacing: 0;
+  }
+
+  .typo-body-sm {
+    font-size: 14px;
+    font-weight: 400;
+    line-height: 1.43;
+    letter-spacing: 0;
+  }
+
+  .typo-caption {
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.29;
+    letter-spacing: 0;
+  }
+
+  .typo-caption-sm {
+    font-size: 13px;
+    font-weight: 400;
+    line-height: 1.23;
+    letter-spacing: 0;
+  }
+
+  .typo-nav-link {
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 1.25;
+    letter-spacing: 0;
+  }
+
+  .typo-button-md {
+    font-size: 16px;
+    font-weight: 500;
+    line-height: 1.25;
+    letter-spacing: 0;
+  }
+}
