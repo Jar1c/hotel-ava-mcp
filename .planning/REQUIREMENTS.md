@@ -67,25 +67,25 @@ Explicitly excluded. Documented to prevent scope creep.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| AUTH-01 | TBD | Pending |
-| AUTH-02 | TBD | Pending |
-| AUTH-03 | TBD | Pending |
-| AUTH-04 | TBD | Pending |
-| RSCH-01 | TBD | Pending |
-| RSCH-02 | TBD | Pending |
-| RSCH-03 | TBD | Pending |
-| ADMN-01 | TBD | Pending |
-| ADMN-02 | TBD | Pending |
-| ADMN-03 | TBD | Pending |
-| UIUX-01 | TBD | Pending |
-| UIUX-02 | TBD | Pending |
-| UIUX-03 | TBD | Pending |
+| AUTH-01 | Phase 2 | Pending |
+| AUTH-02 | Phase 2 | Pending |
+| AUTH-03 | Phase 2 | Pending |
+| AUTH-04 | Phase 2 | Pending |
+| RSCH-01 | Phase 3 | Pending |
+| RSCH-02 | Phase 3 | Pending |
+| RSCH-03 | Phase 3 | Pending |
+| ADMN-01 | Phase 4 | Pending |
+| ADMN-02 | Phase 4 | Pending |
+| ADMN-03 | Phase 4 | Pending |
+| UIUX-01 | Phase 1 | Pending |
+| UIUX-02 | Phase 1 | Pending |
+| UIUX-03 | Phase 1 | Pending |
 
 **Coverage:**
 - v1 requirements: 13 total
-- Mapped to phases: 0
-- Unmapped: 13
+- Mapped to phases: 13
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-06-23*
-*Last updated: 2026-06-23 after initial definition*
+*Last updated: 2026-06-24 after roadmap creation*
