@@ -19,10 +19,10 @@ The shape language is **soft**. Buttons are 8px radius (`{rounded.sm}`), propert
 ## Colors
 
 ### Brand & Accent
-- **Deep Pine** (`{colors.primary}` — **#1F3A2E**): The single brand color. Replaces "Deep Purple." Used for primary CTA backgrounds (Reserve, Search), the heart save state, and inline brand links. Carries warmth + trust, evoking the biophilic 2026 hospitality color trend instead of a tech-app purple.
-- **Pine Active** (`{colors.primary-active}` — **#16291F**): The press/pointer-down variant — darker.
-- **Pine Disabled** (`{colors.primary-disabled}` — **#D6E0DA**): A pale sage tint used on disabled CTAs.
-- **Warm Gold** (`{colors.secondary}` — **#B8860B**): Replaces "Dark Teal." Used for price tags, "Featured" badges, and small luxury accents — evokes brass/bronze hardware found in boutique hotel interiors. Used sparingly, never on buttons.
+- **Royal Plum** (`{colors.primary}` — **#82285f**): The single brand color. Used for primary CTA backgrounds (Reserve, Search), the heart save state, and inline brand links. A rich purple-magenta that evokes luxury and sophistication.
+- **Plum Active** (`{colors.primary-active}` — **#6b204f**): The press/pointer-down variant — darker.
+- **Plum Disabled** (`{colors.primary-disabled}` — **#e8d4e0**): A pale mauve tint used on disabled CTAs.
+- **Forest Teal** (`{colors.secondary}` — **#455d58**): Used for price tags, "Featured" badges, and small luxury accents — evokes natural elegance. Used sparingly, never on buttons.
 
 ### Surface
 - **Canvas** (`{colors.canvas}` — **#FBF9F4**): The default page floor for every public page. Warm off-white instead of pure white — reads "boutique hotel," not "tech app."
@@ -39,8 +39,8 @@ The shape language is **soft**. Buttons are 8px radius (`{rounded.sm}`), propert
 - **Body** (`{colors.body}` — **#4A4A45**): A secondary running-text color used inside long-form review and amenity copy where ink would feel too heavy.
 - **Muted** (`{colors.muted}` — **#7A7A70**): Sub-titles inside city link blocks, inactive product-tab labels, footer category sub-labels, "View all" links.
 - **Muted Soft** (`{colors.muted-soft}` — **#A8A296**): Disabled link text. Used very sparingly.
-- **Star Rating** (`{colors.star-rating}` — **#B8860B**): Uses the Warm Gold accent token — fits a hotel/hospitality context better than a flat ink star.
-- **On Primary** (`{colors.on-primary}` — **#FBF9F4**): Off-white text on Deep Pine CTAs — stays consistent with the warm canvas instead of using stark white.
+- **Star Rating** (`{colors.star-rating}` — **#455d58**): Uses the Forest Teal accent token — fits a hotel/hospitality context better than a flat ink star.
+- **On Primary** (`{colors.on-primary}` — **#FBF9F4**): Off-white text on Royal Plum CTAs — stays consistent with the warm canvas instead of using stark white.
 
 ### Semantic
 - **Error** (`{colors.primary-error-text}` — **#A4423A**): Inline error text for form validation. A warm terracotta-red that fits the palette better than a cold/bright red.
