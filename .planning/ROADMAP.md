@@ -17,7 +17,7 @@
 ## Phase Details
 
 ### Phase 1: UI/UX Foundation
-**Goal**: Users can navigate a consistent, responsive interface across all application pages
+**Goal**: As a user, I want to navigate a consistent, responsive interface across all application pages, so that I can explore the hotel platform seamlessly.
 **Mode:** mvp
 **Depends on**: Nothing (first phase)
 **Requirements**: UIUX-01, UIUX-02, UIUX-03
@@ -25,8 +25,12 @@
   1. User can access the application on mobile, tablet, and desktop with appropriately sized layouts
   2. User can see consistent color scheme, typography, and spacing across all pages
   3. User can navigate between pages using smooth transitions via header/footer navigation
-**Plans**: TBD
+**Plans**: 2 plans
 **UI hint**: yes
+
+Plans:
+- [ ] 01-01-PLAN.md — Project scaffold, Tailwind design tokens, React Router skeleton, placeholder pages
+- [ ] 01-02-PLAN.md — Responsive header with navigation, footer, mobile hamburger menu, auth-aware nav
 
 ### Phase 2: Guest Authentication
 **Goal**: Guests and admins can securely access their respective accounts and sessions
@@ -83,7 +87,7 @@
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. UI/UX Foundation | 0/3 | Not started | - |
+| 1. UI/UX Foundation | 0/2 | Planning | - |
 | 2. Guest Authentication | 0/2 | Not started | - |
 | 3. Room Search & Booking | 0/3 | Not started | - |
 | 4. Admin Dashboard | 0/2 | Not started | - |
