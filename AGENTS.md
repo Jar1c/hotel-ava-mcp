@@ -74,5 +74,19 @@ Do not make direct repo edits outside a GSD workflow unless the user explicitly 
 ## Developer Profile
 
 > Profile not yet configured. Run /gsd-profile-user to generate your developer profile.
-> This section is managed by generate-claude-profile — do not edit manually.
+> This section is managed by generate-claude-profile ï¿½ do not edit manually.
 <!-- GSD:profile-end -->
+
+## Feature Requirements
+
+### Homepage Search/Recommender Bar
+- Input fields: check-in date, check-out date, number of guests, budget range (slider)
+- On submit, filter and rank available rooms by guest capacity + budget match
+- Display results on /rooms page, sorted by best match first
+
+### Landing Page Sections Needed (currently missing)
+- Search/filter bar (below hero)
+- Amenities / "Why Hotel Ava" section
+- Guest reviews/testimonials
+- Location/map section
+- Footer (contact, social links, copyright)

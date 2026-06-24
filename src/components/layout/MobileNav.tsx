@@ -35,9 +35,9 @@ export default function MobileNav() {
           ))}
           {!isAuthenticated && (
             <SheetClose>
-              <NavLink to="/login">
+              <a href="/login" target="_blank" rel="noopener noreferrer">
                 <Button className="w-full mt-md">Sign In</Button>
-              </NavLink>
+              </a>
             </SheetClose>
           )}
           {isAuthenticated && (

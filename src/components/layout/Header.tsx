@@ -48,11 +48,11 @@ export default function Header() {
 
         <div className="flex items-center gap-sm ml-auto">
           {!isAuthenticated ? (
-            <Link to="/login">
+            <a href="/login" target="_blank" rel="noopener noreferrer">
               <Button variant="default" className="bg-primary text-on-primary hover:bg-primary-active">
                 Sign In
               </Button>
-            </Link>
+            </a>
           ) : (
             <DropdownMenu>
               <DropdownMenuTrigger>
