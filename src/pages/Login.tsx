@@ -15,7 +15,7 @@ export default function Login() {
 
   return (
     <div className="min-h-[80vh] flex items-center justify-center px-base py-section">
-      <div className="w-full max-w-md">
+      <div style={{ width: "100%", maxWidth: "28rem" }}>
         <div className="bg-canvas rounded-lg border border-hairline shadow-dropdown p-xl">
           <div className="text-center mb-xl">
             <Link to="/" className="typo-display-lg text-secondary">
