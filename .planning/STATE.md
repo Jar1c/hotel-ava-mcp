@@ -14,9 +14,9 @@
 |-------|-------|
 | **Active Milestone** | 1 |
 | **Current Phase** | 1 |
-| **Current Plan** | (none yet) |
-| **Workflow Status** | Not started |
-| **Progress** | 0% ⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜ |
+| **Current Plan** | 01-03 (landing page expansion) |
+| **Workflow Status** | In progress |
+| **Progress** | 60% ⬛⬛⬛⬛⬛⬜⬜⬜⬜⬜ |
 
 ---
 
@@ -25,8 +25,8 @@
 | Metric | Value | Target |
 |--------|-------|--------|
 | Phases Completed | 0 | 5 |
-| Plans Executed | 0 | ~10 |
-| Requirements Met | 0/13 | 13/13 |
+| Plans Executed | 2 | ~10 |
+| Requirements Met | 3/13 | 13/13 |
 | Test Coverage | - | 80%+ |
 
 ---
@@ -35,10 +35,15 @@
 
 ### Recent Decisions
 - Frontend-first strategy chosen to validate UI/UX before backend investment
-- React + Tailwind stack confirmed with Vite 6 build tool
+- React + Tailwind stack confirmed with Vite 8 build tool
+- Shadcn/UI v4 uses @base-ui/react (NOT @radix-ui/react) — `render` prop instead of `asChild`
+- TypeScript 6 requires `"ignoreDeprecations": "6.0"` in tsconfig when using `baseUrl`/`paths`
+- Brand palette: Deep Pine (#1F3A2E) primary, Warm Gold (#B8860B) secondary
+- Fonts: Inter (body), Cormorant Garamond (display)
+- Login/Signup open in new tab for security
 
 ### Pending Questions
-- Shadcn/UI compatibility with Tailwind v4 needs verification during setup
+- None currently
 
 ### Known Blockers
 - None currently
@@ -48,6 +53,6 @@
 ## Session Continuity
 
 **Last Session:** 2026-06-24
-**Next Action:** `/gsd-plan-phase 1` to begin UI/UX Foundation implementation
+**Next Action:** Verify Phase 1 completion, then proceed to Phase 2
 
-*Awaiting milestone 1 kickoff*
+*Phase 1 plans 01-01 and 01-02 committed. Landing page expansion (01-03) committed.*

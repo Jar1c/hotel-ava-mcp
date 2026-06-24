@@ -6,7 +6,7 @@
 
 ## Phases
 
-- [ ] **Phase 1: UI/UX Foundation** - Establish responsive design system, component library, and navigation foundation
+- [x] **Phase 1: UI/UX Foundation** - Establish responsive design system, component library, and navigation foundation
 - [ ] **Phase 2: Guest Authentication** - Enable guest and admin authentication with session management
 - [ ] **Phase 3: Room Search & Booking** - Complete room discovery and booking workflow for guests
 - [ ] **Phase 4: Admin Dashboard** - Deliver management interface with occupancy, revenue, and bookings views
@@ -29,8 +29,9 @@
 **UI hint**: yes
 
 Plans:
-- [ ] 01-01-PLAN.md — Project scaffold, Tailwind design tokens, React Router skeleton, placeholder pages
-- [ ] 01-02-PLAN.md — Responsive header with navigation, footer, mobile hamburger menu, auth-aware nav
+- [x] 01-01-PLAN.md — Project scaffold, Tailwind design tokens, React Router skeleton, placeholder pages
+- [x] 01-02-PLAN.md — Responsive header with navigation, footer, mobile hamburger menu, auth-aware nav
+- [x] 01-03 — Landing page expansion with search bar, amenities, reviews, location + login/register pages
 
 ### Phase 2: Guest Authentication
 **Goal**: Guests and admins can securely access their respective accounts and sessions
@@ -87,7 +88,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. UI/UX Foundation | 0/2 | Planning | - |
+| 1. UI/UX Foundation | 3/3 | Complete | 2026-06-24 |
 | 2. Guest Authentication | 0/2 | Not started | - |
 | 3. Room Search & Booking | 0/3 | Not started | - |
 | 4. Admin Dashboard | 0/2 | Not started | - |
