@@ -19,44 +19,45 @@ The shape language is **soft**. Buttons are 8px radius (`{rounded.sm}`), propert
 ## Colors
 
 ### Brand & Accent
-- **Deep Purple** (`{colors.primary}` — **#800080**): The single brand color. Used for primary CTA backgrounds (Reserve, Search), the heart save state, and inline brand links. Replaces "Rausch". Carries luxury/trust.
-- **Deep Purple Active** (`{colors.primary-active}` — **#6b0e7a**): The press/pointer-down variant — slightly darker.
-- **Deep Purple Disabled** (`{colors.primary-disabled}` — **#f0d3e3`): A pale tint used on disabled CTAs.
-- **Dark Teal** (`{colors.secondary}` — **#2F4849**): Trust accent for secondary buttons (Logout, Cancel), icons, and borders.
+- **Deep Pine** (`{colors.primary}` — **#1F3A2E**): The single brand color. Replaces "Deep Purple." Used for primary CTA backgrounds (Reserve, Search), the heart save state, and inline brand links. Carries warmth + trust, evoking the biophilic 2026 hospitality color trend instead of a tech-app purple.
+- **Pine Active** (`{colors.primary-active}` — **#16291F**): The press/pointer-down variant — darker.
+- **Pine Disabled** (`{colors.primary-disabled}` — **#D6E0DA**): A pale sage tint used on disabled CTAs.
+- **Warm Gold** (`{colors.secondary}` — **#B8860B**): Replaces "Dark Teal." Used for price tags, "Featured" badges, and small luxury accents — evokes brass/bronze hardware found in boutique hotel interiors. Used sparingly, never on buttons.
 
 ### Surface
-- **Canvas** (`{colors.canvas}` — #ffffff): The default page floor for every public page. Airbnb does not have a dark mode on the public web.
-- **Surface Soft** (`{colors.surface-soft}` — #f7f7f7): The lightest fill — used on disabled fields, sub-nav hover backgrounds, and the inline search filter band.
-- **Surface Strong** (`{colors.surface-strong}` — #f2f2f2): Slightly heavier fill — circular icon-button surface (e.g., the breadcrumb back-arrow and listing toolbar buttons).
+- **Canvas** (`{colors.canvas}` — **#FBF9F4**): The default page floor for every public page. Warm off-white instead of pure white — reads "boutique hotel," not "tech app."
+- **Surface Soft** (`{colors.surface-soft}` — **#F2EEE4**): The lightest fill — used on disabled fields, sub-nav hover backgrounds, and the inline search filter band.
+- **Surface Strong** (`{colors.surface-strong}` — **#E8E2D3**): Slightly heavier fill — circular icon-button surface (e.g., the breadcrumb back-arrow and listing toolbar buttons).
 
 ### Hairlines & Borders
-- **Hairline** (`{colors.hairline}` — #dddddd): The default 1px border tone — search bar dividers, table separators, footer column splitters, card 1px borders.
-- **Hairline Soft** (`{colors.hairline-soft}` — #ebebeb): A lighter divider used on long-scrolling editorial body separators.
-- **Border Strong** (`{colors.border-strong}` — #c1c1c1): A heavier stroke used on disabled outline buttons and form input outlines after focus.
+- **Hairline** (`{colors.hairline}` — **#DCD5C4**): The default 1px border tone — search bar dividers, table separators, footer column splitters, card 1px borders. Warm-toned instead of cool gray.
+- **Hairline Soft** (`{colors.hairline-soft}` — **#EAE4D6**): A lighter divider used on long-scrolling editorial body separators.
+- **Border Strong** (`{colors.border-strong}` — **#B5AC97**): A heavier stroke used on disabled outline buttons and form input outlines after focus.
 
 ### Text
-- **Ink** (`{colors.ink}` — #222222): The dominant text color on light surfaces. Display headlines, body paragraphs, primary nav links, and most inline link text. Never pure black.
-- **Body** (`{colors.body}` — #3f3f3f): A secondary running-text color used inside long-form review and amenity copy where ink would feel too heavy.
-- **Muted** (`{colors.muted}` — #6a6a6a): Sub-titles inside city link blocks ("Cottage rentals", "Villa rentals"), inactive product-tab labels, footer category sub-labels, "View all" links.
-- **Muted Soft** (`{colors.muted-soft}` — #929292): Disabled link text. Used very sparingly.
-- **Star Rating** (`{colors.star-rating}` — #222222): The same ink token — Airbnb's star icon and "4.81" rating numbers all render in ink rather than a yellow/gold color, which is a deliberate brand choice (yellow stars feel cheap in travel context).
-- **On Primary** (`{colors.on-primary}` — #ffffff): White text on Rausch CTAs.
+- **Ink** (`{colors.ink}` — **#2A2A28**): The dominant text color on light surfaces. Display headlines, body paragraphs, primary nav links, and most inline link text. Warm near-black, never pure black.
+- **Body** (`{colors.body}` — **#4A4A45**): A secondary running-text color used inside long-form review and amenity copy where ink would feel too heavy.
+- **Muted** (`{colors.muted}` — **#7A7A70**): Sub-titles inside city link blocks, inactive product-tab labels, footer category sub-labels, "View all" links.
+- **Muted Soft** (`{colors.muted-soft}` — **#A8A296**): Disabled link text. Used very sparingly.
+- **Star Rating** (`{colors.star-rating}` — **#B8860B**): Uses the Warm Gold accent token — fits a hotel/hospitality context better than a flat ink star.
+- **On Primary** (`{colors.on-primary}` — **#FBF9F4**): Off-white text on Deep Pine CTAs — stays consistent with the warm canvas instead of using stark white.
 
 ### Semantic
-- **Error** (`{colors.primary-error-text}` — #c13515): Inline error text for form validation. Distinct from Rausch — slightly darker, more saturated red.
-- **Error Hover** (`{colors.primary-error-text-hover}` — #b32505): Darkens on link hover.
-- **Legal Link Blue** (`{colors.legal-link}` — #428bff): Inline links inside legal copy (Privacy, Terms). Only used inside the legal sub-band.
+- **Error** (`{colors.primary-error-text}` — **#A4423A**): Inline error text for form validation. A warm terracotta-red that fits the palette better than a cold/bright red.
+- **Error Hover** (`{colors.primary-error-text-hover}` — **#8A352E**): Darkens on link hover.
+- **Success / Available** (`{colors.success}` — **#3D6B4F**): Room availability indicator, booking confirmation states.
+- **Legal Link** (`{colors.legal-link}` — **#5B7FA6**): Inline links inside legal copy (Privacy, Terms). Only used inside the legal sub-band.
 
 ### Scrim
-- **Scrim** (`{colors.scrim}` — #000000 at 50% opacity): The global modal backdrop tone — date picker, login dialog, language picker. Stored as the base hex; opacity is applied at render time.
+- **Scrim** (`{colors.scrim}` — **#1A1A18** at 50% opacity): The global modal backdrop tone — date picker, login dialog, language picker. Warm-toned black instead of pure black. Stored as the base hex; opacity is applied at render time.
 
 ## Typography
 
 ### Font Family
-The system runs **'Montserrat'** (Body) and **'Cormorant Garamond'** (Display) via Google Fonts for everything.
+The system runs **'Inter'** (Body) and **'Cormorant Garamond'** (Display) via Google Fonts for everything.
 Fallback: `-apple-system, system-ui, "Segoe UI", Roboto, sans-serif`.
 
-There is no separate display family. The variable font carries the entire scale.
+Inter replaces Montserrat for body text — it has tighter letter-spacing and reads cleaner at small sizes (room meta lines, captions), which matters for a content-dense booking interface.
 
 ### Hierarchy
 

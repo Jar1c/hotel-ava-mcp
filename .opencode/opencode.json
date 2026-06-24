@@ -7,5 +7,17 @@
     "external_directory": {
       "D:/download/Capstone2/Hotel Ava/.opencode/gsd-core/*": "allow"
     }
-  }
+  },
+  "mcp": {
+    "playwright": {
+      "type": "local",
+      "command": [
+        "npx",
+        "@playwright/mcp@latest"
+      ]
+    }
+  },
+  "plugin": [
+    "@mohak34/opencode-notifier@latest"
+  ]
 }
