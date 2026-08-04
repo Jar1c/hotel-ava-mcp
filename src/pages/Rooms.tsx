@@ -2,9 +2,9 @@ import { useState, useMemo, useEffect } from "react"
 import { useSearchParams } from "react-router"
 import { motion } from "motion/react"
 import { publicRoomsApi, type PublicRoomData } from "@/services/api"
-import { rooms as fallbackRooms, type Room } from "@/data/rooms"
+import { type Room } from "@/data/rooms"
 import { isRoomAvailable, calculateNights } from "@/lib/dates"
-import { getCached, setCache } from "@/lib/cache"
+import { setCache } from "@/lib/cache"
 import RoomCard from "@/components/rooms/RoomCard"
 import SearchFilters, { type FilterState } from "@/components/rooms/SearchFilters"
 
@@ -52,7 +52,7 @@ function mapApiRoom(r: PublicRoomData): Room {
     price: r.price,
     capacity: r.capacity,
     amenities: r.amenities,
-    images: r.images.length > 0 ? r.images : fallbackRooms[0].images,
+    images: r.images,
   }
 }
 
@@ -80,22 +80,12 @@ export default function Rooms() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    // Show cached data instantly
-    const cached = getCached<PublicRoomData[]>("public_rooms")
-    if (cached) {
-      setRoomsData(cached.map(mapApiRoom))
-      setLoading(false)
-    }
-
-    // Always refresh in background
     publicRoomsApi.getAll()
       .then((data) => {
         setRoomsData(data.map(mapApiRoom))
         setCache("public_rooms", data)
       })
-      .catch(() => {
-        if (!cached) setRoomsData(fallbackRooms)
-      })
+      .catch(() => {})
       .finally(() => setLoading(false))
   }, [])
 
@@ -208,8 +198,8 @@ return (
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.3, ease: [0.22, 1, 0.36, 1] as const }}
           >
-            <p className="typo-body-lg text-muted">No rooms match your filters.</p>
-            <p className="typo-body-sm text-muted mt-sm">Try adjusting your search criteria.</p>
+            <p className="typo-body-lg text-muted">No rooms available right now.</p>
+            <p className="typo-body-sm text-muted mt-sm">Please check back later.</p>
           </motion.div>
         )}
       </div>
