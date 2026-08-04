@@ -621,7 +621,7 @@ def create_paymongo_checkout(booking_id, amount, email, description):
 
         frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
         success_url = f"{frontend_url}/booking/confirmation/{booking_id}"
-        cancel_url = f"{frontend_url}/my-bookings?payment=cancelled"
+        cancel_url = f"{frontend_url}/booking/failed?booking={booking_id}"
 
         res = http_requests.post(
             f"{PAYMONGO_BASE_URL}/checkout_sessions",

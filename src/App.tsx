@@ -10,6 +10,7 @@ import Profile from './pages/Profile'
 import VerifyEmail from './pages/VerifyEmail'
 import Booking from './pages/Booking'
 import BookingConfirmation from './pages/BookingConfirmation'
+import PaymentFailed from './pages/PaymentFailed'
 import MyBookings from './pages/MyBookings'
 import Settings from './pages/Settings'
 import NotFound from './pages/NotFound'
@@ -39,6 +40,7 @@ export default function App() {
           <Route path="rooms/:id" element={<RoomDetail />} />
           <Route path="booking/:id" element={<Booking />} />
           <Route path="booking/confirmation/:id" element={<BookingConfirmation />} />
+          <Route path="booking/failed" element={<PaymentFailed />} />
           <Route path="my-bookings" element={<MyBookings />} />
           <Route path="settings" element={<Settings />} />
           <Route path="profile" element={<Profile />} />
