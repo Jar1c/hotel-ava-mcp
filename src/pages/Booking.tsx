@@ -1,14 +1,14 @@
 import { useState, useEffect } from "react"
 import { useParams, useNavigate, useSearchParams } from "react-router"
-import { ArrowLeft, Calendar, Check, CreditCard } from "lucide-react"
+import { ArrowLeft, Calendar, Check, CreditCard, AlertCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import DatePicker from "react-datepicker"
 import DateInput from "@/components/ui/date-input"
 import { publicRoomsApi, type PublicRoomData } from "@/services/api"
 import { rooms as fallbackRooms, type Room } from "@/data/rooms"
 import { getCached, setCache } from "@/lib/cache"
 import { useAuth } from "@/contexts/AuthContext"
-import { useToast } from "@/contexts/ToastContext"
 
 const PRIMARY = "#82285f"
 
@@ -17,11 +17,15 @@ export default function Booking() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const { user } = useAuth()
-  const { toast } = useToast()
 
   const [room, setRoom] = useState<Room | null>(null)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
+  const [errorDialog, setErrorDialog] = useState<{ open: boolean; title: string; message: string }>({
+    open: false,
+    title: "",
+    message: "",
+  })
 
   const [checkIn, setCheckIn] = useState<Date | null>(
     searchParams.get("checkIn") ? new Date(searchParams.get("checkIn")!) : null
@@ -100,11 +104,11 @@ export default function Booking() {
       if (data.checkout_url) {
         window.location.href = data.checkout_url
       } else {
-        toast({ title: "Booking confirmed!", description: "Your reservation has been placed." })
+        setErrorDialog({ open: true, title: "Booking Confirmed", message: "Your reservation has been placed." })
         navigate(`/booking/confirmation/${data.booking_id || "success"}`)
       }
     } catch (err: any) {
-      toast({ title: "Booking failed", description: err.message || "Please try again.", variant: "error" })
+      setErrorDialog({ open: true, title: "Booking Failed", message: err.message || "Please try again." })
     } finally {
       setSubmitting(false)
     }
@@ -309,6 +313,36 @@ export default function Booking() {
           </div>
         </div>
       </div>
+
+      <Dialog open={errorDialog.open} onOpenChange={(open) => setErrorDialog((prev) => ({ ...prev, open }))}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
+                   style={{ backgroundColor: errorDialog.title.includes("Failed") ? "#FEE2E2" : "#E8F5E9" }}>
+                {errorDialog.title.includes("Failed") ? (
+                  <AlertCircle className="h-5 w-5" style={{ color: "#A4423A" }} />
+                ) : (
+                  <Check className="h-5 w-5" style={{ color: "#3D6B4F" }} />
+                )}
+              </div>
+              <div>
+                <DialogTitle className="text-ink">{errorDialog.title}</DialogTitle>
+                <DialogDescription className="text-muted">{errorDialog.message}</DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+          <div className="flex justify-end mt-2">
+            <Button
+              onClick={() => setErrorDialog((prev) => ({ ...prev, open: false }))}
+              className="!rounded-[8px]"
+              style={{ backgroundColor: PRIMARY, color: "#FBF9F4" }}
+            >
+              OK
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
