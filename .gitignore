@@ -23,6 +23,32 @@ dist-ssr
 *.sln
 *.sw?
 
-# Environment.env
+# Environment
+.env
 .env.local
 .env.*.local
+
+# Python
+__pycache__/
+*.pyc
+venv/
+backend/__pycache__/
+
+# Sensitive files
+database.db
+account-info.txt
+*.sql
+migrate-*.sql
+
+# Playwright artifacts
+.playwright-mcp/
+.playwright-tests/
+test-results/
+playwright-report/
+
+# GSD / opencode internal
+.planning/
+graphify-out/
+
+# Python backend venv
+backend/venv/

@@ -15,44 +15,51 @@ export type NavigationGroup = "public" | "guest" | "admin"
 
 export const publicNavItems: NavItem[] = [
   { label: "Home", path: "/" },
-  { label: "Rooms", path: "/rooms" },
+  { label: "Rooms & Suites", path: "/rooms" },
+  { label: "About", path: "#about" },
+  { label: "Contact Us", path: "#contact" },
 ]
 
 export const guestNavItems: NavItem[] = [
   { label: "Home", path: "/" },
-  { label: "Rooms", path: "/rooms" },
-  { label: "My Bookings", path: "/bookings" },
+  { label: "Rooms & Suites", path: "/rooms" },
+  { label: "About", path: "#about" },
+  { label: "Contact Us", path: "#contact" },
 ]
 
 export const adminNavItems: NavItem[] = [
-  { label: "Admin Dashboard", path: "/admin" },
+  { label: "Dashboard", path: "/admin/dashboard" },
+  { label: "Bookings", path: "/admin/bookings" },
+  { label: "Rooms", path: "/admin/rooms" },
 ]
 
 export const footerLinkGroups: FooterLinkGroup[] = [
   {
-    title: "Support",
+    title: "Accommodation",
     links: [
-      { label: "Help Center", path: "/help" },
-      { label: "Cancellation Options", path: "/cancellation" },
-      { label: "Safety Information", path: "/safety" },
-      { label: "Accessibility", path: "/accessibility" },
+      { label: "Standard Room", path: "/rooms/standard-room" },
+      { label: "Deluxe Room", path: "/rooms/deluxe-room" },
+      { label: "Executive Deluxe", path: "/rooms/executive-deluxe" },
+      { label: "Regular Suite", path: "/rooms/regular-suite" },
+      { label: "Superior Suite", path: "/rooms/superior-suite" },
     ],
   },
   {
-    title: "Company",
+    title: "Quick Links",
     links: [
+      { label: "Home", path: "/" },
+      { label: "Rooms & Suites", path: "/rooms" },
       { label: "About Us", path: "/about" },
-      { label: "Careers", path: "/careers" },
-      { label: "Press", path: "/press" },
-      { label: "Blog", path: "/blog" },
+      { label: "Contact Us", path: "#contact" },
     ],
   },
   {
-    title: "Legal",
+    title: "Policies",
     links: [
+      { label: "Terms & Conditions", path: "/terms" },
       { label: "Privacy Policy", path: "/privacy" },
-      { label: "Terms of Service", path: "/terms" },
-      { label: "Cookie Policy", path: "/cookies" },
+      { label: "Data Privacy", path: "/privacy" },
+      { label: "Hotel Policies", path: "/terms" },
     ],
   },
 ]

@@ -1,0 +1,54 @@
+- main [ref=e4]:
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - img "Hotel Ava interior lobby" [ref=e7]
+      - generic [ref=e18]: Hotel Ava
+      - generic [ref=e19]:
+        - generic [ref=e21]:
+          - img [ref=e22]
+          - text: Drive-In Hotel in Malate
+        - heading "Dare To Be Different Here at Hotel Ava" [level=2] [ref=e25]:
+          - text: Dare To Be Different
+          - text: Here at Hotel Ava
+        - paragraph [ref=e26]: Sign in to access your dashboard, retrieve bookings, and manage your stays at Hotel Ava Malate.
+        - generic [ref=e27]:
+          - generic [ref=e28]:
+            - paragraph [ref=e29]: Private
+            - paragraph [ref=e30]: Garage Access
+          - generic [ref=e31]:
+            - paragraph [ref=e32]: 4.2 ★
+            - paragraph [ref=e33]: Google Rating
+          - generic [ref=e34]:
+            - paragraph [ref=e35]: 494+
+            - paragraph [ref=e36]: Happy Guests
+    - generic [ref=e38]:
+      - heading "Welcome Back" [level=1] [ref=e46]
+      - paragraph [ref=e47]: Sign in to access your account and manage bookings
+      - button "Continue with Google" [ref=e48]:
+        - img [ref=e49]
+        - generic [ref=e54]: Continue with Google
+      - generic [ref=e57]: or Sign in with Email
+      - generic [ref=e59]:
+        - generic [ref=e60]:
+          - generic [ref=e61]: Email
+          - generic [ref=e62]:
+            - img
+            - textbox "mail@abc.com" [ref=e63]
+        - generic [ref=e64]:
+          - generic [ref=e65]: Password
+          - generic [ref=e66]:
+            - img
+            - textbox "Min. 8 characters" [ref=e67]
+            - button [ref=e68]:
+              - img [ref=e69]
+        - generic [ref=e72]:
+          - generic [ref=e73] [cursor=pointer]:
+            - checkbox "Remember Me" [ref=e74]
+            - generic [ref=e75]: Remember Me
+          - link "Forgot Password?" [ref=e76] [cursor=pointer]:
+            - /url: "#"
+        - button "Login" [ref=e77]
+      - paragraph [ref=e78]:
+        - text: Not Registered Yet?
+        - link "Create an account" [ref=e79] [cursor=pointer]:
+          - /url: /register

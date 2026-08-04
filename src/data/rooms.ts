@@ -7,147 +7,102 @@ export interface Room {
   capacity: number
   amenities: string[]
   images: string[]
-  rating: number
-  reviews: number
-  featured: boolean
+  rating?: number
+  reviews?: number
+  featured?: boolean
+  bookedDates?: string[]
 }
 
 export const rooms: Room[] = [
   {
-    id: "deluxe-suite",
-    name: "Deluxe Suite",
-    type: "Suite",
-    description: "Spacious suite with panoramic city views, king-sized bed, and luxury amenities. Perfect for couples seeking a romantic getaway.",
-    price: 299,
-    capacity: 2,
-    amenities: ["Free WiFi", "Air Conditioning", "Mini Bar", "Room Service", "City View", "King Bed"],
-    images: [
-      "https://images.unsplash.com/photo-1618773928121-c32242e63f39?w=800&h=600&fit=crop",
-      "https://images.unsplash.com/photo-1590490360182-c33d955e4b76?w=800&h=600&fit=crop",
-      "https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?w=800&h=600&fit=crop"
-    ],
-    rating: 4.8,
-    reviews: 124,
-    featured: true
-  },
-  {
-    id: "garden-room",
-    name: "Garden Room",
+    id: "standard-room",
+    name: "Standard Room",
     type: "Standard",
-    description: "Cozy room overlooking our botanical gardens. Features modern decor and natural light throughout the day.",
-    price: 199,
+    description: "Comfortable 15-20m² room with air conditioning, hot & cold shower, WiFi, cable TV, hairdryer, and personal care kit. Perfect for travelers arriving via taxi or service vehicle.",
+    price: 2400,
     capacity: 2,
-    amenities: ["Free WiFi", "Air Conditioning", "Garden View", "Queen Bed", "Coffee Maker"],
+    amenities: ["Air Conditioning", "Hot & Cold Shower", "Free WiFi", "Cable TV", "Hairdryer", "Personal Care Kit"],
     images: [
-      "https://images.unsplash.com/photo-1595576508898-0ad5c879a061?w=800&h=600&fit=crop",
-      "https://images.unsplash.com/photo-1631049307264-da0ec9d70304?w=800&h=600&fit=crop",
-      "https://images.unsplash.com/photo-1566665797739-1674de7a421a?w=800&h=600&fit=crop"
+      "https://hotel-ava.com/wp-content/uploads/2025/04/HACU-WEBSITE-RS-RM-79.jpg",
+      "https://hotel-ava.com/wp-content/uploads/2025/07/HAGP-RM-4.png",
+      "https://hotel-ava.com/wp-content/uploads/2022/10/Hotel-Ava_gallery-page_room83.png"
     ],
-    rating: 4.6,
-    reviews: 89,
-    featured: false
+    rating: 4.2,
+    reviews: 120,
+    featured: true,
+    bookedDates: ["2026-06-15", "2026-06-22", "2026-07-05"]
   },
   {
-    id: "presidential-suite",
-    name: "Presidential Suite",
-    type: "Premium Suite",
-    description: "The ultimate luxury experience with private terrace, jacuzzi, and dedicated butler service.",
-    price: 599,
-    capacity: 4,
-    amenities: ["Free WiFi", "Private Terrace", "Jacuzzi", "Butler Service", "Living Room", "King Bed", "Mini Bar", "Room Service"],
-    images: [
-      "https://images.unsplash.com/photo-1578683010236-d716f9a3f461?w=800&h=600&fit=crop",
-      "https://images.unsplash.com/photo-1591088398332-8a7791972843?w=800&h=600&fit=crop",
-      "https://images.unsplash.com/photo-1564078516393-cf04bd966897?w=800&h=600&fit=crop"
-    ],
-    rating: 4.9,
-    reviews: 67,
-    featured: true
-  },
-  {
-    id: "family-room",
-    name: "Family Room",
-    type: "Family",
-    description: "Spacious room designed for families with two queen beds and connecting bathroom options.",
-    price: 249,
-    capacity: 4,
-    amenities: ["Free WiFi", "Air Conditioning", "Two Queen Beds", "Bathtub", "Kids Amenities"],
-    images: [
-      "https://images.unsplash.com/photo-1611892440504-42a792e24d32?w=800&h=600&fit=crop",
-      "https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?w=800&h=600&fit=crop",
-      "https://images.unsplash.com/photo-1584132967334-10e028bd69f7?w=800&h=600&fit=crop"
-    ],
-    rating: 4.7,
-    reviews: 156,
-    featured: false
-  },
-  {
-    id: "ocean-view",
-    name: "Ocean View Room",
-    type: "Premium",
-    description: "Wake up to stunning ocean views. Features floor-to-ceiling windows and private balcony.",
-    price: 349,
+    id: "deluxe-room",
+    name: "Deluxe Room",
+    type: "Deluxe",
+    description: "Modern 18-24m² room with private garage access, Smart TV, and upgraded amenities. Perfect for those moments when you need to detour.",
+    price: 2800,
     capacity: 2,
-    amenities: ["Free WiFi", "Ocean View", "Private Balcony", "King Bed", "Rain Shower", "Mini Bar"],
+    amenities: ["Air Conditioning", "Hot & Cold Shower", "Free WiFi", "Smart TV", "Hairdryer", "Personal Care Kit", "Private Garage"],
     images: [
-      "https://images.unsplash.com/photo-1520250497591-112f2f40a3f4?w=800&h=600&fit=crop",
-      "https://images.unsplash.com/photo-1571896349842-33c89424de2d?w=800&h=600&fit=crop",
-      "https://images.unsplash.com/photo-1582719508461-905c673771fd?w=800&h=600&fit=crop"
+      "https://hotel-ava.com/wp-content/uploads/2025/07/HAGP-RM-4.png",
+      "https://hotel-ava.com/wp-content/uploads/2022/10/Hotel-Ava_gallery-page_room29.png",
+      "https://hotel-ava.com/wp-content/uploads/2022/10/Hotel-Ava_gallery-page_room04.png"
     ],
-    rating: 4.8,
-    reviews: 203,
-    featured: true
+    rating: 4.3,
+    reviews: 95,
+    featured: true,
+    bookedDates: ["2026-06-18", "2026-06-25", "2026-07-08"]
   },
   {
-    id: "executive-room",
-    name: "Executive Room",
-    type: "Business",
-    description: "Designed for business travelers with work desk, ergonomic chair, and high-speed internet.",
-    price: 229,
-    capacity: 1,
-    amenities: ["Free WiFi", "Work Desk", "Ergonomic Chair", "Queen Bed", "Coffee Maker", "Iron & Board"],
+    id: "executive-deluxe",
+    name: "Executive Deluxe",
+    type: "Deluxe",
+    description: "Spacious room with private garage, bathtub, and premium finishes. A step up in luxury with extra space for a truly relaxing stay.",
+    price: 3200,
+    capacity: 2,
+    amenities: ["Air Conditioning", "Hot & Cold Shower", "Free WiFi", "Smart TV", "Hairdryer", "Personal Care Kit", "Private Garage", "Bathtub"],
     images: [
-      "https://images.unsplash.com/photo-1596394516093-501ba68a0ba6?w=800&h=600&fit=crop",
-      "https://images.unsplash.com/photo-1560448075-bb7f0563c69d?w=800&h=600&fit=crop",
-      "https://images.unsplash.com/photo-1585412727339-53e48969a9b3?w=800&h=600&fit=crop"
+      "https://hotel-ava.com/wp-content/uploads/2025/04/HAGP-ES-RM4.png",
+      "https://hotel-ava.com/wp-content/uploads/2022/10/Hotel-Ava_gallery-page_room55.png",
+      "https://hotel-ava.com/wp-content/uploads/2022/10/Hotel-Ava_gallery-page_room70.png"
     ],
     rating: 4.5,
-    reviews: 98,
-    featured: false
+    reviews: 78,
+    featured: false,
+    bookedDates: ["2026-06-20", "2026-06-27", "2026-07-10"]
   },
   {
-    id: "penthouse",
-    name: "Penthouse Suite",
-    type: "Luxury",
-    description: "Our most exclusive accommodation with panoramic views, private pool, and rooftop terrace.",
-    price: 899,
-    capacity: 6,
-    amenities: ["Free WiFi", "Private Pool", "Rooftop Terrace", "Butler Service", "King Bed", "Living Room", "Dining Area", "Mini Bar", "Room Service"],
+    id: "regular-suite",
+    name: "Regular Suite",
+    type: "Suite",
+    description: "Expansive 30-50m² suite with relaxing bathtub/jacuzzi and private garage. Designed for guests who want extra space and a touch of indulgence.",
+    price: 3800,
+    capacity: 4,
+    amenities: ["Air Conditioning", "Hot & Cold Shower", "Free WiFi", "Smart TV", "Hairdryer", "Personal Care Kit", "Private Garage", "Bathtub", "Jacuzzi"],
     images: [
-      "https://images.unsplash.com/photo-1631679706909-1844bbd07221?w=800&h=600&fit=crop",
-      "https://images.unsplash.com/photo-1582719508461-905c673771fd?w=800&h=600&fit=crop",
-      "https://images.unsplash.com/photo-1571896349842-33c89424de2d?w=800&h=600&fit=crop"
+      "https://hotel-ava.com/wp-content/uploads/2025/04/HAMA-ES-WEBSITE-PHOTO-RM123.png",
+      "https://hotel-ava.com/wp-content/uploads/2022/10/Hotel-Ava_gallery-page_room11.png",
+      "https://hotel-ava.com/wp-content/uploads/2022/10/Hotel-Ava_gallery-page_room15.png"
     ],
-    rating: 4.9,
-    reviews: 42,
-    featured: true
+    rating: 4.6,
+    reviews: 64,
+    featured: true,
+    bookedDates: ["2026-06-26", "2026-06-28", "2026-07-04"]
   },
   {
-    id: "standard-queen",
-    name: "Standard Queen",
-    type: "Standard",
-    description: "Comfortable and affordable room with all essential amenities for a pleasant stay.",
-    price: 149,
-    capacity: 2,
-    amenities: ["Free WiFi", "Air Conditioning", "Queen Bed", "TV", "Coffee Maker"],
+    id: "superior-suite",
+    name: "Superior Suite",
+    type: "Suite",
+    description: "Our finest accommodation featuring themed rooms, a private jacuzzi, and KTV entertainment system. The ultimate experience for celebrations and special occasions.",
+    price: 4500,
+    capacity: 4,
+    amenities: ["Air Conditioning", "Hot & Cold Shower", "Free WiFi", "Smart TV", "Hairdryer", "Personal Care Kit", "Private Garage", "Jacuzzi", "KTV"],
     images: [
-      "https://images.unsplash.com/photo-1611892440504-42a792e24d32?w=800&h=600&fit=crop",
-      "https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?w=800&h=600&fit=crop",
-      "https://images.unsplash.com/photo-1584132967334-10e028bd69f7?w=800&h=600&fit=crop"
+      "https://hotel-ava.com/wp-content/uploads/2022/10/Hotel-Ava_gallery-page_room128-asgard.png",
+      "https://hotel-ava.com/wp-content/uploads/2022/10/Hotel-Ava_gallery-page_room-asgard02.png",
+      "https://hotel-ava.com/wp-content/uploads/2022/10/Hotel-Ava_gallery-page_room-batcave.png"
     ],
-    rating: 4.4,
-    reviews: 267,
-    featured: false
+    rating: 4.7,
+    reviews: 52,
+    featured: false,
+    bookedDates: ["2026-06-17", "2026-06-30", "2026-07-12"]
   }
 ]
 
@@ -157,31 +112,18 @@ export const getRoomById = (id: string): Room | undefined => {
 
 export const getAmenityIcon = (amenity: string): string => {
   const icons: Record<string, string> = {
-    "Free WiFi": "📶",
-    "Air Conditioning": "❄️",
-    "Mini Bar": "🍸",
-    "Room Service": "🛎️",
-    "City View": "🏙️",
-    "King Bed": "🛏️",
-    "Queen Bed": "🛏️",
-    "Garden View": "🌿",
-    "Coffee Maker": "☕",
-    "Private Terrace": "🌅",
-    "Jacuzzi": "🛁",
-    "Butler Service": "👨‍🍳",
-    "Living Room": "🛋️",
-    "Bathtub": "🛁",
-    "Kids Amenities": "👶",
-    "Ocean View": "🌊",
-    "Private Balcony": "🏖️",
-    "Rain Shower": "🚿",
-    "Work Desk": "💼",
-    "Ergonomic Chair": "🪑",
-    "Iron & Board": "👔",
-    "Private Pool": "🏊",
-    "Rooftop Terrace": "🌇",
-    "Dining Area": "🍽️",
-    "TV": "📺"
+    "Free WiFi": "Wifi",
+    "Air Conditioning": "Wind",
+    "Hot & Cold Shower": "Droplets",
+    "Cable TV": "Tv",
+    "Smart TV": "Tv",
+    "Hairdryer": "Wind",
+    "Personal Care Kit": "Sparkles",
+    "Private Garage": "Building2",
+    "Bathtub": "Bath",
+    "Jacuzzi": "Bath",
+    "KTV": "Music",
+    "TV": "Tv"
   }
-  return icons[amenity] || "✨"
+  return icons[amenity] || "Sparkles"
 }

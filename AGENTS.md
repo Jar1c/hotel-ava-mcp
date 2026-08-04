@@ -1,92 +1,73 @@
-<!-- GSD:project-start source:PROJECT.md -->
 ## Project
 
-# Smart Hotel Reservation and Recommendation System
+Always use Context7 when I need library/API documentation, code generation, setup or configuration steps without me having to explicitly ask.
 
-**Core Value:** Provide personalized room recommendations and predictive insights that increase bookings while optimizing hotel operations through data-driven decision making.
+Smart Hotel Reservation and Recommendation System. React + Tailwind CSS frontend, Flask + Python backend (not yet wired). Frontend-only for now.
 
-This is a hotel booking platform with AI-driven recommendations for guests and predictive analytics for management. Built with React + Tailwind CSS frontend, Flask + Python backend, and Supabase database. Frontend-first development strategy.
+## Commands
 
-Current Phase: Phase 1 - UI/UX Foundation
-<!-- GSD:project-end -->
+- `npm run dev` — Vite dev server on localhost:5173
+- `npm run build` — `tsc -b && vite build`
+- `npm run lint` — oxlint (not ESLint)
+- No test framework configured yet
 
-<!-- GSD:stack-start source:research/STACK.md -->
-## Technology Stack
+## Stack
 
-**Frontend:**
-- React 19 + TypeScript via Vite 6
-- Tailwind CSS 4 + Shadcn/UI for components
-- React Hook Form + Zod 4 for form validation
-- TanStack Query 5 for data fetching
-- Zustand 5 for state management
-- react-day-picker 9 for date selection
-- Recharts 3 for analytics charts
+React 19, TypeScript ~6.0, Vite 8, Tailwind CSS 4, Shadcn/UI components, React Router v7.
 
-**Backend:**
-- Flask 3.1
-- Supabase-py 2.31 for database access
-- scikit-learn 1.7 for recommendations (future phases)
-- statsmodels 0.14 for predictive analytics (future phases)
+## Critical Gotchas
 
-**Deployment:**
-- Vercel for frontend hosting
-- Railway or Render for backend hosting
+**Tailwind v4 radius variables are non-standard.** `--radius-xl` is 32px (not 12px). If you want 12px corners, use `rounded-[12px]` (arbitrary value), NOT `rounded-xl`.
 
-**Testing:**
-- Playwright 1.61 for end-to-end tests
-<!-- GSD:stack-end -->
+**Button component uses `@base-ui/react`**, not `@radix-ui/react`. The `cva` variants apply their own classes that can override your className. Use `!` prefix (e.g. `!rounded-[12px]`) to force overrides.
 
-<!-- GSD:architecture-start source:research/ARCHITECTURE.md -->
-## Architecture
+**Auth pages hide header/footer.** `/login` and `/register` render without Header or Footer — controlled in `RootLayout.tsx` via `hideHeaderFooter` array.
 
-Frontend-first architecture with progressive backend integration.
+**Path alias:** `@` → `src/` (configured in vite.config.ts).
 
-**Frontend Structure (Phase 1-4):**
-- Pages: Landing, Rooms List, Room Detail, Login/Register, Admin Dashboard
-- Components: Header, Footer, RoomCard, DatePicker, Charts
-- All API calls route through Flask backend (never direct Supabase from React)
+## Design Tokens
 
-**Backend Structure (Phase 5):**
-- Flask API endpoints for auth, rooms, bookings, admin
-- Supabase client via supabase-py
-- Repository pattern for data access
+All defined in `src/styles/index.css` under `@theme`:
+- **Colors:** `--color-primary` (#82285f Royal Plum), `--color-secondary` (#455d58 Forest Teal), `--color-canvas` (#FBF9F4 warm off-white)
+- **Fonts:** `--font-family-display` (Playfair Display), `--font-family-body` (Lato)
+- **Spacing:** 8px base system (`--spacing-sm` 8px through `--spacing-section` 64px)
+- **Shadows:** Single tier via `--shadow-card-hover`
 
-**Recommendation Engine (future phases):**
-- Popularity baseline for cold-start users
-- Content-based filtering via scikit-learn
-- Collaborative filtering via implicit library (NOT Surprise - in maintenance mode)
-<!-- GSD:architecture-end -->
+## Structure
 
-<!-- GSD:workflow-start source:GSD defaults -->
-## GSD Workflow Enforcement
+```
+src/
+  pages/        — Home, Rooms, RoomDetail, Login, Register, NotFound
+  components/
+    ui/         — Shadcn/UI primitives (button, card, dropdown-menu, sheet, avatar)
+    layout/     — Header, Footer, MobileNav
+    home/       — SearchBar, HeroCarousel
+    rooms/      — RoomCard, SearchFilters
+  layouts/      — RootLayout (conditional header/footer)
+  data/         — Mock room data (rooms.ts)
+  styles/       — Tailwind CSS 4 theme + typography classes
+  lib/          — cn() utility (clsx + tailwind-merge)
+```
 
-Before using Edit, Write, or other file-changing tools, start work through a GSD command so planning artifacts and execution context stay in sync.
+## Navigation
 
-Use these entry points:
-- /gsd-quick for small fixes, doc updates, and ad-hoc tasks
-- /gsd-debug for investigation and bug fixing
-- /gsd-execute-phase for planned phase work
+- **Public:** Home, Rooms, Sign In
+- **Guest:** Home, Rooms, My Bookings, Account (dropdown)
+- **Admin:** Only visible inside Account dropdown
 
-Do not make direct repo edits outside a GSD workflow unless the user explicitly asks to bypass it.
-<!-- GSD:workflow-end -->
+## Current Phase
 
-<!-- GSD:profile-start -->
-## Developer Profile
+Phase 1 (UI/UX Foundation) complete. Phase 3 (Room Search & Booking) complete. Backend integration pending.
 
-> Profile not yet configured. Run /gsd-profile-user to generate your developer profile.
-> This section is managed by generate-claude-profile � do not edit manually.
-<!-- GSD:profile-end -->
+## graphify
 
-## Feature Requirements
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
 
-### Homepage Search/Recommender Bar
-- Input fields: check-in date, check-out date, number of guests, budget range (slider)
-- On submit, filter and rank available rooms by guest capacity + budget match
-- Display results on /rooms page, sorted by best match first
+When the user types `/graphify`, invoke the `skill` tool with `skill: "graphify"` before doing anything else.
 
-### Landing Page Sections Needed (currently missing)
-- Search/filter bar (below hero)
-- Amenities / "Why Hotel Ava" section
-- Guest reviews/testimonials
-- Location/map section
-- Footer (contact, social links, copyright)
+Rules:
+- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- Dirty graphify-out/ files are expected after hooks or incremental updates; dirty graph files are not a reason to skip graphify. Only skip graphify if the task is about stale or incorrect graph output, or the user explicitly says not to use it.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
