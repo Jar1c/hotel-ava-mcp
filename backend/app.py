@@ -4,12 +4,17 @@ from supabase import create_client, Client
 from config import SUPABASE_URL, SUPABASE_KEY, PAYMONGO_SECRET_KEY, PAYMONGO_BASE_URL
 from datetime import datetime, date
 from math import ceil
+import os
 import jwt as pyjwt
 import uuid
 import requests as http_requests
 
 app = Flask(__name__)
-CORS(app, resources={r"/api/*": {"origins": ["http://localhost:5173", "http://localhost:5174"]}})
+CORS(app, resources={r"/api/*": {"origins": [
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "https://hotel-ava-mcp.vercel.app",
+]}})
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -614,8 +619,9 @@ def create_paymongo_checkout(booking_id, amount, email, description):
         import base64
         encoded_key = base64.b64encode(PAYMONGO_SECRET_KEY.encode()).decode()
 
-        success_url = f"http://localhost:5173/booking/confirmation/{booking_id}"
-        cancel_url = f"http://localhost:5173/booking/{booking_id}?cancelled=true"
+        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
+        success_url = f"{frontend_url}/booking/confirmation/{booking_id}"
+        cancel_url = f"{frontend_url}/booking/{booking_id}?cancelled=true"
 
         res = http_requests.post(
             f"{PAYMONGO_BASE_URL}/checkout_sessions",
