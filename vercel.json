@@ -11,7 +11,8 @@
     "backend": {
       "root": "backend",
       "runtime": "python",
-      "installCommand": "pip install -r requirements.txt"
+      "installCommand": "pip install -r requirements.txt",
+      "entrypoint": "app.py"
     }
   }
 }
