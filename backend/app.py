@@ -621,7 +621,7 @@ def create_paymongo_checkout(booking_id, amount, email, description):
 
         frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
         success_url = f"{frontend_url}/booking/confirmation/{booking_id}"
-        cancel_url = f"{frontend_url}/booking/{booking_id}?cancelled=true"
+        cancel_url = f"{frontend_url}/my-bookings?payment=cancelled"
 
         res = http_requests.post(
             f"{PAYMONGO_BASE_URL}/checkout_sessions",
@@ -862,6 +862,43 @@ def cancel_booking(booking_id):
 
         supabase.table("bookings").update({"status": "cancelled"}).eq("id", booking_id).execute()
         return jsonify({"status": "cancelled"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/bookings/<booking_id>/pay", methods=["POST"])
+def retry_booking_payment(booking_id):
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    set_auth(token)
+    user_id = get_user_from_token(token)
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    try:
+        booking_res = supabase.table("bookings").select("user_id, status, total_price, room_name").eq("id", booking_id).execute()
+        if not booking_res.data:
+            return jsonify({"error": "Booking not found"}), 404
+
+        b = booking_res.data[0]
+        if b["user_id"] != user_id:
+            return jsonify({"error": "Forbidden"}), 403
+        if b["status"] != "pending":
+            return jsonify({"error": "Only pending bookings can be paid"}), 400
+
+        user_res = supabase.table("users").select("email").eq("id", user_id).execute()
+        email = user_res.data[0]["email"] if user_res.data else ""
+
+        checkout_url = create_paymongo_checkout(
+            booking_id,
+            b["total_price"],
+            email,
+            f"Hotel Ava - {b.get('room_name', 'Room Booking')}",
+        )
+
+        if not checkout_url:
+            return jsonify({"error": "Failed to create checkout session"}), 500
+
+        return jsonify({"checkout_url": checkout_url}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react"
-import { useNavigate } from "react-router"
-import { CalendarDays, Users, Clock, X, ChevronRight } from "lucide-react"
+import { useNavigate, useSearchParams } from "react-router"
+import { CalendarDays, Users, Clock, X, ChevronRight, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { userBookingsApi, type UserBookingData } from "@/services/api"
+import { useToast } from "@/contexts/ToastContext"
 
 const statusConfig: Record<string, { label: string; dot: string; text: string }> = {
   pending: { label: "Awaiting Payment", dot: "bg-amber-500", text: "text-amber-600" },
@@ -24,9 +25,19 @@ function formatDateRange(checkIn: string, checkOut: string) {
 
 export default function MyBookings() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const { toast } = useToast()
   const [bookings, setBookings] = useState<UserBookingData[]>([])
   const [loading, setLoading] = useState(true)
   const [cancelling, setCancelling] = useState<string | null>(null)
+  const [paying, setPaying] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (searchParams.get("payment") === "cancelled") {
+      toast({ title: "Payment cancelled", description: "You can retry payment from My Bookings.", variant: "error" })
+      window.history.replaceState({}, "", "/my-bookings")
+    }
+  }, [])
 
   useEffect(() => {
     userBookingsApi
@@ -45,6 +56,19 @@ export default function MyBookings() {
     } catch {
     } finally {
       setCancelling(null)
+    }
+  }
+
+  const handlePay = async (id: string) => {
+    setPaying(id)
+    try {
+      const data = await userBookingsApi.retryPay(id)
+      if (data.checkout_url) {
+        window.location.href = data.checkout_url
+      }
+    } catch {
+    } finally {
+      setPaying(null)
     }
   }
 
@@ -184,12 +208,17 @@ export default function MyBookings() {
                           {booking.status === "pending" && (
                             <Button
                               size="sm"
-                              onClick={() => navigate(`/booking/${booking.room_id}`)}
+                              onClick={() => handlePay(booking.id)}
+                              disabled={paying === booking.id}
                               className="!rounded-[8px] text-xs"
                               style={{ backgroundColor: "#82285f", color: "#FBF9F4" }}
                             >
-                              Pay Now
-                              <ChevronRight className="h-3.5 w-3.5 ml-0.5" />
+                              {paying === booking.id ? (
+                                <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                              ) : (
+                                <ChevronRight className="h-3.5 w-3.5 ml-0.5" />
+                              )}
+                              {paying === booking.id ? "Redirecting..." : "Pay Now"}
                             </Button>
                           )}
                         </div>

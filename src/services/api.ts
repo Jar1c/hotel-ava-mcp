@@ -255,6 +255,9 @@ export const userBookingsApi = {
 
   cancel: (id: string) =>
     apiFetch(`/bookings/${id}/cancel`, { method: "POST" }),
+
+  retryPay: (id: string) =>
+    apiFetch<{ checkout_url: string }>(`/bookings/${id}/pay`, { method: "POST" }),
 }
 
 // ── Bookings (admin) ──────────────────────────────────────────────────────────
