@@ -12,7 +12,11 @@
       "root": "backend",
       "runtime": "python",
       "installCommand": "pip install -r requirements.txt",
-      "entrypoint": "app.py"
+      "entrypoint": "app:app"
     }
-  }
+  },
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": { "service": "backend" } },
+    { "source": "/(.*)", "destination": { "service": "frontend" } }
+  ]
 }
