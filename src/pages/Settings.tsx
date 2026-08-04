@@ -5,9 +5,9 @@ import { useAuth } from "@/contexts/AuthContext"
 import { authApi } from "@/services/api"
 
 export default function Settings() {
-  const { user, setUser } = useAuth()
+  const { user, updateUser } = useAuth()
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const [avatarPreview, setAvatarPreview] = useState<string>(user?.avatar_url || "")
+  const [avatarPreview, setAvatarPreview] = useState<string>(user?.avatar || "")
   const [uploading, setUploading] = useState(false)
 
   const [currentPassword, setCurrentPassword] = useState("")
@@ -36,9 +36,9 @@ export default function Settings() {
     try {
       const { avatar_url } = await authApi.uploadAvatar(file)
       setAvatarPreview(avatar_url)
-      if (user) setUser({ ...user, avatar_url })
+      if (user) updateUser({ avatar: avatar_url })
     } catch {
-      setAvatarPreview(user?.avatar_url || "")
+      setAvatarPreview(user?.avatar || "")
     } finally {
       setUploading(false)
     }

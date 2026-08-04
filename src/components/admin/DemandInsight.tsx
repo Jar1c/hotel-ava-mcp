@@ -5,10 +5,9 @@ import { cn } from "@/lib/utils"
 
 interface DemandInsightProps {
   insight: DemandInsightData
-  delay?: number
 }
 
-export default function DemandInsight({ insight, delay = 0 }: DemandInsightProps) {
+export default function DemandInsight({ insight }: DemandInsightProps) {
   const [applied, setApplied] = useState(insight.applied)
   const [dismissed, setDismissed] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)

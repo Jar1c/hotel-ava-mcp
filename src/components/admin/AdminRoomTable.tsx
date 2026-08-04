@@ -65,7 +65,7 @@ export default function AdminRoomTable({ rooms, onEdit, onDelete }: AdminRoomTab
             </tr>
           </thead>
           <tbody>
-            {filtered.map((room, i) => {
+            {filtered.map((room) => {
               const status = statusConfig[room.status]
               return (
                 <tr

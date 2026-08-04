@@ -3,7 +3,7 @@ import { useAuth } from "@/contexts/AuthContext"
 import { authApi } from "@/services/api"
 import { Button } from "@/components/ui/button"
 import {
-  Camera, Eye, EyeOff, Save, Pencil, X, User, Mail, Lock, Shield,
+  Camera, Eye, EyeOff, Save, Pencil, X, Mail, Lock, Shield,
   Phone, Calendar, MapPin, CheckCircle, AlertCircle,
 } from "lucide-react"
 

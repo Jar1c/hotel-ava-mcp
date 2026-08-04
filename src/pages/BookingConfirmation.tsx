@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react"
 import { useParams, useNavigate } from "react-router"
-import { CheckCircle, ArrowRight, Download } from "lucide-react"
+import { CheckCircle, ArrowRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
 const PRIMARY = "#82285f"
@@ -19,16 +19,16 @@ export default function BookingConfirmation() {
 
     const apiBase = import.meta.env.VITE_API_URL || "http://localhost:5000/api"
     const token = localStorage.getItem("access_token")
-    const headers = token ? { Authorization: `Bearer ${token}` } : {}
+    const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {}
 
     // First confirm the booking (handles PayMongo redirect)
     fetch(`${apiBase}/bookings/confirm/${id}`, {
       method: "POST",
-      headers: { ...headers, "Content-Type": "application/json" },
+      headers: { ...authHeaders, "Content-Type": "application/json" },
     })
       .then(() => {
         // Then fetch full booking details
-        return fetch(`${apiBase}/bookings/${id}`, { headers })
+        return fetch(`${apiBase}/bookings/${id}`, { headers: authHeaders })
       })
       .then((res) => {
         if (!res.ok) throw new Error("Failed to fetch booking")

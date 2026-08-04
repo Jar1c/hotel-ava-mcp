@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from "react"
-import { authApi, type AuthUser } from "@/services/api"
+import { authApi } from "@/services/api"
 
 export type UserRole = "public" | "guest" | "admin"
 

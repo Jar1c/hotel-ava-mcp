@@ -5,10 +5,9 @@ interface InsightCardProps {
   label: string
   value: string
   detail: string
-  delay?: number
 }
 
-export default function InsightCard({ icon, label, value, detail, delay = 0 }: InsightCardProps) {
+export default function InsightCard({ icon, label, value, detail }: InsightCardProps) {
   return (
     <div
       className="bg-white rounded-[6px] border border-[#e2e4e8] p-4 hover:shadow-card-hover transition-shadow duration-300"

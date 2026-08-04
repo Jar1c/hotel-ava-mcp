@@ -17,11 +17,9 @@ import {
   type DemandInsightData,
   type DiscountOfferData,
 } from "./api"
-import { getCached, getStale, isStale, setCache, clearCache } from "@/lib/cache"
+import { getStale, isStale, setCache, clearCache } from "@/lib/cache"
 import type { Booking, Guest, AdminRoom } from "@/data/admin"
-
-type BookingStatus = "confirmed" | "pending" | "completed" | "cancelled"
-type RoomStatus = "available" | "occupied" | "maintenance"
+import type { BookingStatus } from "@/data/admin"
 
 type Revalidatable<T> = { data: T; revalidate?: Promise<T> }
 
@@ -75,7 +73,6 @@ async function fetchRooms(): Promise<AdminRoom[]> {
 export async function addRoom(room: Omit<AdminRoom, "id" | "bookings" | "revenue">): Promise<AdminRoom | null> {
   try {
     const data = await roomsApi.add({
-      id: "",
       name: room.name,
       type: room.type,
       price: room.price,
@@ -83,8 +80,6 @@ export async function addRoom(room: Omit<AdminRoom, "id" | "bookings" | "revenue
       amenities: room.amenities,
       images: room.images,
       status: room.status,
-      bookings: 0,
-      revenue: 0,
     })
     clearCache("rooms")
     return {
@@ -107,7 +102,6 @@ export async function addRoom(room: Omit<AdminRoom, "id" | "bookings" | "revenue
 export async function updateRoom(room: AdminRoom): Promise<AdminRoom | null> {
   try {
     const data = await roomsApi.update(room.id, {
-      id: room.id,
       name: room.name,
       type: room.type,
       price: room.price,
@@ -115,8 +109,6 @@ export async function updateRoom(room: AdminRoom): Promise<AdminRoom | null> {
       amenities: room.amenities,
       images: room.images,
       status: room.status,
-      bookings: room.bookings,
-      revenue: room.revenue,
     })
     clearCache("rooms")
     return {

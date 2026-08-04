@@ -67,7 +67,7 @@ export default function RoomFormSheet({ open, onClose, onSave, editRoom }: RoomF
   const [errors, setErrors] = useState<Partial<Record<keyof RoomFormData, string>>>({})
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
-  const [uploadQueue, setUploadQueue] = useState<File[]>([])
+  const [, setUploadQueue] = useState<File[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const resetForm = () => {

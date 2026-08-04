@@ -78,7 +78,7 @@ export default function GuestsTable({ guests, loading }: GuestsTableProps) {
             </tr>
           </thead>
           <tbody>
-            {filtered.map((guest, i) => {
+            {filtered.map((guest) => {
               const status = statusConfig[guest.status]
               return (
                 <tr

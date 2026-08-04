@@ -2,7 +2,7 @@ import { useState } from "react"
 import { cn } from "@/lib/utils"
 import type { Booking } from "@/data/admin"
 
-type BookingStatus = "confirmed" | "pending" | "completed" | "cancelled"
+type BookingStatus = "confirmed" | "pending" | "completed" | "cancelled" | "checked-out"
 
 interface BookingsTableProps {
   bookings: Booking[]
@@ -15,12 +15,14 @@ const statusConfig: Record<BookingStatus, { label: string; dotColor: string; tex
   pending: { label: "Pending", dotColor: "bg-[#B5AC97]", textColor: "text-[#B5AC97]" },
   completed: { label: "Completed", dotColor: "bg-[#b0b3b8]", textColor: "text-[#9ca3af]" },
   cancelled: { label: "Cancelled", dotColor: "bg-[#A4423A]", textColor: "text-[#A4423A]" },
+  "checked-out": { label: "Checked Out", dotColor: "bg-[#b0b3b8]", textColor: "text-[#9ca3af]" },
 }
 
 const statusFilters: { label: string; value: BookingStatus | "all" }[] = [
   { label: "All", value: "all" },
   { label: "Confirmed", value: "confirmed" },
   { label: "Completed", value: "completed" },
+  { label: "Checked Out", value: "checked-out" },
   { label: "Cancelled", value: "cancelled" },
 ]
 
@@ -81,7 +83,7 @@ export default function BookingsTable({ bookings, showFilters = true, loading }:
             </tr>
           </thead>
           <tbody>
-            {filtered.map((booking, i) => {
+            {filtered.map((booking) => {
               const status = statusConfig[booking.status]
               return (
                 <tr

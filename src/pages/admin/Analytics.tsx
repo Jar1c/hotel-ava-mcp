@@ -151,8 +151,8 @@ export default function Analytics() {
           </div>
         ) : (
           <div className="space-y-3">
-            {visibleInsights.map((insight, i) => (
-              <DemandInsight key={insight.id} insight={insight} delay={0.35 + i * 0.1} />
+            {visibleInsights.map((insight) => (
+              <DemandInsight key={insight.id} insight={insight} />
             ))}
           </div>
         )}
@@ -183,7 +183,6 @@ export default function Analytics() {
                 label={insight.label}
                 value={insight.value}
                 detail={insight.detail}
-                delay={0.8 + i * 0.1}
               />
             ))
           )}
