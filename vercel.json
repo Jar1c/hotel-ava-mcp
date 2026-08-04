@@ -1,7 +1,18 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "framework": "vite",
-  "installCommand": "npm install",
-  "buildCommand": "npm run build",
-  "outputDirectory": "dist"
+  "services": {
+    "frontend": {
+      "root": ".",
+      "framework": "vite",
+      "installCommand": "npm install",
+      "buildCommand": "npm run build",
+      "outputDirectory": "dist"
+    },
+    "backend": {
+      "root": "backend",
+      "runtime": "python",
+      "installCommand": "pip install -r requirements.txt",
+      "startCommand": "python app.py"
+    }
+  }
 }
