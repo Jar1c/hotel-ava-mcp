@@ -1,17 +1,16 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "npm run build",
-  "outputDirectory": "dist",
-  "installCommand": "npm install && cd backend && pip install -r requirements.txt",
-  "functions": {
-    "backend/app.py": {
-      "maxDuration": 30
+  "services": {
+    "frontend": {
+      "root": "."
+    },
+    "backend": {
+      "root": "backend/",
+      "entrypoint": "app:app"
     }
   },
   "rewrites": [
-    {
-      "source": "/api/(.*)",
-      "destination": "/backend/app.py"
-    }
+    { "source": "/api/(.*)", "destination": { "service": "backend" } },
+    { "source": "/(.*)", "destination": { "service": "frontend" } }
   ]
 }
