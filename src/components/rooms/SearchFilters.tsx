@@ -2,7 +2,7 @@ import { useState } from "react"
 import { motion } from "motion/react"
 import { format } from "date-fns"
 import DatePicker from "react-datepicker"
-import { Calendar, ChevronDown } from "lucide-react"
+import { Calendar, ChevronDown, Search } from "lucide-react"
 
 interface SearchFiltersProps {
   initialFilters: FilterState
@@ -18,52 +18,49 @@ export interface FilterState {
 }
 
 export default function SearchFilters({ initialFilters, onFilterChange }: SearchFiltersProps) {
-  const [filters, setFilters] = useState<FilterState>(initialFilters)
+  const [draft, setDraft] = useState<FilterState>(initialFilters)
 
-  const updateFilter = (key: keyof FilterState, value: FilterState[keyof FilterState]) => {
-    const newFilters = { ...filters, [key]: value }
-    setFilters(newFilters)
-    onFilterChange(newFilters)
+  const updateDraft = (key: keyof FilterState, value: FilterState[keyof FilterState]) => {
+    setDraft((prev) => ({ ...prev, [key]: value }))
+  }
+
+  const handleSearch = () => {
+    onFilterChange(draft)
   }
 
   const handleCheckInChange = (date: Date | null) => {
     if (date) {
-      updateFilter("checkIn", format(date, "yyyy-MM-dd"))
+      updateDraft("checkIn", format(date, "yyyy-MM-dd"))
     } else {
-      updateFilter("checkIn", "")
+      updateDraft("checkIn", "")
     }
   }
 
   const handleCheckOutChange = (date: Date | null) => {
     if (date) {
-      updateFilter("checkOut", format(date, "yyyy-MM-dd"))
+      updateDraft("checkOut", format(date, "yyyy-MM-dd"))
     } else {
-      updateFilter("checkOut", "")
+      updateDraft("checkOut", "")
     }
   }
 
   return (
-    <motion.div
-      className="w-full bg-canvas rounded-[16px] shadow-card-hover border border-hairline mb-lg"
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5, delay: 0.15, ease: [0.22, 1, 0.36, 1] as const }}
-    >
+    <div className="w-full bg-white rounded-[16px] shadow-[0_0_0_1px_rgba(0,0,0,0.02),0_2px_6px_0_rgba(0,0,0,0.04),0_4px_8px_0_rgba(0,0,0,0.1)] border border-[#D5DADF] mb-lg">
       <div className="flex flex-col md:flex-row md:items-center">
         {/* Check In */}
         <div className="w-1/2 md:flex-1 min-w-0 px-base py-3">
           <label className="typo-caption font-display font-semibold text-ink uppercase tracking-wider block mb-1">Check-In</label>
           <DatePicker
-            selected={filters.checkIn ? new Date(filters.checkIn) : null}
+            selected={draft.checkIn ? new Date(draft.checkIn) : null}
             onChange={handleCheckInChange}
             selectsStart
-            startDate={filters.checkIn ? new Date(filters.checkIn) : null}
-            endDate={filters.checkOut ? new Date(filters.checkOut) : null}
+            startDate={draft.checkIn ? new Date(draft.checkIn) : null}
+            endDate={draft.checkOut ? new Date(draft.checkOut) : null}
             minDate={new Date()}
             customInput={
               <button className="w-full flex items-center gap-2 text-left bg-transparent border-none p-0 cursor-pointer">
                 <Calendar className="h-4 w-4 text-muted shrink-0" />
-                <span className="typo-body-sm text-ink truncate">{filters.checkIn ? format(new Date(filters.checkIn), "dd/MM/yyyy") : "dd/mm/yyyy"}</span>
+                <span className="typo-body-sm text-ink truncate">{draft.checkIn ? format(new Date(draft.checkIn), "dd/MM/yyyy") : "dd/mm/yyyy"}</span>
               </button>
             }
           />
@@ -73,16 +70,16 @@ export default function SearchFilters({ initialFilters, onFilterChange }: Search
         <div className="w-1/2 md:flex-1 min-w-0 px-base py-3">
           <label className="typo-caption font-display font-semibold text-ink uppercase tracking-wider block mb-1">Check-Out</label>
           <DatePicker
-            selected={filters.checkOut ? new Date(filters.checkOut) : null}
+            selected={draft.checkOut ? new Date(draft.checkOut) : null}
             onChange={handleCheckOutChange}
             selectsEnd
-            startDate={filters.checkIn ? new Date(filters.checkIn) : null}
-            endDate={filters.checkOut ? new Date(filters.checkOut) : null}
-            minDate={filters.checkIn ? new Date(filters.checkIn) : new Date()}
+            startDate={draft.checkIn ? new Date(draft.checkIn) : null}
+            endDate={draft.checkOut ? new Date(draft.checkOut) : null}
+            minDate={draft.checkIn ? new Date(draft.checkIn) : new Date()}
             customInput={
               <button className="w-full flex items-center gap-2 text-left bg-transparent border-none p-0 cursor-pointer">
                 <Calendar className="h-4 w-4 text-muted shrink-0" />
-                <span className="typo-body-sm text-ink truncate">{filters.checkOut ? format(new Date(filters.checkOut), "dd/MM/yyyy") : "dd/mm/yyyy"}</span>
+                <span className="typo-body-sm text-ink truncate">{draft.checkOut ? format(new Date(draft.checkOut), "dd/MM/yyyy") : "dd/mm/yyyy"}</span>
               </button>
             }
           />
@@ -93,8 +90,8 @@ export default function SearchFilters({ initialFilters, onFilterChange }: Search
           <label className="typo-caption font-display font-semibold text-ink uppercase tracking-wider block mb-1">Guests</label>
           <div className="relative">
             <select
-              value={filters.guests}
-              onChange={(e) => updateFilter("guests", Number(e.target.value))}
+              value={draft.guests}
+              onChange={(e) => updateDraft("guests", Number(e.target.value))}
               className="w-full bg-transparent border-none typo-body-sm text-ink focus:outline-none appearance-none cursor-pointer pr-4 font-semibold"
             >
               {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
@@ -114,8 +111,8 @@ export default function SearchFilters({ initialFilters, onFilterChange }: Search
             <span className="absolute left-0 top-1/2 -translate-y-1/2 text-ink pointer-events-none">&#x20B1;</span>
             <input
               type="number"
-              value={filters.budget || ""}
-              onChange={(e) => updateFilter("budget", e.target.value ? Number(e.target.value) : 0)}
+              value={draft.budget || ""}
+              onChange={(e) => updateDraft("budget", e.target.value ? Number(e.target.value) : 0)}
               placeholder="Any"
               min="0"
               className="w-full bg-transparent border-none typo-body-sm text-ink placeholder:text-muted-soft focus:outline-none pl-4 font-semibold"
@@ -126,12 +123,16 @@ export default function SearchFilters({ initialFilters, onFilterChange }: Search
         {/* Check Availability Button */}
         <div className="px-base py-3 md:pr-1.5 md:py-1.5 w-full md:w-auto">
           <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
-            <div className="w-full md:w-auto flex items-center justify-center gap-2 px-5 h-12 rounded-[16px] bg-primary text-on-primary hover:bg-primary-active transition-colors cursor-pointer">
+            <button
+              onClick={handleSearch}
+              className="w-full md:w-auto flex items-center justify-center gap-2 px-5 h-12 rounded-[12px] bg-[#82285f] text-[#FBF9F4] hover:bg-[#6b1f4d] transition-colors cursor-pointer"
+            >
+              <Search className="h-4 w-4" />
               <span className="typo-body-sm font-semibold whitespace-nowrap">Check Availability</span>
-            </div>
+            </button>
           </motion.div>
         </div>
       </div>
-    </motion.div>
+    </div>
   )
 }

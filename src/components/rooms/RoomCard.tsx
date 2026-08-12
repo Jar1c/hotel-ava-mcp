@@ -1,9 +1,11 @@
 import { Link } from "react-router"
 import { Star, Users, Wifi, Wind, Wine, ConciergeBell, Building2, BedDouble, TreePine, Coffee, Tv, Monitor, Waves, Fence, Bath, CookingPot, Sofa, UtensilsCrossed, Mountain, Sunrise, Shirt, Sunset, UserCheck, Eye, Lock, Baby, Sparkles, Music, Droplets } from "lucide-react"
 import type { Room } from "@/data/rooms"
+import type { FilterState } from "@/components/rooms/SearchFilters"
 
 interface RoomCardProps {
   room: Room
+  filters?: FilterState
 }
 
 const amenityIcons: Record<string, React.ReactNode> = {
@@ -52,9 +54,18 @@ const amenityIcons: Record<string, React.ReactNode> = {
   "Cable TV": <Tv className="h-3 w-3" />,
 }
 
-export default function RoomCard({ room }: RoomCardProps) {
+export default function RoomCard({ room, filters }: RoomCardProps) {
+  const detailUrl = (() => {
+    const params = new URLSearchParams()
+    if (filters?.checkIn) params.set("checkIn", filters.checkIn)
+    if (filters?.checkOut) params.set("checkOut", filters.checkOut)
+    if (filters?.guests && filters.guests > 0) params.set("guests", String(filters.guests))
+    const qs = params.toString()
+    return `/rooms/${room.id}${qs ? `?${qs}` : ""}`
+  })()
+
   return (
-    <Link to={`/rooms/${room.id}`} className="group block h-full">
+    <Link to={detailUrl} className="group block h-full">
       <div className="bg-canvas rounded-lg hover:shadow-card-hover transition-all overflow-hidden flex flex-col h-full">
         <div className="relative overflow-hidden aspect-[16/9]">
           <img

@@ -26,6 +26,26 @@ def set_auth(token):
             supabase.auth.set_session(access_token=token, refresh_token="")
         except Exception:
             pass
+        # Also set the postgrest auth header directly — this is what actually
+        # propagates the Bearer token for RLS policy evaluation
+        try:
+            supabase.postgrest.auth(token)
+        except Exception:
+            pass
+
+
+def clear_auth():
+    """Clear auth on Supabase client for public (anon) queries."""
+    global supabase
+    try:
+        supabase.postgrest.auth(None)
+    except Exception:
+        pass
+    # Reset to a fresh anon client
+    try:
+        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+    except Exception:
+        pass
 
 
 def get_user_from_token(token):
@@ -35,7 +55,7 @@ def get_user_from_token(token):
     try:
         payload = pyjwt.decode(
             token,
-            options={"verify_signature": False, "verify_exp": False},
+            options={"verify_signature": False, "verify_exp": True},
         )
         user_id = payload.get("sub")
         if not user_id:
@@ -289,6 +309,62 @@ def change_password():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/auth/forgot-password", methods=["POST"])
+def forgot_password():
+    """Send password reset email via Supabase."""
+    data = request.get_json()
+    email = data.get("email", "").strip()
+    if not email:
+        return jsonify({"error": "Email is required"}), 400
+
+    try:
+        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
+        supabase.auth.reset_password_for_email(
+            email,
+            options={"redirect_to": f"{frontend_url}/reset-password"}
+        )
+        # Always return success to prevent email enumeration
+        return jsonify({"message": "If an account exists with this email, a reset link has been sent."}), 200
+    except Exception as e:
+        print(f"Forgot password error: {e}")
+        return jsonify({"message": "If an account exists with this email, a reset link has been sent."}), 200
+
+
+@app.route("/api/auth/reset-password", methods=["POST"])
+def reset_password():
+    """Reset password using the token from email link."""
+    data = request.get_json()
+    access_token = data.get("access_token", "")
+    refresh_token = data.get("refresh_token", "")
+    new_password = data.get("new_password", "")
+
+    if not access_token or not new_password:
+        return jsonify({"error": "Token and new password are required"}), 400
+
+    if len(new_password) < 8:
+        return jsonify({"error": "Password must be at least 8 characters"}), 400
+    if not any(c.isupper() for c in new_password):
+        return jsonify({"error": "Password must contain an uppercase letter"}), 400
+    if not any(c.isdigit() for c in new_password):
+        return jsonify({"error": "Password must contain a number"}), 400
+
+    try:
+        # Set the session with the recovery token
+        supabase.auth.set_session(access_token, refresh_token)
+
+        # Get current user
+        user = supabase.auth.get_user()
+        if not user or not user.user:
+            return jsonify({"error": "Invalid or expired reset token"}), 400
+
+        # Update password
+        supabase.auth.admin.update_user_by_id(user.user.id, {"password": new_password})
+        return jsonify({"message": "Password has been reset successfully"}), 200
+    except Exception as e:
+        print(f"Reset password error: {e}")
+        return jsonify({"error": "Invalid or expired reset token"}), 400
+
+
 @app.route("/api/auth/refresh", methods=["POST"])
 def refresh_token():
     """Use a refresh_token to get a new access_token + refresh_token pair."""
@@ -398,6 +474,7 @@ def delete_image():
 @app.route("/api/rooms/public", methods=["GET"])
 def get_public_rooms():
     try:
+        clear_auth()
         rooms_res = supabase.table("rooms").select("*").order("created_at", desc=True).execute()
         rooms = rooms_res.data or []
 
@@ -424,6 +501,7 @@ def get_public_rooms():
 @app.route("/api/rooms/public/<room_id>", methods=["GET"])
 def get_public_room(room_id):
     try:
+        clear_auth()
         room_res = supabase.table("rooms").select("*").eq("id", room_id).execute()
         rooms = room_res.data or []
         if not rooms:
@@ -732,7 +810,7 @@ def create_booking():
             booking_id=booking_id,
             amount=total_price,
             email=email,
-            description=f"Hotel Ava — {room['name']} ({check_in} to {check_out})",
+            description=f"Booking: {booking_id}",
         )
 
         if checkout_url:
@@ -892,7 +970,7 @@ def retry_booking_payment(booking_id):
             booking_id,
             b["total_price"],
             email,
-            f"Hotel Ava - {b.get('room_name', 'Room Booking')}",
+            f"Booking: {booking_id}",
         )
 
         if not checkout_url:
@@ -1487,16 +1565,40 @@ def paymongo_webhook():
     try:
         payload = request.get_json()
         event_type = payload.get("data", {}).get("attributes", {}).get("type", "")
+        print(f"Webhook received: {event_type}")
 
         if event_type == "payment.paid":
-            # Extract booking ID from description or metadata
             attrs = payload["data"]["attributes"]
-            description = attrs.get("data", {}).get("attributes", {}).get("description", "")
+            payment_data = attrs.get("data", {}).get("attributes", {})
 
-            # Try to find booking from the checkout session
-            # PayMongo sends payment.paid after checkout is complete
-            # We update the booking status to confirmed
-            return jsonify({"received": True}), 200
+            # Extract billing info to find the booking
+            billing = payment_data.get("billing", {})
+            billing_name = billing.get("name", "")
+
+            # Try to find booking by description (format: "Booking: <booking_id>")
+            description = payment_data.get("description", "")
+            booking_id = None
+            if description.startswith("Booking: "):
+                booking_id = description.replace("Booking: ", "").strip()
+
+            # Also check metadata if present
+            metadata = payment_data.get("metadata", {})
+            if not booking_id and metadata.get("booking_id"):
+                booking_id = metadata["booking_id"]
+
+            if booking_id:
+                # Update booking status to confirmed
+                result = supabase.table("bookings").update({"status": "confirmed"}).eq("id", booking_id).execute()
+                print(f"Booking {booking_id} confirmed via webhook")
+
+                # Mark the room as occupied
+                booking_res = supabase.table("bookings").select("room_id").eq("id", booking_id).execute()
+                if booking_res.data:
+                    room_id = booking_res.data[0].get("room_id")
+                    if room_id:
+                        supabase.table("rooms").update({"available": False}).eq("id", room_id).execute()
+            else:
+                print(f"Webhook: Could not find booking_id from description: {description}")
 
         return jsonify({"received": True}), 200
     except Exception as e:

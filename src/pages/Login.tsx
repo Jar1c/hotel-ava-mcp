@@ -217,13 +217,13 @@ export default function Login() {
                 />
                 <span className="text-xs text-muted select-none">Remember me</span>
               </label>
-              <a
-                href="#"
+              <Link
+                to="/forgot-password"
                 className="text-xs font-medium hover:underline"
                 style={{ color: PRIMARY }}
               >
                 Forgot password?
-              </a>
+              </Link>
             </div>
 
             {/* CTA Button */}

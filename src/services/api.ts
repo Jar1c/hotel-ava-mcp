@@ -123,6 +123,12 @@ export const authApi = {
   changePassword: (data: { new_password: string }) =>
     apiFetch<{ message: string }>("/auth/password", { method: "PUT", body: JSON.stringify(data) }),
 
+  forgotPassword: (email: string) =>
+    apiFetch<{ message: string }>("/auth/forgot-password", { method: "POST", body: JSON.stringify({ email }) }),
+
+  resetPassword: (data: { access_token: string; refresh_token: string; new_password: string }) =>
+    apiFetch<{ message: string }>("/auth/reset-password", { method: "POST", body: JSON.stringify(data) }),
+
   refreshTokens: (refreshToken: string) =>
     fetch(`${API_BASE}/auth/refresh`, {
       method: "POST",

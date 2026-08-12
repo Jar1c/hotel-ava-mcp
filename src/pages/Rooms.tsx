@@ -1,10 +1,11 @@
 import { useState, useMemo, useEffect } from "react"
 import { useSearchParams } from "react-router"
 import { motion } from "motion/react"
+import { Sparkles } from "lucide-react"
 import { publicRoomsApi, type PublicRoomData } from "@/services/api"
 import { type Room } from "@/data/rooms"
 import { isRoomAvailable, calculateNights } from "@/lib/dates"
-import { setCache } from "@/lib/cache"
+import { setCache, getCached } from "@/lib/cache"
 import RoomCard from "@/components/rooms/RoomCard"
 import SearchFilters, { type FilterState } from "@/components/rooms/SearchFilters"
 
@@ -56,6 +57,44 @@ function mapApiRoom(r: PublicRoomData): Room {
   }
 }
 
+function scoreRoom(room: Room, filters: FilterState): number {
+  let score = 100
+
+  // Budget scoring: penalty for each peso over budget
+  if (filters.budget > 0) {
+    if (room.price <= filters.budget) {
+      // Under budget = bonus (closer to budget is better)
+      score += (filters.budget - room.price) / filters.budget * 10
+    } else {
+      // Over budget = penalty (but not zero — still a suggestion)
+      const overBy = room.price - filters.budget
+      score -= (overBy / filters.budget) * 30
+    }
+  }
+
+  // Guests scoring: penalty for capacity mismatch
+  if (filters.guests > 0) {
+    if (room.capacity >= filters.guests) {
+      // Exact fit or larger = small bonus
+      score += (room.capacity - filters.guests) * 2
+    } else {
+      // Can't fit = big penalty
+      score -= (filters.guests - room.capacity) * 25
+    }
+  }
+
+  // Availability scoring
+  if (filters.checkIn && filters.checkOut) {
+    if (isRoomAvailable(room, filters.checkIn, filters.checkOut)) {
+      score += 15 // Available = big bonus
+    } else {
+      score -= 50 // Not available = big penalty
+    }
+  }
+
+  return Math.max(0, score)
+}
+
 function RoomCardSkeleton() {
   return (
     <div className="bg-canvas rounded-lg overflow-hidden flex flex-col h-full animate-pulse">
@@ -80,15 +119,26 @@ export default function Rooms() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    // 1. Show cached data instantly
+    const cached = getCached<PublicRoomData[]>("public_rooms")
+    if (cached) {
+      setRoomsData(cached.map(mapApiRoom))
+      setLoading(false)
+    }
+
+    // 2. Fetch fresh data in background
     publicRoomsApi.getAll()
       .then((data) => {
         setRoomsData(data.map(mapApiRoom))
         setCache("public_rooms", data)
       })
-      .catch(() => {})
+      .catch(() => {
+        if (!cached) setRoomsData([])
+      })
       .finally(() => setLoading(false))
   }, [])
 
+  // Exact match rooms
   const filteredRooms = useMemo(() => {
     let result = [...roomsData]
 
@@ -119,7 +169,28 @@ export default function Rooms() {
     return result
   }, [filters, roomsData])
 
-return (
+  // AI-like recommendations: relaxed filters
+  const recommendations = useMemo(() => {
+    // Only show recommendations when no exact match
+    if (filteredRooms.length > 0) return []
+
+    let candidates = [...roomsData]
+
+    // Remove rooms that already appear in exact match (shouldn't happen, but safety)
+    const exactIds = new Set(filteredRooms.map((r) => r.id))
+    candidates = candidates.filter((r) => !exactIds.has(r.id))
+
+    // Score each room based on how close it is to preferences
+    const scored = candidates
+      .map((room) => ({ room, score: scoreRoom(room, filters) }))
+      .filter(({ score }) => score > 20) // Only suggest rooms with decent score
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 4) // Top 4 suggestions
+
+    return scored.map(({ room }) => room)
+  }, [filteredRooms, roomsData, filters])
+
+  return (
     <div className="px-base py-section">
       <div className="max-w-container mx-auto">
         <motion.div
@@ -187,10 +258,48 @@ return (
           >
             {filteredRooms.map((room, index) => (
               <motion.div key={room.id} variants={cardItem} custom={index}>
-                <RoomCard room={room} />
+                <RoomCard room={room} filters={filters} />
               </motion.div>
             ))}
           </motion.div>
+        ) : recommendations.length > 0 ? (
+          <>
+            {/* AI Suggestion Header */}
+            <motion.div
+              className="mb-lg p-4 rounded-[12px] border border-hairline bg-white"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] as const }}
+            >
+              <div className="flex items-start gap-3">
+                <Sparkles className="h-5 w-5 shrink-0" />
+                <div>
+                  <h3 className="typo-title-md text-ink mb-1">
+                    {filters.budget > 0 && filters.guests > 1
+                      ? "No exact match found"
+                      : "No rooms found for your criteria"}
+                  </h3>
+                  <p className="typo-body-sm text-muted">
+                    We couldn&apos;t find rooms matching your exact preferences, but here are some options you might like. They&apos;re close to what you&apos;re looking for.
+                  </p>
+                </div>
+              </div>
+            </motion.div>
+
+            {/* Recommendation Grid */}
+            <motion.div
+              className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-lg"
+              variants={cardContainer}
+              initial="hidden"
+              animate="visible"
+            >
+              {recommendations.map((room, index) => (
+                <motion.div key={room.id} variants={cardItem} custom={index}>
+                  <RoomCard room={room} filters={filters} />
+                </motion.div>
+              ))}
+            </motion.div>
+          </>
         ) : (
           <motion.div
             className="text-center py-section"

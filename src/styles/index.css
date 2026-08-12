@@ -129,6 +129,11 @@
 [data-slot="dropdown-menu-content"][data-open] > :nth-child(3) { animation-delay: 100ms; }
 [data-slot="dropdown-menu-content"][data-open] > :nth-child(4) { animation-delay: 150ms; }
 
+/* Prevent layout shift from scrollbar */
+html {
+  scrollbar-gutter: stable;
+}
+
 /* Admin dashboard animations */
 @keyframes fade-in {
   from { opacity: 0; }

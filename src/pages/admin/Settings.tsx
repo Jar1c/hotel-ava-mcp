@@ -39,8 +39,13 @@ export default function Settings() {
     const reader = new FileReader()
     reader.onload = () => setAvatarPreview(reader.result as string)
     reader.readAsDataURL(file)
-    // Avatar upload would need a dedicated endpoint - for now just preview
-    // TODO: Add avatar upload endpoint to Flask backend
+    try {
+      const { avatar_url } = await authApi.uploadAvatar(file)
+      setAvatarPreview(avatar_url)
+      updateUser({ avatar: avatar_url })
+    } catch {
+      // keep preview
+    }
   }
 
   const handleSave = async () => {
@@ -66,9 +71,11 @@ export default function Settings() {
     try {
       if (!newPassword) throw new Error("Enter a new password.")
       if (newPassword.length < 8) throw new Error("Password must be at least 8 characters.")
-      // Password update would need a dedicated endpoint
-      // TODO: Add password change endpoint to Flask backend
-      setPwMsg({ type: "success", text: "Password update feature coming soon." })
+      if (!/[A-Z]/.test(newPassword)) throw new Error("Password must contain an uppercase letter.")
+      if (!/[0-9]/.test(newPassword)) throw new Error("Password must contain a number.")
+      await authApi.changePassword({ new_password: newPassword })
+      setPwMsg({ type: "success", text: "Password updated successfully." })
+      setNewPassword("")
     } catch (err) {
       setPwMsg({ type: "error", text: err instanceof Error ? err.message : "Failed." })
     } finally {
