@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react"
-import { useParams, Link, useNavigate } from "react-router"
+import { useParams, Link, useNavigate, useSearchParams } from "react-router"
 import { motion } from "motion/react"
 import DatePicker from "react-datepicker"
 import {
@@ -62,14 +62,55 @@ function DetailSkeleton() {
 
 export default function RoomDetail() {
   const { id } = useParams<{ id: string }>()
+  const [searchParams] = useSearchParams()
   const [room, setRoom] = useState<Room | null>(null)
   const [loading, setLoading] = useState(true)
-  const [checkIn, setCheckIn] = useState<Date | null>(null)
-  const [checkOut, setCheckOut] = useState<Date | null>(null)
-  const [guests, setGuests] = useState(1)
+  const [checkIn, setCheckIn] = useState<Date | null>(() => {
+    const v = searchParams.get("checkIn")
+    return v ? new Date(v) : null
+  })
+  const [checkOut, setCheckOut] = useState<Date | null>(() => {
+    const v = searchParams.get("checkOut")
+    return v ? new Date(v) : null
+  })
+  const [guests, setGuests] = useState(() => Number(searchParams.get("guests")) || 1)
   const [showAuthModal, setShowAuthModal] = useState(false)
   const { isAuthenticated } = useAuth()
   const navigate = useNavigate()
+
+  // Load dates from URL params on mount (persists after login)
+  useEffect(() => {
+    // Try to get dates from current searchParams first
+    let checkInDate = searchParams.get("checkIn")
+    let checkOutDate = searchParams.get("checkOut")
+    let guestsValue = searchParams.get("guests")
+
+    // If not found (because we came from login via returnTo), parse from returnTo param
+    if (!checkInDate && !checkOutDate) {
+      const returnTo = searchParams.get("returnTo")
+      if (returnTo) {
+        // Return URL can be in search params OR hash
+        // Parse both
+        let params = new URLSearchParams()
+        const questionMarkIndex = returnTo.indexOf("?")
+        const hashIndex = returnTo.indexOf("#")
+
+        if (questionMarkIndex !== -1) {
+          params = new URLSearchParams(returnTo.substring(questionMarkIndex + 1))
+        } else if (hashIndex !== -1) {
+          params = new URLSearchParams(returnTo.substring(hashIndex + 1))
+        }
+
+        checkInDate = params.get("checkIn")
+        checkOutDate = params.get("checkOut")
+        guestsValue = params.get("guests")
+      }
+    }
+
+    setCheckIn(checkInDate ? new Date(checkInDate) : null)
+    setCheckOut(checkOutDate ? new Date(checkOutDate) : null)
+    setGuests(guestsValue ? Number(guestsValue) : 1)
+  }, [searchParams])
 
   useEffect(() => {
     if (!id) return
@@ -210,32 +251,34 @@ export default function RoomDetail() {
               </div>
 
               <div className="space-y-md mb-lg">
-                <div>
-                  <label className="typo-caption text-muted block mb-xs">Check-in</label>
-                  <DatePicker
-                    selected={checkIn}
-                    onChange={(date: Date | null) => setCheckIn(date)}
-                    selectsStart
-                    startDate={checkIn}
-                    endDate={checkOut}
-                    minDate={new Date()}
-                    customInput={<DateInput placeholder="Select date" />}
-                    placeholderText="Select date"
-                  />
-                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="typo-caption text-muted block mb-xs">Check-in</label>
+                    <DatePicker
+                      selected={checkIn}
+                      onChange={(date: Date | null) => setCheckIn(date)}
+                      selectsStart
+                      startDate={checkIn}
+                      endDate={checkOut}
+                      minDate={new Date()}
+                      customInput={<DateInput placeholder="Select date" />}
+                      placeholderText="Select date"
+                    />
+                  </div>
 
-                <div>
-                  <label className="typo-caption text-muted block mb-xs">Check-out</label>
-                  <DatePicker
-                    selected={checkOut}
-                    onChange={(date: Date | null) => setCheckOut(date)}
-                    selectsEnd
-                    startDate={checkIn}
-                    endDate={checkOut}
-                    minDate={checkIn || new Date()}
-                    customInput={<DateInput placeholder="Select date" />}
-                    placeholderText="Select date"
-                  />
+                  <div>
+                    <label className="typo-caption text-muted block mb-xs">Check-out</label>
+                    <DatePicker
+                      selected={checkOut}
+                      onChange={(date: Date | null) => setCheckOut(date)}
+                      selectsEnd
+                      startDate={checkIn}
+                      endDate={checkOut}
+                      minDate={checkIn || new Date()}
+                      customInput={<DateInput placeholder="Select date" />}
+                      placeholderText="Select date"
+                    />
+                  </div>
                 </div>
 
                 <div>
@@ -342,13 +385,13 @@ export default function RoomDetail() {
 
             <div className="space-y-2.5">
               <Button
-                onClick={() => navigate(`/login?returnTo=${encodeURIComponent(window.location.pathname)}`)}
+                onClick={() => navigate(`/login?returnTo=${encodeURIComponent(window.location.pathname + window.location.search)}`)}
                 className="w-full py-2.5 text-sm font-medium !rounded-[4px] bg-primary text-on-primary hover:bg-primary-active"
               >
                 Sign In
               </Button>
               <Button
-                onClick={() => navigate(`/register?returnTo=${encodeURIComponent(window.location.pathname)}`)}
+                onClick={() => navigate(`/register?returnTo=${encodeURIComponent(window.location.pathname + window.location.search)}`)}
                 variant="outline"
                 className="w-full py-2.5 text-sm font-medium !rounded-[4px]"
               >
