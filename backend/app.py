@@ -318,7 +318,7 @@ def forgot_password():
         return jsonify({"error": "Email is required"}), 400
 
     try:
-        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
+        frontend_url = os.getenv("FRONTEND_URL", "https://hotelava.vercel.app")
         supabase.auth.reset_password_for_email(
             email,
             options={"redirect_to": f"{frontend_url}/reset-password"}
@@ -697,7 +697,7 @@ def create_paymongo_checkout(booking_id, amount, email, description):
         import base64
         encoded_key = base64.b64encode(PAYMONGO_SECRET_KEY.encode()).decode()
 
-        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
+        frontend_url = os.getenv("FRONTEND_URL", "https://hotelava.vercel.app")
         success_url = f"{frontend_url}/booking/confirmation/{booking_id}"
         cancel_url = f"{frontend_url}/booking/failed?booking={booking_id}"
 
