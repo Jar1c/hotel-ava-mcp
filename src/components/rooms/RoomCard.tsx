@@ -2,6 +2,7 @@ import { Link } from "react-router"
 import { Star, Users, Wifi, Wind, Wine, ConciergeBell, Building2, BedDouble, TreePine, Coffee, Tv, Monitor, Waves, Fence, Bath, CookingPot, Sofa, UtensilsCrossed, Mountain, Sunrise, Shirt, Sunset, UserCheck, Eye, Lock, Baby, Sparkles, Music, Droplets } from "lucide-react"
 import type { Room } from "@/data/rooms"
 import type { FilterState } from "@/components/rooms/SearchFilters"
+import ImageWithPlaceholder from "@/components/ui/ImageWithPlaceholder"
 
 interface RoomCardProps {
   room: Room
@@ -68,7 +69,7 @@ export default function RoomCard({ room, filters }: RoomCardProps) {
     <Link to={detailUrl} className="group block h-full">
       <div className="bg-canvas rounded-lg hover:shadow-card-hover transition-all overflow-hidden flex flex-col h-full">
         <div className="relative overflow-hidden aspect-[16/9]">
-          <img
+          <ImageWithPlaceholder
             src={room.images[0]}
             alt={room.name}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"

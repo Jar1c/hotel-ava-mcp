@@ -1,4 +1,5 @@
 import { useState } from "react"
+import ImageWithPlaceholder from "@/components/ui/ImageWithPlaceholder"
 
 interface PhotoGalleryProps {
   images: string[]
@@ -11,7 +12,7 @@ export default function PhotoGallery({ images, alt }: PhotoGalleryProps) {
   return (
     <div className="space-y-sm">
       <div className="aspect-[16/9] rounded-lg overflow-hidden">
-        <img
+        <ImageWithPlaceholder
           src={images[selectedIndex]}
           alt={`${alt} - Image ${selectedIndex + 1}`}
           className="w-full h-full object-cover"
@@ -19,18 +20,18 @@ export default function PhotoGallery({ images, alt }: PhotoGalleryProps) {
       </div>
 
       {images.length > 1 && (
-        <div className="flex gap-sm overflow-x-auto pb-sm">
+        <div className="flex gap-sm overflow-x-auto pb-sm animate-fade-in">
           {images.map((image, index) => (
             <button
               key={index}
               onClick={() => setSelectedIndex(index)}
-              className={`flex-shrink-0 w-20 h-16 rounded-sm overflow-hidden border-2 transition-all ${
+              className={`flex-shrink-0 w-20 h-16 rounded-sm overflow-hidden border-2 transition-all cursor-pointer ${
                 index === selectedIndex
                   ? "border-primary"
                   : "border-hairline hover:border-primary/50"
               }`}
             >
-              <img
+              <ImageWithPlaceholder
                 src={image}
                 alt={`${alt} - Thumbnail ${index + 1}`}
                 className="w-full h-full object-cover"

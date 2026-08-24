@@ -6,6 +6,7 @@ import SearchBar from "@/components/home/SearchBar"
 import AboutSection from "@/components/home/AboutSection"
 import GuestReviews from "@/components/home/GuestReviews"
 import LocationSection from "@/components/home/LocationSection"
+import ImageWithPlaceholder from "@/components/ui/ImageWithPlaceholder"
 
 const featuredRooms = [
   {
@@ -78,7 +79,7 @@ export default function Home() {
       {/* Hero + Search */}
       <section className="relative" style={{ marginLeft: "calc(-50vw + 50%)", marginRight: "calc(-50vw + 50%)", minHeight: "60vh" }}>
         <div
-          className="absolute inset-0 bg-cover bg-center"
+          className="absolute inset-0 bg-cover bg-center bg-no-repeat bg-linear-to-br from-primary to-secondary"
           style={{
             backgroundImage: "url('https://hotel-ava.com/wp-content/uploads/2025/07/HAMA-RM_19.png')",
           }}
@@ -178,7 +179,7 @@ export default function Home() {
               <motion.div key={room.id} variants={cardItem}>
                 <Link to="/rooms" className="group block">
                   <div className="relative aspect-[3/4] overflow-hidden rounded-[10px] mb-base">
-                    <img
+                    <ImageWithPlaceholder
                       src={room.image}
                       alt={room.name}
                       className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
