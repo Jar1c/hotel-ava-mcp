@@ -249,6 +249,7 @@ export default function Register() {
                     onBlur={() => setFocused(null)}
                     value={firstName}
                     onChange={(e) => setFirstName(capitalizeFirst(e.target.value))}
+                    maxLength={50}
                   />
                 </div>
               </div>
@@ -266,6 +267,7 @@ export default function Register() {
                     onBlur={() => setFocused(null)}
                     value={lastName}
                     onChange={(e) => setLastName(capitalizeFirst(e.target.value))}
+                    maxLength={50}
                   />
                 </div>
               </div>
