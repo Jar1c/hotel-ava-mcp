@@ -24,7 +24,10 @@ export default function SearchFilters({ initialFilters, onFilterChange }: Search
     setDraft((prev) => ({ ...prev, [key]: value }))
   }
 
+  const canSearch = draft.checkIn !== "" && draft.checkOut !== ""
+
   const handleSearch = () => {
+    if (!canSearch) return
     onFilterChange(draft)
   }
 
@@ -122,10 +125,15 @@ export default function SearchFilters({ initialFilters, onFilterChange }: Search
 
         {/* Check Availability Button */}
         <div className="px-base py-3 md:pr-1.5 md:py-1.5 w-full md:w-auto">
-          <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
+          <motion.div whileHover={canSearch ? { scale: 1.03 } : undefined} whileTap={canSearch ? { scale: 0.97 } : undefined}>
             <button
               onClick={handleSearch}
-              className="w-full md:w-auto flex items-center justify-center gap-2 px-5 h-12 rounded-[12px] bg-[#82285f] text-[#FBF9F4] hover:bg-[#6b1f4d] transition-colors cursor-pointer"
+              disabled={!canSearch}
+              className={`w-full md:w-auto flex items-center justify-center gap-2 px-5 h-12 rounded-[12px] transition-colors ${
+                canSearch
+                  ? "bg-[#82285f] text-[#FBF9F4] hover:bg-[#6b1f4d] cursor-pointer"
+                  : "bg-gray-300 text-gray-500 cursor-not-allowed"
+              }`}
             >
               <Search className="h-4 w-4" />
               <span className="typo-body-sm font-semibold whitespace-nowrap">Check Availability</span>

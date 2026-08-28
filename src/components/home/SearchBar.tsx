@@ -12,7 +12,10 @@ export default function SearchBar() {
   const [guests, setGuests] = useState<number>(2)
   const [budget, setBudget] = useState<string>("")
 
+  const canSearch = checkIn !== null && checkOut !== null
+
   const handleSearch = () => {
+    if (!canSearch) return
     const searchParams = new URLSearchParams()
     if (checkIn) searchParams.set("checkIn", format(checkIn, "yyyy-MM-dd"))
     if (checkOut) searchParams.set("checkOut", format(checkOut, "yyyy-MM-dd"))
@@ -104,9 +107,14 @@ export default function SearchBar() {
         <div className="px-base py-3 md:pr-1.5 md:py-1.5 w-full md:w-auto">
           <motion.button
             onClick={handleSearch}
-            whileHover={{ scale: 1.03 }}
-            whileTap={{ scale: 0.97 }}
-            className="w-full md:w-auto flex items-center justify-center gap-2 px-5 h-12 rounded-[16px] bg-primary text-on-primary hover:bg-primary-active transition-colors cursor-pointer"
+            disabled={!canSearch}
+            whileHover={canSearch ? { scale: 1.03 } : undefined}
+            whileTap={canSearch ? { scale: 0.97 } : undefined}
+            className={`w-full md:w-auto flex items-center justify-center gap-2 px-5 h-12 rounded-[16px] transition-colors ${
+              canSearch
+                ? "bg-primary text-on-primary hover:bg-primary-active cursor-pointer"
+                : "bg-gray-300 text-gray-500 cursor-not-allowed"
+            }`}
           >
             <span className="typo-body-sm font-semibold whitespace-nowrap">Check Availability</span>
           </motion.button>
