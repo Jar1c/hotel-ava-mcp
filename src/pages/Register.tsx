@@ -42,7 +42,8 @@ export default function Register() {
 
   const [showPassword, setShowPassword] = useState(false)
   const [focused, setFocused] = useState<string | null>(null)
-  const [name, setName] = useState("")
+  const [firstName, setFirstName] = useState("")
+  const [lastName, setLastName] = useState("")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [agreedToTerms, setAgreedToTerms] = useState(false)
@@ -50,8 +51,13 @@ export default function Register() {
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
+  const capitalizeFirst = (value: string) => {
+    if (!value) return value
+    return value.charAt(0).toUpperCase() + value.slice(1)
+  }
+
   const passwordValid = password.length >= 8 && /[A-Z]/.test(password) && /[0-9]/.test(password)
-  const canSubmit = agreedToTerms && passwordValid && name.trim() && email.trim() && !submitting
+  const canSubmit = agreedToTerms && passwordValid && firstName.trim() && lastName.trim() && email.trim() && !submitting
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -61,7 +67,8 @@ export default function Register() {
 
     setSubmitting(true)
     try {
-      await register(email, password, name)
+      const fullName = `${firstName.trim()} ${lastName.trim()}`
+      await register(email, password, fullName)
       setRegisteredEmail(email)
     } catch (err: unknown) {
       let message = "Unable to create account. Please try again."
@@ -226,22 +233,41 @@ export default function Register() {
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
 
-            {/* Full Name */}
-            <div>
-              <label className="text-xs font-medium text-muted block mb-1.5">Full Name</label>
-              <div className="relative">
-                <User className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted pointer-events-none" />
-                <input
-                  type="text"
-                  name="name"
-                  placeholder="Juan Dela Cruz"
-                  className={inputClass("name")}
-                  style={inputStyle("name")}
-                  onFocus={() => setFocused("name")}
-                  onBlur={() => setFocused(null)}
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                />
+            {/* First Name & Last Name */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-medium text-muted block mb-1.5">First Name</label>
+                <div className="relative">
+                  <User className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted pointer-events-none" />
+                  <input
+                    type="text"
+                    name="firstName"
+                    placeholder="Juan"
+                    className={inputClass("firstName")}
+                    style={inputStyle("firstName")}
+                    onFocus={() => setFocused("firstName")}
+                    onBlur={() => setFocused(null)}
+                    value={firstName}
+                    onChange={(e) => setFirstName(capitalizeFirst(e.target.value))}
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-muted block mb-1.5">Last Name</label>
+                <div className="relative">
+                  <User className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted pointer-events-none" />
+                  <input
+                    type="text"
+                    name="lastName"
+                    placeholder="Dela Cruz"
+                    className={inputClass("lastName")}
+                    style={inputStyle("lastName")}
+                    onFocus={() => setFocused("lastName")}
+                    onBlur={() => setFocused(null)}
+                    value={lastName}
+                    onChange={(e) => setLastName(capitalizeFirst(e.target.value))}
+                  />
+                </div>
               </div>
             </div>
 
