@@ -58,7 +58,7 @@ export default function Header() {
           <img src={hotelAvaLogo} alt="Hotel Ava" className="h-10 md:h-12 w-auto mix-blend-multiply" />
         </Link>
 
-        <nav className="hidden md:flex items-center justify-center flex-1 gap-lg">
+        <nav className="hidden md:flex items-center justify-end flex-1 gap-lg">
           {navItems.map((item) =>
             item.path.startsWith("#") ? (
               <a
