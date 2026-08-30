@@ -53,7 +53,7 @@ export default function Header() {
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-hairline bg-white">
-      <div className="max-w-container mx-auto flex h-16 md:h-[72px] w-full items-center px-base">
+      <div className="flex h-16 md:h-[72px] w-full items-center px-5 md:px-8">
         <Link to="/" className="mr-lg md:mr-xl flex-shrink-0">
           <img src={hotelAvaLogo} alt="Hotel Ava" className="h-10 md:h-12 w-auto mix-blend-multiply" />
         </Link>
