@@ -14,6 +14,7 @@ CORS(app, resources={r"/api/*": {"origins": [
     "http://localhost:5173",
     "http://localhost:5174",
     "https://hotel-ava-mcp.vercel.app",
+    "https://hotelava.vercel.app",
 ]}})
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -152,6 +153,13 @@ def verify_email():
 
     try:
         res = supabase.auth.verify_otp({"email": email, "token": token, "type": otp_type})
+        session = res.session
+        if session and session.access_token:
+            return jsonify({
+                "message": "Email verified successfully",
+                "access_token": session.access_token,
+                "refresh_token": session.refresh_token,
+            }), 200
         return jsonify({"message": "Email verified successfully"}), 200
     except Exception as e:
         error_msg = str(e)
@@ -159,6 +167,13 @@ def verify_email():
         if "signup" in otp_type:
             try:
                 res = supabase.auth.verify_otp({"email": email, "token": token, "type": "email"})
+                session = res.session
+                if session and session.access_token:
+                    return jsonify({
+                        "message": "Email verified successfully",
+                        "access_token": session.access_token,
+                        "refresh_token": session.refresh_token,
+                    }), 200
                 return jsonify({"message": "Email verified successfully"}), 200
             except Exception:
                 pass

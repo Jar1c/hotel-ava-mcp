@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react"
-import { Link, useSearchParams } from "react-router"
+import { Link, useSearchParams, useNavigate } from "react-router"
 import { CheckCircle, XCircle, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import hotelLogo from "@/assets/images/Hotel Ava logo.png"
 
-type VerifyState = "loading" | "success" | "expired"
+type VerifyState = "loading" | "success" | "redirecting" | "expired"
 
 export default function VerifyEmail() {
   const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
   const [state, setState] = useState<VerifyState>("loading")
   const [error, setError] = useState("")
 
@@ -30,7 +31,15 @@ export default function VerifyEmail() {
       .then(async (res) => {
         const data = await res.json()
         if (res.ok) {
-          setState("success")
+          // If backend returned tokens, auto-login
+          if (data.access_token && data.refresh_token) {
+            localStorage.setItem("access_token", data.access_token)
+            localStorage.setItem("refresh_token", data.refresh_token)
+            setState("redirecting")
+            setTimeout(() => navigate("/"), 2500)
+          } else {
+            setState("success")
+          }
         } else {
           // Token already used = email is already verified, treat as success
           if (data.error && (data.error.includes("already") || data.error.includes("expired") || data.error.includes("invalid"))) {
@@ -45,7 +54,7 @@ export default function VerifyEmail() {
         setState("expired")
         setError("Network error. Please try again.")
       })
-  }, [])
+  }, [searchParams, navigate])
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#F4F6F8] px-4">
@@ -79,6 +88,22 @@ export default function VerifyEmail() {
                   Sign In to Your Account
                 </Button>
               </Link>
+            </>
+          )}
+
+          {state === "redirecting" && (
+            <>
+              <div className="mx-auto mb-5 flex items-center justify-center w-16 h-16 rounded-full bg-[#3D6B4F]/10">
+                <CheckCircle className="size-7 text-[#3D6B4F]" />
+              </div>
+              <h1 className="text-lg font-bold text-[#2A2A28] mb-2">Email verified!</h1>
+              <p className="text-sm text-[#7A7A70] mb-5">
+                Your account is ready. Redirecting you to the main page...
+              </p>
+              <div className="flex items-center justify-center gap-2 text-sm text-[#82285f]">
+                <Loader2 className="size-4 animate-spin" />
+                <span className="font-medium">Redirecting...</span>
+              </div>
             </>
           )}
 

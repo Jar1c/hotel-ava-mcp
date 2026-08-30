@@ -44,6 +44,8 @@ export default function Register() {
   const [focused, setFocused] = useState<string | null>(null)
   const [firstName, setFirstName] = useState("")
   const [lastName, setLastName] = useState("")
+  const [firstNameError, setFirstNameError] = useState("")
+  const [lastNameError, setLastNameError] = useState("")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [agreedToTerms, setAgreedToTerms] = useState(false)
@@ -51,13 +53,21 @@ export default function Register() {
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
-  const capitalizeFirst = (value: string) => {
+  const formatName = (value: string, onError: (msg: string) => void) => {
+    const hasInvalid = /[^a-zA-Z\s]/.test(value)
+    if (hasInvalid) {
+      onError("Letters and spaces only — no numbers or special characters")
+    } else {
+      onError("")
+    }
+    // Capitalize first letter, keep everything as-is (including invalid chars)
     if (!value) return value
     return value.charAt(0).toUpperCase() + value.slice(1)
   }
 
   const passwordValid = password.length >= 8 && /[A-Z]/.test(password) && /[0-9]/.test(password)
-  const canSubmit = agreedToTerms && passwordValid && firstName.trim() && lastName.trim() && email.trim() && !submitting
+  const hasNameErrors = firstNameError !== "" || lastNameError !== ""
+  const canSubmit = agreedToTerms && passwordValid && firstName.trim() && lastName.trim() && email.trim() && !submitting && !hasNameErrors
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -248,10 +258,13 @@ export default function Register() {
                     onFocus={() => setFocused("firstName")}
                     onBlur={() => setFocused(null)}
                     value={firstName}
-                    onChange={(e) => setFirstName(capitalizeFirst(e.target.value))}
+                    onChange={(e) => setFirstName(formatName(e.target.value, setFirstNameError))}
                     maxLength={50}
                   />
                 </div>
+                {firstNameError && (
+                  <p className="text-xs text-[#A4423A] mt-1.5">{firstNameError}</p>
+                )}
               </div>
               <div>
                 <label className="text-xs font-medium text-muted block mb-1.5">Last Name</label>
@@ -266,10 +279,13 @@ export default function Register() {
                     onFocus={() => setFocused("lastName")}
                     onBlur={() => setFocused(null)}
                     value={lastName}
-                    onChange={(e) => setLastName(capitalizeFirst(e.target.value))}
+                    onChange={(e) => setLastName(formatName(e.target.value, setLastNameError))}
                     maxLength={50}
                   />
                 </div>
+                {lastNameError && (
+                  <p className="text-xs text-[#A4423A] mt-1.5">{lastNameError}</p>
+                )}
               </div>
             </div>
 
