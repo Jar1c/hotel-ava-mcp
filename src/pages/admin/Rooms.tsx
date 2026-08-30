@@ -14,6 +14,7 @@ export default function Rooms() {
   const [sheetOpen, setSheetOpen] = useState(false)
   const [editRoom, setEditRoom] = useState<AdminRoom | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<AdminRoom | null>(null)
+  const [highlightId, setHighlightId] = useState<string | null>(null)
 
   useEffect(() => {
     getRooms().then((data) => {
@@ -51,14 +52,16 @@ export default function Rooms() {
       const updated = await updateRoom({ ...editRoom, ...data })
       if (updated) {
         setRooms((prev) => prev.map((r) => (r.id === editRoom.id ? updated : r)))
+        setHighlightId(editRoom.id)
       }
     } else {
       const created = await addRoom(data)
       if (created) {
         setRooms((prev) => [created, ...prev])
+        setHighlightId(created.id)
       }
     }
-    setSheetOpen(false)
+    setTimeout(() => setHighlightId(null), 2000)
   }
 
   return (
@@ -88,6 +91,7 @@ export default function Rooms() {
           rooms={rooms}
           onEdit={handleEdit}
           onDelete={handleDelete}
+          highlightId={highlightId}
         />
       )}
 

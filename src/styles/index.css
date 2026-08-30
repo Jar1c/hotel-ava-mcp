@@ -447,6 +447,16 @@ html, body {
   animation: scroll-right 40s linear infinite;
 }
 
+/* Highlight blink animation for newly added rooms */
+@keyframes highlight-blink {
+  0%, 100% { background-color: transparent; }
+  25%, 75% { background-color: rgba(130, 40, 95, 0.1); }
+}
+
+.animate-highlight {
+  animation: highlight-blink 0.5s ease-in-out 2;
+}
+
 .carousel-row {
   position: relative;
 }

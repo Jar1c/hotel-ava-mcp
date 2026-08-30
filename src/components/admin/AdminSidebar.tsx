@@ -48,7 +48,7 @@ export default function AdminSidebar() {
               cn(
                 "flex items-center gap-3 rounded-[5px] px-3 py-2.5 text-[13px] font-medium transition-all duration-200",
                 isActive
-                  ? "bg-[#82285f]/30 text-white"
+                  ? "bg-[#82285f] text-white"
                   : "text-[#6b7280] hover:bg-[#f5f6f8] hover:text-[#1a1d26]"
               )
             }
@@ -70,7 +70,7 @@ export default function AdminSidebar() {
               cn(
                 "flex items-center gap-3 rounded-[5px] px-3 py-2.5 text-[13px] font-medium transition-all duration-200",
                 isActive
-                  ? "bg-[#82285f]/30 text-white"
+                  ? "bg-[#82285f] text-white"
                   : "text-[#6b7280] hover:bg-[#f5f6f8] hover:text-[#1a1d26]"
               )
             }

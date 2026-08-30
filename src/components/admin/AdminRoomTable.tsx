@@ -7,6 +7,7 @@ interface AdminRoomTableProps {
   rooms: AdminRoom[]
   onEdit?: (room: AdminRoom) => void
   onDelete?: (roomId: string) => void
+  highlightId?: string | null
 }
 
 type RoomStatus = "available" | "occupied" | "maintenance"
@@ -24,7 +25,7 @@ const statusFilters: { label: string; value: RoomStatus | "all" }[] = [
   { label: "Maintenance", value: "maintenance" },
 ]
 
-export default function AdminRoomTable({ rooms, onEdit, onDelete }: AdminRoomTableProps) {
+export default function AdminRoomTable({ rooms, onEdit, onDelete, highlightId }: AdminRoomTableProps) {
   const [filter, setFilter] = useState<RoomStatus | "all">("all")
 
   const filtered = filter === "all" ? rooms : rooms.filter((r) => r.status === filter)
@@ -70,7 +71,10 @@ export default function AdminRoomTable({ rooms, onEdit, onDelete }: AdminRoomTab
               return (
                 <tr
                   key={room.id}
-                  className="border-b border-[#f0f1f3] last:border-b-0 hover:bg-[#f5f6f8] transition-colors duration-150"
+                  className={cn(
+                    "border-b border-[#f0f1f3] last:border-b-0 hover:bg-[#f5f6f8] transition-colors duration-150",
+                    highlightId === room.id && "animate-highlight"
+                  )}
                 >
                   <td className="px-5 py-3">
                     <div className="size-10 rounded-[4px] overflow-hidden bg-[#f0f1f3]">

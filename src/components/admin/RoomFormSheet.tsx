@@ -22,6 +22,30 @@ const MAX_IMAGES = 5
 
 const roomTypes = ["Standard", "Deluxe", "Executive Deluxe", "Regular Suite", "Superior Suite"]
 
+// Hotel Ava Malate room type presets
+const roomTypePresets: Record<string, { capacity: number; amenities: string[] }> = {
+  "Standard": {
+    capacity: 2,
+    amenities: ["Air Conditioning", "Free WiFi", "Cable TV", "Hot & Cold Shower", "Personal Care Kit"],
+  },
+  "Deluxe": {
+    capacity: 2,
+    amenities: ["Air Conditioning", "Free WiFi", "Smart TV", "Hot & Cold Shower", "Personal Care Kit", "Hairdryer", "Private Garage"],
+  },
+  "Executive Deluxe": {
+    capacity: 2,
+    amenities: ["Air Conditioning", "Free WiFi", "Smart TV", "Hot & Cold Shower", "Personal Care Kit", "Hairdryer", "Private Garage", "Bathtub"],
+  },
+  "Regular Suite": {
+    capacity: 2,
+    amenities: ["Air Conditioning", "Free WiFi", "Smart TV", "Hot & Cold Shower", "Personal Care Kit", "Hairdryer", "Private Garage", "Bathtub", "KTV"],
+  },
+  "Superior Suite": {
+    capacity: 2,
+    amenities: ["Air Conditioning", "Free WiFi", "Smart TV", "Hot & Cold Shower", "Personal Care Kit", "Hairdryer", "Private Garage", "Bathtub", "Jacuzzi", "KTV"],
+  },
+}
+
 const amenityIcons: Record<string, React.ReactNode> = {
   "Air Conditioning": <Snowflake className="size-3.5 text-black" />,
   "Hot & Cold Shower": <ShowerHead className="size-3.5 text-black" />,
@@ -39,7 +63,7 @@ const amenityIcons: Record<string, React.ReactNode> = {
 interface RoomFormSheetProps {
   open: boolean
   onClose: () => void
-  onSave: (data: RoomFormData) => void
+  onSave: (data: RoomFormData) => Promise<void> | void
   editRoom?: AdminRoom | null
 }
 
@@ -48,8 +72,8 @@ function emptyForm(): RoomFormData {
     name: "",
     type: "Standard",
     price: 0,
-    capacity: 2,
-    amenities: [],
+    capacity: roomTypePresets["Standard"].capacity,
+    amenities: [...roomTypePresets["Standard"].amenities],
     images: [],
     status: "available",
   }
@@ -68,6 +92,7 @@ export default function RoomFormSheet({ open, onClose, onSave, editRoom }: RoomF
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [, setUploadQueue] = useState<File[]>([])
+  const [saving, setSaving] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const resetForm = () => {
@@ -76,6 +101,7 @@ export default function RoomFormSheet({ open, onClose, onSave, editRoom }: RoomF
     setUploading(false)
     setUploadProgress(0)
     setUploadQueue([])
+    setSaving(false)
   }
 
   const handleClose = () => {
@@ -89,14 +115,22 @@ export default function RoomFormSheet({ open, onClose, onSave, editRoom }: RoomF
     if (!form.type) errs.type = "Room type is required"
     if (form.price <= 0) errs.price = "Price must be greater than 0"
     if (form.capacity <= 0) errs.capacity = "Capacity must be greater than 0"
+    if (form.images.length === 0) errs.images = "At least 1 image is required"
     setErrors(errs)
     return Object.keys(errs).length === 0
   }
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!validate()) return
-    onSave(form)
-    handleClose()
+    setSaving(true)
+    try {
+      await onSave(form)
+      handleClose()
+    } catch {
+      // keep dialog open on error
+    } finally {
+      setSaving(false)
+    }
   }
 
   const toggleAmenity = (amenity: string) => {
@@ -160,6 +194,7 @@ export default function RoomFormSheet({ open, onClose, onSave, editRoom }: RoomF
   }
 
   const canAddMore = form.images.length < MAX_IMAGES && !uploading
+  const canSubmit = form.images.length > 0 && !uploading && !saving
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) handleClose() }}>
@@ -219,7 +254,16 @@ export default function RoomFormSheet({ open, onClose, onSave, editRoom }: RoomF
                     </div>
                     <select
                       value={form.type}
-                      onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}
+                      onChange={(e) => {
+                        const newType = e.target.value
+                        const preset = roomTypePresets[newType]
+                        setForm((f) => ({
+                          ...f,
+                          type: newType,
+                          capacity: preset?.capacity ?? f.capacity,
+                          amenities: preset?.amenities ?? f.amenities,
+                        }))
+                      }}
                       className="w-full rounded-[6px] border border-[#e2e4e8] bg-white pl-9 pr-8 py-2.5 text-[13px] text-[#1a1d26] focus:outline-none focus:ring-2 focus:ring-[#82285f]/15 focus:border-[#82285f] transition-all appearance-none"
                     >
                       {roomTypes.map((t) => (
@@ -383,9 +427,8 @@ export default function RoomFormSheet({ open, onClose, onSave, editRoom }: RoomF
                 </div>
               </div>
             ) : null}
+            {errors.images && <p className="text-[10px] text-[#A4423A] mt-2">{errors.images}</p>}
           </div>
-
-          {/* Section: Amenities */}
           <div>
             <div className="flex items-center gap-2 mb-3">
               <div className="w-[3px] h-4 rounded-full bg-[#82285f]" />
@@ -422,9 +465,18 @@ export default function RoomFormSheet({ open, onClose, onSave, editRoom }: RoomF
           </Button>
           <Button
             onClick={handleSave}
-            className="bg-[#82285f] hover:bg-[#6b1f4b] text-white text-[12px] rounded-[6px] px-4 py-2 gap-1.5"
+            disabled={!canSubmit}
+            className="bg-[#82285f] hover:bg-[#6b1f4b] disabled:bg-[#d5d8dd] disabled:cursor-not-allowed text-white text-[12px] rounded-[6px] px-4 py-2 gap-1.5"
           >
-            {editRoom ? "Save Changes" : (
+            {saving ? (
+              <span className="flex items-center gap-2">
+                <svg className="animate-spin size-3.5" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+                Saving...
+              </span>
+            ) : editRoom ? "Save Changes" : (
               <>
                 <span className="text-[14px] leading-none">+</span>
                 Add Room
