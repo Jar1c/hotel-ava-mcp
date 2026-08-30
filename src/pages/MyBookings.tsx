@@ -29,7 +29,7 @@ const tabs: { id: TabFilter; label: string; icon: React.ReactNode }[] = [
 function formatDateRange(checkIn: string, checkOut: string) {
   const ci = new Date(checkIn)
   const co = new Date(checkOut)
-  const opts: Intl.DateTimeFormatOptions = { month: "2-digit", day: "2-digit", year: "numeric" }
+  const opts: Intl.DateTimeFormatOptions = { month: "2-digit", day: "2-digit", year: "2-digit" }
   return `${ci.toLocaleDateString("en-US", opts)} – ${co.toLocaleDateString("en-US", opts)}`
 }
 

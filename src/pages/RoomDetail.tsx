@@ -7,7 +7,7 @@ import {
   Wifi, Wind, Wine, ConciergeBell, Building2, BedDouble,
   TreePine, Coffee, Sunrise, Bath, UserCheck, Sofa,
   Baby, Waves, Fence, Droplets, Monitor, Armchair,
-  Shirt, Fish, Sunset, UtensilsCrossed, Tv, Sparkles, Music
+  Shirt, Fish, Sunset, UtensilsCrossed, Tv, Sparkles, Music, Clock
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import DateInput from "@/components/ui/date-input"
@@ -74,6 +74,7 @@ export default function RoomDetail() {
     return v ? new Date(v) : null
   })
   const [guests, setGuests] = useState(() => Number(searchParams.get("guests")) || 1)
+  const [stays, setStays] = useState<string>(searchParams.get("stays") || "24 Hours")
   const [showAuthModal, setShowAuthModal] = useState(false)
   const { isAuthenticated } = useAuth()
   const navigate = useNavigate()
@@ -282,6 +283,21 @@ export default function RoomDetail() {
                 </div>
 
                 <div>
+                  <label className="typo-caption text-muted block mb-xs">Stays</label>
+                  <div className="relative">
+                    <Clock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted pointer-events-none" />
+                    <select
+                      value={stays}
+                      onChange={(e) => setStays(e.target.value)}
+                      className="w-full pl-9 pr-3 py-2 rounded-[12px] border border-hairline bg-white typo-body-sm text-ink focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary appearance-none"
+                    >
+                      <option value="12 Hours">12 Hours</option>
+                      <option value="24 Hours">24 Hours</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
                   <label className="typo-caption text-muted block mb-xs">Guests</label>
                   <select
                     value={guests}
@@ -308,6 +324,7 @@ export default function RoomDetail() {
                       if (checkIn) params.set("checkIn", checkIn.toISOString())
                       if (checkOut) params.set("checkOut", checkOut.toISOString())
                       params.set("guests", String(guests))
+                      params.set("stays", stays)
                       navigate(`/booking/${id}?${params.toString()}`)
                     }
                   }}

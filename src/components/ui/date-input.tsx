@@ -17,7 +17,7 @@ export default function DateInput({ value, onClick, placeholder, ref }: DateInpu
     >
       <Calendar className="h-4 w-4 text-muted shrink-0" />
       <span className="typo-body-sm text-ink truncate">
-        {value || placeholder || "Select date"}
+        {value || placeholder || "mm/dd/yy"}
       </span>
     </button>
   )

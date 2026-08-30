@@ -38,7 +38,11 @@ function getInitialFilters(searchParams: URLSearchParams): FilterState {
   return {
     checkIn: searchParams.get("checkIn") || "",
     checkOut: searchParams.get("checkOut") || "",
-    guests: Number(searchParams.get("guests")) || 1,
+    guests: {
+      adults: Number(searchParams.get("adults")) || 2,
+      children: Number(searchParams.get("children")) || 0,
+    },
+    stays: searchParams.get("stays") || "24 Hours",
     budget: Number(searchParams.get("budget")) || 0,
     sortBy: "rating"
   }
@@ -73,13 +77,14 @@ function scoreRoom(room: Room, filters: FilterState): number {
   }
 
   // Guests scoring: penalty for capacity mismatch
-  if (filters.guests > 0) {
-    if (room.capacity >= filters.guests) {
+  const totalGuests = filters.guests.adults + filters.guests.children
+  if (totalGuests > 0) {
+    if (room.capacity >= totalGuests) {
       // Exact fit or larger = small bonus
-      score += (room.capacity - filters.guests) * 2
+      score += (room.capacity - totalGuests) * 2
     } else {
       // Can't fit = big penalty
-      score -= (filters.guests - room.capacity) * 25
+      score -= (totalGuests - room.capacity) * 25
     }
   }
 
@@ -142,8 +147,9 @@ export default function Rooms() {
   const filteredRooms = useMemo(() => {
     let result = [...roomsData]
 
-    if (filters.guests > 0) {
-      result = result.filter((room) => room.capacity >= filters.guests)
+    if (filters.guests.adults + filters.guests.children > 0) {
+      const totalGuests = filters.guests.adults + filters.guests.children
+      result = result.filter((room) => room.capacity >= totalGuests)
     }
 
     if (filters.budget > 0) {
@@ -212,7 +218,7 @@ export default function Rooms() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: 0.15, ease: [0.22, 1, 0.36, 1] as const }}
           className="mx-auto"
-          style={{ maxWidth: "800px" }}
+          style={{ maxWidth: "950px" }}
         >
           <SearchFilters initialFilters={filters} onFilterChange={setFilters} />
         </motion.div>
@@ -227,14 +233,24 @@ export default function Rooms() {
                 for {calculateNights(filters.checkIn, filters.checkOut)} {calculateNights(filters.checkIn, filters.checkOut) === 1 ? "night" : "nights"}
               </span>
             )}
-            {!loading && filters.guests > 0 && (
+            {!loading && (filters.guests.adults + filters.guests.children) > 0 && (
               <span className="typo-caption-sm text-muted">
-                · {filters.guests} {filters.guests === 1 ? "guest" : "guests"}
+                · {filters.guests.adults + filters.guests.children} {(filters.guests.adults + filters.guests.children) === 1 ? "guest" : "guests"}
               </span>
             )}
             {!loading && filters.budget > 0 && (
               <span className="typo-caption-sm text-muted">
                 · up to &#x20B1;{filters.budget.toLocaleString()}
+              </span>
+            )}
+            {!loading && filters.stays && (
+              <span className="typo-caption-sm text-muted">
+                · {filters.stays}
+              </span>
+            )}
+            {!loading && (filters.guests.adults + filters.guests.children > 0) && (
+              <span className="typo-caption-sm text-muted">
+                · {filters.guests.adults} {filters.guests.adults === 1 ? "adult" : "adults"}{filters.guests.children > 0 ? `, ${filters.guests.children} ${filters.guests.children === 1 ? "child" : "children"}` : ""}
               </span>
             )}
           </div>
@@ -275,7 +291,7 @@ export default function Rooms() {
                 <Sparkles className="h-5 w-5 shrink-0" />
                 <div>
                   <h3 className="typo-title-md text-ink mb-1">
-                    {filters.budget > 0 && filters.guests > 1
+                    {filters.budget > 0 && (filters.guests.adults + filters.guests.children) > 1
                       ? "No exact match found"
                       : "No rooms found for your criteria"}
                   </h3>

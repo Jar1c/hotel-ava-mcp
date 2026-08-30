@@ -3,14 +3,16 @@ import { useNavigate } from "react-router"
 import { motion } from "motion/react"
 import DatePicker from "react-datepicker"
 import { format } from "date-fns"
-import { Calendar, ChevronDown } from "lucide-react"
+import { Calendar, ChevronDown, Clock } from "lucide-react"
+import GuestSelector, { type GuestCount } from "@/components/ui/guest-selector"
 
 export default function SearchBar() {
   const navigate = useNavigate()
   const [checkIn, setCheckIn] = useState<Date | null>(null)
   const [checkOut, setCheckOut] = useState<Date | null>(null)
-  const [guests, setGuests] = useState<number>(2)
+  const [guests, setGuests] = useState<GuestCount>({ adults: 2, children: 0 })
   const [budget, setBudget] = useState<string>("")
+  const [stays, setStays] = useState<string>("24 Hours")
 
   const canSearch = checkIn !== null && checkOut !== null
 
@@ -19,7 +21,9 @@ export default function SearchBar() {
     const searchParams = new URLSearchParams()
     if (checkIn) searchParams.set("checkIn", format(checkIn, "yyyy-MM-dd"))
     if (checkOut) searchParams.set("checkOut", format(checkOut, "yyyy-MM-dd"))
-    searchParams.set("guests", String(guests))
+    searchParams.set("adults", String(guests.adults))
+    searchParams.set("children", String(guests.children))
+    searchParams.set("stays", stays)
     if (budget) searchParams.set("budget", budget)
     navigate({
       pathname: "/rooms",
@@ -31,65 +35,81 @@ export default function SearchBar() {
     <div className="w-full bg-white rounded-[16px] shadow-card-hover border border-hairline">
       <div className="flex flex-col md:flex-row md:items-center">
         {/* Check In */}
-        <div className="w-1/2 md:flex-1 min-w-0 px-base py-3">
-          <label className="typo-caption font-display font-semibold text-ink uppercase tracking-wider block mb-1">Check-In</label>
-          <DatePicker
-            selected={checkIn}
-            onChange={(date: Date | null) => setCheckIn(date)}
-            selectsStart
-            startDate={checkIn}
-            endDate={checkOut}
-            minDate={new Date()}
-            customInput={
-              <button className="w-full flex items-center gap-2 text-left bg-transparent border-none p-0 cursor-pointer">
-                <Calendar className="h-4 w-4 text-muted shrink-0" />
-                <span className="typo-body-sm text-ink truncate">{checkIn ? format(checkIn, "dd/MM/yyyy") : "dd/mm/yyyy"}</span>
-              </button>
-            }
-          />
+        <div className="w-1/2 md:flex-1 min-w-0 px-5 py-4 relative z-20">
+          <label className="typo-caption font-display font-semibold text-ink uppercase tracking-wider block mb-1.5">Check-In</label>
+          <div className="relative">
+            <DatePicker
+              selected={checkIn}
+              onChange={(date: Date | null) => setCheckIn(date)}
+              selectsStart
+              startDate={checkIn}
+              endDate={checkOut}
+              minDate={new Date()}
+              popperPlacement="bottom"
+              popperProps={{ strategy: "fixed" }}
+              calendarClassName="border border-hairline rounded-[12px] shadow-dropdown"
+              wrapperClassName="w-full"
+              customInput={
+                <button className="w-full flex items-center gap-2 text-left bg-transparent border-none p-0 cursor-pointer">
+                  <Calendar className="h-4 w-4 text-muted shrink-0" />
+                  <span className="typo-body-sm text-ink truncate">{checkIn ? format(checkIn, "MM/dd/yy") : "mm/dd/yy"}</span>
+                </button>
+              }
+            />
+          </div>
         </div>
 
         {/* Check Out */}
-        <div className="w-1/2 md:flex-1 min-w-0 px-base py-3">
-          <label className="typo-caption font-display font-semibold text-ink uppercase tracking-wider block mb-1">Check-Out</label>
-          <DatePicker
-            selected={checkOut}
-            onChange={(date: Date | null) => setCheckOut(date)}
-            selectsEnd
-            startDate={checkIn}
-            endDate={checkOut}
-            minDate={checkIn || new Date()}
-            customInput={
-              <button className="w-full flex items-center gap-2 text-left bg-transparent border-none p-0 cursor-pointer">
-                <Calendar className="h-4 w-4 text-muted shrink-0" />
-                <span className="typo-body-sm text-ink truncate">{checkOut ? format(checkOut, "dd/MM/yyyy") : "dd/mm/yyyy"}</span>
-              </button>
-            }
-          />
+        <div className="w-1/2 md:flex-1 min-w-0 px-5 py-4 relative z-20">
+          <label className="typo-caption font-display font-semibold text-ink uppercase tracking-wider block mb-1.5">Check-Out</label>
+          <div className="relative">
+            <DatePicker
+              selected={checkOut}
+              onChange={(date: Date | null) => setCheckOut(date)}
+              selectsEnd
+              startDate={checkIn}
+              endDate={checkOut}
+              minDate={checkIn || new Date()}
+              popperPlacement="bottom"
+              popperProps={{ strategy: "fixed" }}
+              calendarClassName="border border-hairline rounded-[12px] shadow-dropdown"
+              wrapperClassName="w-full"
+              customInput={
+                <button className="w-full flex items-center gap-2 text-left bg-transparent border-none p-0 cursor-pointer">
+                  <Calendar className="h-4 w-4 text-muted shrink-0" />
+                  <span className="typo-body-sm text-ink truncate">{checkOut ? format(checkOut, "MM/dd/yy") : "mm/dd/yy"}</span>
+                </button>
+              }
+            />
+          </div>
         </div>
 
-        {/* Guests */}
-        <div className="w-1/2 md:flex-1 min-w-0 px-base py-3">
-          <label className="typo-caption font-display font-semibold text-ink uppercase tracking-wider block mb-1">Guests</label>
+        {/* Stays */}
+        <div className="w-1/2 md:flex-1 min-w-0 px-5 py-4">
+          <label className="typo-caption font-display font-semibold text-ink uppercase tracking-wider block mb-1.5">Stays</label>
           <div className="relative">
+            <Clock className="absolute left-0 top-1/2 -translate-y-1/2 h-4 w-4 text-muted pointer-events-none" />
             <select
-              value={guests}
-              onChange={(e) => setGuests(Number(e.target.value))}
-              className="w-full bg-transparent border-none typo-body-sm text-ink focus:outline-none appearance-none cursor-pointer pr-4 font-semibold"
+              value={stays}
+              onChange={(e) => setStays(e.target.value)}
+              className="w-full bg-transparent border-none typo-body-sm text-ink focus:outline-none appearance-none cursor-pointer pl-5 pr-4 font-semibold"
             >
-              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
-                <option key={n} value={n}>
-                  {n} {n === 1 ? "Guest" : "Guests"}
-                </option>
-              ))}
+              <option value="12 Hours">12 Hours</option>
+              <option value="24 Hours">24 Hours</option>
             </select>
             <ChevronDown className="absolute right-0 top-1/2 -translate-y-1/2 h-4 w-4 text-muted pointer-events-none" />
           </div>
         </div>
 
+        {/* Guests */}
+        <div className="w-1/2 md:flex-1 min-w-0 px-5 py-4">
+          <label className="typo-caption font-display font-semibold text-ink uppercase tracking-wider block mb-1.5">Guests</label>
+          <GuestSelector value={guests} onChange={setGuests} />
+        </div>
+
         {/* Budget */}
-        <div className="w-1/2 md:flex-1 min-w-0 px-base py-3">
-          <label className="typo-caption font-display font-semibold text-ink uppercase tracking-wider block mb-1">Budget</label>
+        <div className="w-1/2 md:flex-1 min-w-0 px-5 py-4">
+          <label className="typo-caption font-display font-semibold text-ink uppercase tracking-wider block mb-1.5">Budget</label>
           <div className="relative">
             <span className="absolute left-0 top-1/2 -translate-y-1/2 text-ink pointer-events-none">&#x20B1;</span>
             <input
@@ -104,7 +124,7 @@ export default function SearchBar() {
         </div>
 
         {/* Check Availability Button */}
-        <div className="px-base py-3 md:pr-1.5 md:py-1.5 w-full md:w-auto">
+        <div className="px-5 py-4 md:pr-3 md:py-3 w-full md:w-auto">
           <motion.button
             onClick={handleSearch}
             disabled={!canSearch}

@@ -60,7 +60,8 @@ export default function RoomCard({ room, filters }: RoomCardProps) {
     const params = new URLSearchParams()
     if (filters?.checkIn) params.set("checkIn", filters.checkIn)
     if (filters?.checkOut) params.set("checkOut", filters.checkOut)
-    if (filters?.guests && filters.guests > 0) params.set("guests", String(filters.guests))
+    const totalGuests = filters?.guests ? filters.guests.adults + filters.guests.children : 0
+    if (totalGuests > 0) params.set("guests", String(totalGuests))
     const qs = params.toString()
     return `/rooms/${room.id}${qs ? `?${qs}` : ""}`
   })()

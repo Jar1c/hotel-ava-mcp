@@ -122,7 +122,7 @@ export default function Home() {
         </div>
         {/* SearchBar — overlaps hero bottom edge */}
         <div className="absolute bottom-0 left-1/2 w-full px-base z-10" style={{ transform: "translate(-50%, 50%)" }}>
-          <div className="mx-auto" style={{ maxWidth: "800px" }}>
+          <div className="mx-auto" style={{ maxWidth: "950px" }}>
             <SearchBar />
           </div>
         </div>

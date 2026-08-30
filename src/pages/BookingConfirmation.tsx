@@ -100,7 +100,7 @@ export default function BookingConfirmation() {
                   <span className="text-muted">Check-in</span>
                   <span className="text-ink">
                     {new Date(booking.check_in).toLocaleDateString("en-US", {
-                      month: "2-digit", day: "2-digit", year: "numeric",
+                      month: "2-digit", day: "2-digit", year: "2-digit",
                     })}
                   </span>
                 </div>
@@ -110,7 +110,7 @@ export default function BookingConfirmation() {
                   <span className="text-muted">Check-out</span>
                   <span className="text-ink">
                     {new Date(booking.check_out).toLocaleDateString("en-US", {
-                      month: "2-digit", day: "2-digit", year: "numeric",
+                      month: "2-digit", day: "2-digit", year: "2-digit",
                     })}
                   </span>
                 </div>

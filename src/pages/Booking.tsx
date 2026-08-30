@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react"
 import { useParams, useNavigate, useSearchParams } from "react-router"
-import { ArrowLeft, Calendar, Check, CreditCard, AlertCircle } from "lucide-react"
+import { ArrowLeft, Calendar, Check, CreditCard, AlertCircle, Clock } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import DatePicker from "react-datepicker"
@@ -34,6 +34,7 @@ export default function Booking() {
     searchParams.get("checkOut") ? new Date(searchParams.get("checkOut")!) : null
   )
   const [guests, setGuests] = useState(Number(searchParams.get("guests")) || 1)
+  const [stays, setStays] = useState<string>(searchParams.get("stays") || "24 Hours")
 
   useEffect(() => {
     if (!id) return
@@ -89,6 +90,7 @@ export default function Booking() {
           check_in: checkIn!.toISOString().split("T")[0],
           check_out: checkOut!.toISOString().split("T")[0],
           guests,
+          stays,
           full_name: user.name,
           email: user.email,
           total_price: total,
@@ -166,7 +168,7 @@ export default function Booking() {
                 <Calendar className="h-5 w-5 text-primary" />
                 Stay Details
               </h2>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-md">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-md">
                 <div>
                   <label className="typo-caption text-muted block mb-xs">Check-in</label>
                   <DatePicker
@@ -189,6 +191,20 @@ export default function Booking() {
                     minDate={checkIn ? new Date(checkIn.getTime() + 86400000) : new Date()}
                     customInput={<DateInput placeholder="Select date" />}
                   />
+                </div>
+                <div>
+                  <label className="typo-caption text-muted block mb-xs">Stays</label>
+                  <div className="relative">
+                    <Clock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted pointer-events-none" />
+                    <select
+                      value={stays}
+                      onChange={(e) => setStays(e.target.value)}
+                      className="w-full pl-9 pr-3 py-2 rounded-[12px] border border-hairline bg-white typo-body-sm text-ink focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary appearance-none"
+                    >
+                      <option value="12 Hours">12 Hours</option>
+                      <option value="24 Hours">24 Hours</option>
+                    </select>
+                  </div>
                 </div>
                 <div>
                   <label className="typo-caption text-muted block mb-xs">Guests</label>
@@ -262,13 +278,14 @@ export default function Booking() {
                   <div className="mt-md pt-md border-t border-hairline space-y-xs">
                     {hasDates && validNights ? (
                       <p className="typo-caption-sm text-muted">
-                        {checkIn!.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" })} –{" "}
-                        {checkOut!.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" })}
+                        {checkIn!.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "2-digit" })} –{" "}
+                        {checkOut!.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "2-digit" })}
                       </p>
                     ) : (
                       <p className="typo-caption-sm text-muted">Dates not selected</p>
                     )}
                     <p className="typo-caption-sm text-muted">{guests} {guests === 1 ? "guest" : "guests"}</p>
+                    <p className="typo-caption-sm text-muted">{stays}</p>
                   </div>
 
                   <div className="mt-md space-y-xs">
