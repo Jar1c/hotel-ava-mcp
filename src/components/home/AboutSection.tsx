@@ -123,7 +123,7 @@ export default function AboutSection() {
             }}
           >
             <img
-              src="https://hotel-ava.com/wp-content/uploads/2022/10/Hotel-Ava_gallery-page_room11.png"
+              src="https://images.unsplash.com/photo-1590490360182-c33d57733427?w=800&h=600&fit=crop"
               alt="Hotel Ava regular suite interior"
               className="w-full h-full object-cover"
             />
