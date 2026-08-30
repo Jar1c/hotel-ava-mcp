@@ -1,6 +1,6 @@
 import { NavLink, Link, useLocation, useNavigate } from "react-router"
 import { useState } from "react"
-import { User, LogOut, Settings, CalendarDays, ChevronDown, Bell, LogOutIcon } from "lucide-react"
+import { User, LogOut, Settings, CalendarDays, ChevronDown, Bell } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage, HotelLogoIcon } from "@/components/ui/avatar"
 import {
@@ -165,13 +165,8 @@ export default function Header() {
               </svg>
             </button>
 
-            {/* Icon */}
-            <div className="mx-auto mb-5 flex items-center justify-center w-14 h-14 rounded-full bg-[#fdf2f1]">
-              <LogOutIcon className="w-6 h-6 text-[#A4423A]" />
-            </div>
-
-            <h2 className="text-lg font-semibold text-ink mb-2">Log Out</h2>
-            <p className="text-sm text-muted mb-7">Are you sure you want to log out? You'll be redirected to the login page.</p>
+            <h2 className="text-lg font-semibold text-ink mb-2 mt-2">Sign Out</h2>
+            <p className="text-sm text-muted mb-7">Are you sure you want to sign out? You'll be redirected to the login page.</p>
 
             <div className="flex gap-3">
               <Button
@@ -184,9 +179,9 @@ export default function Header() {
               <Button
                 onClick={handleSignOut}
                 disabled={isLoggingOut}
-                className="flex-1 py-2.5 text-sm font-medium !rounded-[8px] bg-[#A4423A] text-white hover:bg-[#8c3630] cursor-pointer"
+                className="flex-1 py-2.5 text-sm font-medium !rounded-[8px] bg-primary text-on-primary hover:bg-primary-active cursor-pointer"
               >
-                {isLoggingOut ? "Logging out..." : "Log Out"}
+                {isLoggingOut ? "Signing out..." : "Sign Out"}
               </Button>
             </div>
           </div>
