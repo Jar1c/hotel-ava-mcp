@@ -262,8 +262,8 @@ export default function Booking() {
                   <div className="mt-md pt-md border-t border-hairline space-y-xs">
                     {hasDates && validNights ? (
                       <p className="typo-caption-sm text-muted">
-                        {checkIn!.toLocaleDateString("en-US", { month: "short", day: "numeric" })} –{" "}
-                        {checkOut!.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                        {checkIn!.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" })} –{" "}
+                        {checkOut!.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" })}
                       </p>
                     ) : (
                       <p className="typo-caption-sm text-muted">Dates not selected</p>

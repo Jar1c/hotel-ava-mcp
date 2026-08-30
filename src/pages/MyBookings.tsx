@@ -29,12 +29,8 @@ const tabs: { id: TabFilter; label: string; icon: React.ReactNode }[] = [
 function formatDateRange(checkIn: string, checkOut: string) {
   const ci = new Date(checkIn)
   const co = new Date(checkOut)
-  const sameMonth = ci.getMonth() === co.getMonth() && ci.getFullYear() === co.getFullYear()
-  const opts: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" }
-  if (sameMonth) {
-    return `${ci.toLocaleDateString("en-US", opts)} – ${co.toLocaleDateString("en-US", { day: "numeric" })}, ${co.getFullYear()}`
-  }
-  return `${ci.toLocaleDateString("en-US", opts)} – ${co.toLocaleDateString("en-US", { ...opts, year: "numeric" })}`
+  const opts: Intl.DateTimeFormatOptions = { month: "2-digit", day: "2-digit", year: "numeric" }
+  return `${ci.toLocaleDateString("en-US", opts)} – ${co.toLocaleDateString("en-US", opts)}`
 }
 
 export default function MyBookings() {
