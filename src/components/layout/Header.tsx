@@ -1,6 +1,6 @@
 import { NavLink, Link, useLocation, useNavigate } from "react-router"
 import { useState } from "react"
-import { User, LogOut, Settings, CalendarDays, ChevronDown, Bell } from "lucide-react"
+import { User, LogOut, Settings, CalendarDays, ChevronDown, Bell, CheckCheck, Tag, Clock } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage, HotelLogoIcon } from "@/components/ui/avatar"
 import {
@@ -14,12 +14,70 @@ import { useAuth } from "@/contexts/AuthContext"
 import { publicNavItems, guestNavItems } from "@/data/navigation"
 import hotelAvaLogo from "@/assets/images/Hotel Ava logo.png"
 
+interface Notification {
+  id: number
+  type: "booking" | "promo" | "reminder" | "system"
+  title: string
+  message: string
+  time: string
+  read: boolean
+}
+
+const mockNotifications: Notification[] = [
+  {
+    id: 1,
+    type: "booking",
+    title: "Booking Confirmed",
+    message: "Your stay at Standard Room on Sep 15-16 is confirmed.",
+    time: "2 min ago",
+    read: false,
+  },
+  {
+    id: 2,
+    type: "promo",
+    title: "Weekend Special Offer",
+    message: "Get 15% off on all suites this weekend! Book now.",
+    time: "1 hour ago",
+    read: false,
+  },
+  {
+    id: 3,
+    type: "reminder",
+    title: "Upcoming Check-in",
+    message: "Don't forget! Your check-in is tomorrow at 2 PM.",
+    time: "3 hours ago",
+    read: true,
+  },
+  {
+    id: 4,
+    type: "system",
+    title: "Profile Updated",
+    message: "Your account settings have been saved successfully.",
+    time: "1 day ago",
+    read: true,
+  },
+]
+
+const notifTypeStyles: Record<string, { bg: string; icon: React.ReactNode }> = {
+  booking: { bg: "bg-gray-100", icon: <CalendarDays className="size-4 text-ink" /> },
+  promo: { bg: "bg-gray-100", icon: <Tag className="size-4 text-ink" /> },
+  reminder: { bg: "bg-gray-100", icon: <Clock className="size-4 text-ink" /> },
+  system: { bg: "bg-gray-100", icon: <Settings className="size-4 text-ink" /> },
+}
+
 export default function Header() {
   const { isAuthenticated, user, logout } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
   const [isLoggingOut, setIsLoggingOut] = useState(false)
+  const [notifications, setNotifications] = useState(mockNotifications)
+
+  const unreadCount = notifications.filter((n) => !n.read).length
+
+  const markAllRead = () => {
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })))
+  }
 
   const handleSignOut = async () => {
     setIsLoggingOut(true)
@@ -53,9 +111,10 @@ export default function Header() {
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-hairline bg-white">
-      <div className="flex h-16 md:h-[72px] w-full items-center px-5 md:px-8">
-        <Link to="/" className="mr-lg md:mr-xl flex-shrink-0">
+      <div className="flex h-16 md:h-[72px] w-full items-center px-5 md:px-8 gap-lg">
+        <Link to="/" className="flex items-center gap-2.5 mr-lg md:mr-xl flex-shrink-0">
           <img src={hotelAvaLogo} alt="Hotel Ava" className="h-10 md:h-12 w-auto mix-blend-multiply" />
+          <span className="font-display font-bold text-lg text-ink hidden sm:block">Hotel Ava</span>
         </Link>
 
         <nav className="hidden md:flex items-center justify-end flex-1 gap-lg">
@@ -98,10 +157,62 @@ export default function Header() {
           ) : (
             <>
               {/* Notification bell */}
-              <button className="relative flex size-9 items-center justify-center rounded-full bg-[#f0f1f3] text-[#6b7280] hover:bg-[#e2e4e8] transition-all duration-200">
-                <Bell className="size-[18px]" />
-                <span className="absolute top-1.5 right-1.5 size-2 rounded-full bg-[#A4423A]" />
-              </button>
+              <DropdownMenu>
+                <DropdownMenuTrigger className="relative flex size-9 items-center justify-center rounded-full bg-[#f0f1f3] text-[#6b7280] hover:bg-[#e2e4e8] transition-all duration-200 cursor-pointer">
+                  <Bell className="size-[18px]" />
+                  {unreadCount > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 flex items-center justify-center size-4 rounded-full bg-[#A4423A] text-white text-[10px] font-bold">
+                      {unreadCount}
+                    </span>
+                  )}
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" sideOffset={8} positionMethod="fixed" className="w-80 !rounded-[12px] p-0 overflow-hidden">
+                  {/* Header */}
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+                    <span className="text-sm font-semibold text-ink">Notifications</span>
+                    {unreadCount > 0 && (
+                      <button onClick={markAllRead} className="text-xs text-primary hover:text-primary-active cursor-pointer flex items-center gap-1">
+                        <CheckCheck className="size-3.5" />
+                        Mark all read
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Notification list */}
+                  <div className="max-h-80 overflow-y-auto overscroll-contain">
+                    {notifications.map((notif) => (
+                      <div
+                        key={notif.id}
+                        className={`flex items-start gap-3 px-4 py-3 hover:bg-gray-50 transition-colors cursor-pointer border-b border-gray-50 last:border-b-0 ${!notif.read ? "bg-primary/5" : ""}`}
+                      >
+                        {/* Type icon */}
+                        <div className={`shrink-0 w-9 h-9 rounded-full flex items-center justify-center ${notifTypeStyles[notif.type].bg}`}>
+                          {notifTypeStyles[notif.type].icon}
+                        </div>
+
+                        {/* Content */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium text-ink truncate">{notif.title}</span>
+                            {!notif.read && (
+                              <span className="shrink-0 size-2 rounded-full bg-primary" />
+                            )}
+                          </div>
+                          <p className="text-xs text-muted mt-0.5 line-clamp-2">{notif.message}</p>
+                          <span className="text-[11px] text-muted-soft mt-1 block">{notif.time}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Footer */}
+                  <div className="border-t border-gray-100 px-4 py-2.5">
+                    <button className="w-full text-center text-xs text-primary hover:text-primary-active font-medium cursor-pointer">
+                      View all notifications
+                    </button>
+                  </div>
+                </DropdownMenuContent>
+              </DropdownMenu>
 
             <DropdownMenu modal={false}>
               <DropdownMenuTrigger className="flex items-center gap-2.5 rounded-full bg-[#f0f1f3] pl-1 pr-3 py-1 cursor-pointer hover:bg-[#e2e4e8] transition-all duration-200">
