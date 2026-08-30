@@ -1,6 +1,6 @@
 import { NavLink, Link, useLocation, useNavigate } from "react-router"
 import { useState } from "react"
-import { User, LogOut, Settings, CalendarDays, ChevronDown, Bell } from "lucide-react"
+import { User, LogOut, Settings, CalendarDays, ChevronDown, Bell, LogOutIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage, HotelLogoIcon } from "@/components/ui/avatar"
 import {
@@ -18,12 +18,15 @@ export default function Header() {
   const { isAuthenticated, user, logout } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
-  const [logoutStage, setLogoutStage] = useState<"idle" | "loading" | "done">("idle")
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
+  const [isLoggingOut, setIsLoggingOut] = useState(false)
 
   const handleSignOut = async () => {
-    setLogoutStage("loading")
+    setIsLoggingOut(true)
     await logout()
-    setLogoutStage("done")
+    setIsLoggingOut(false)
+    setShowLogoutConfirm(false)
+    navigate("/login")
   }
 
   const navItems = !isAuthenticated ? publicNavItems : guestNavItems
@@ -131,7 +134,7 @@ export default function Header() {
                   <span className="text-sm">Settings</span>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={handleSignOut} className="flex items-center gap-2.5 cursor-pointer">
+                <DropdownMenuItem onClick={() => setShowLogoutConfirm(true)} className="flex items-center gap-2.5 cursor-pointer">
                   <LogOut className="size-4 text-muted" />
                   <span className="text-sm">Sign Out</span>
                 </DropdownMenuItem>
@@ -142,18 +145,18 @@ export default function Header() {
         </div>
       </div>
 
-      {/* Sign Out Modal */}
-      {logoutStage !== "idle" && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 animate-fade-in" onClick={() => setLogoutStage("idle")}>
+      {/* Logout Confirmation Modal */}
+      {showLogoutConfirm && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 animate-fade-in" onClick={() => !isLoggingOut && setShowLogoutConfirm(false)}>
           <div
-            className="bg-white rounded-[12px] shadow-lg p-8 text-center animate-scale-in relative overflow-visible"
+            className="bg-white rounded-[16px] shadow-lg p-8 text-center animate-scale-in relative overflow-visible"
             style={{ width: "100%", maxWidth: "360px" }}
             onClick={(e) => e.stopPropagation()}
           >
             {/* Close X button */}
             <button
               type="button"
-              onClick={() => setLogoutStage("idle")}
+              onClick={() => !isLoggingOut && setShowLogoutConfirm(false)}
               className="absolute top-3 right-3 w-8 h-8 flex items-center justify-center rounded-full text-muted hover:text-ink hover:bg-gray-100 transition-colors cursor-pointer z-10"
             >
               <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -162,28 +165,30 @@ export default function Header() {
               </svg>
             </button>
 
-            {logoutStage === "loading" ? (
-              <>
-                <div className="mx-auto mb-5 flex items-center justify-center w-14 h-14 rounded-full bg-gray-100">
-                  <div className="w-6 h-6 rounded-full bg-gray-200 animate-pulse" />
-                </div>
-                <div className="space-y-2.5 flex flex-col items-center">
-                  <div className="h-5 w-32 bg-gray-200 rounded animate-pulse" />
-                  <div className="h-3.5 w-24 bg-gray-200 rounded animate-pulse" />
-                </div>
-              </>
-            ) : (
-              <>
-                <h2 className="text-lg font-semibold text-ink mb-2 mt-2">Signed Out</h2>
-                <p className="text-sm text-muted mb-7">You have been signed out of your account.</p>
-                <Button
-                  onClick={() => navigate("/login")}
-                  className="w-full py-2.5 text-sm font-medium !rounded-[4px] bg-ink text-white hover:bg-ink/90"
-                >
-                  Login Again
-                </Button>
-              </>
-            )}
+            {/* Icon */}
+            <div className="mx-auto mb-5 flex items-center justify-center w-14 h-14 rounded-full bg-[#fdf2f1]">
+              <LogOutIcon className="w-6 h-6 text-[#A4423A]" />
+            </div>
+
+            <h2 className="text-lg font-semibold text-ink mb-2">Log Out</h2>
+            <p className="text-sm text-muted mb-7">Are you sure you want to log out? You'll be redirected to the login page.</p>
+
+            <div className="flex gap-3">
+              <Button
+                onClick={() => setShowLogoutConfirm(false)}
+                disabled={isLoggingOut}
+                className="flex-1 py-2.5 text-sm font-medium !rounded-[8px] bg-gray-100 text-ink hover:bg-gray-200 cursor-pointer"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSignOut}
+                disabled={isLoggingOut}
+                className="flex-1 py-2.5 text-sm font-medium !rounded-[8px] bg-[#A4423A] text-white hover:bg-[#8c3630] cursor-pointer"
+              >
+                {isLoggingOut ? "Logging out..." : "Log Out"}
+              </Button>
+            </div>
           </div>
         </div>
       )}
