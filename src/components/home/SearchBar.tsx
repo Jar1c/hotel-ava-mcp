@@ -35,7 +35,7 @@ export default function SearchBar() {
     <div className="w-full bg-white rounded-[16px] shadow-card-hover border border-hairline">
       <div className="flex flex-col md:flex-row md:items-center">
         {/* Check In */}
-        <div className="w-1/2 md:flex-1 min-w-0 px-5 py-4 relative z-20">
+        <div className="w-1/2 md:flex-1 min-w-0 px-5 py-5 relative z-20">
           <label className="typo-caption font-display font-semibold text-ink uppercase tracking-wider block mb-1.5">Check-In</label>
           <div className="relative">
             <DatePicker
@@ -60,7 +60,7 @@ export default function SearchBar() {
         </div>
 
         {/* Check Out */}
-        <div className="w-1/2 md:flex-1 min-w-0 px-5 py-4 relative z-20">
+        <div className="w-1/2 md:flex-1 min-w-0 px-5 py-5 relative z-20">
           <label className="typo-caption font-display font-semibold text-ink uppercase tracking-wider block mb-1.5">Check-Out</label>
           <div className="relative">
             <DatePicker
@@ -85,7 +85,7 @@ export default function SearchBar() {
         </div>
 
         {/* Stays */}
-        <div className="w-1/2 md:flex-1 min-w-0 px-5 py-4">
+        <div className="w-1/2 md:flex-1 min-w-0 px-5 py-5">
           <label className="typo-caption font-display font-semibold text-ink uppercase tracking-wider block mb-1.5">Stays</label>
           <div className="relative">
             <Clock className="absolute left-0 top-1/2 -translate-y-1/2 h-4 w-4 text-muted pointer-events-none" />
@@ -102,13 +102,13 @@ export default function SearchBar() {
         </div>
 
         {/* Guests */}
-        <div className="w-1/2 md:flex-1 min-w-0 px-5 py-4">
+        <div className="w-1/2 md:flex-1 px-5 py-5">
           <label className="typo-caption font-display font-semibold text-ink uppercase tracking-wider block mb-1.5">Guests</label>
           <GuestSelector value={guests} onChange={setGuests} />
         </div>
 
         {/* Budget */}
-        <div className="w-1/2 md:flex-1 min-w-0 px-5 py-4">
+        <div className="w-1/2 md:flex-1 min-w-0 px-5 py-5">
           <label className="typo-caption font-display font-semibold text-ink uppercase tracking-wider block mb-1.5">Budget</label>
           <div className="relative">
             <span className="absolute left-0 top-1/2 -translate-y-1/2 text-ink pointer-events-none">&#x20B1;</span>
@@ -124,13 +124,13 @@ export default function SearchBar() {
         </div>
 
         {/* Check Availability Button */}
-        <div className="px-5 py-4 md:pr-3 md:py-3 w-full md:w-auto">
+        <div className="px-5 py-5 md:pr-3 md:py-3 w-full md:w-auto">
           <motion.button
             onClick={handleSearch}
             disabled={!canSearch}
             whileHover={canSearch ? { scale: 1.03 } : undefined}
             whileTap={canSearch ? { scale: 0.97 } : undefined}
-            className={`w-full md:w-auto flex items-center justify-center gap-2 px-5 h-12 rounded-[16px] transition-colors ${
+            className={`w-full md:w-auto flex items-center justify-center gap-2 px-5 h-14 rounded-[16px] transition-colors ${
               canSearch
                 ? "bg-primary text-on-primary hover:bg-primary-active cursor-pointer"
                 : "bg-gray-300 text-gray-500 cursor-not-allowed"

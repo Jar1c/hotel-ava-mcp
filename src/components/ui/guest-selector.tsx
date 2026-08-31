@@ -44,7 +44,7 @@ export default function GuestSelector({ value, onChange }: GuestSelectorProps) {
         className="w-full flex items-center gap-2 text-left bg-transparent border-none p-0 cursor-pointer"
       >
         <Users className="h-4 w-4 text-muted shrink-0" />
-        <span className="typo-body-sm text-ink truncate">{summary}</span>
+        <span className="typo-body-sm text-ink whitespace-nowrap">{summary}</span>
       </button>
 
       {isOpen && (

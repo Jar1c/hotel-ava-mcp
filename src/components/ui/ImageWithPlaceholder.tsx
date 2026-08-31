@@ -16,7 +16,10 @@ export default function ImageWithPlaceholder({
   const [error, setError] = useState(false)
 
   return (
-    <div className={`relative w-full h-full bg-canvas-dark/10 overflow-hidden ${!loaded && !error ? "animate-pulse" : ""}`} style={{ backgroundColor: "#F3EFE6" }}>
+    <div className={`relative w-full h-full overflow-hidden ${!loaded && !error ? "bg-gray-200" : ""}`}>
+      {!loaded && !error && (
+        <div className="absolute inset-0 bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200 animate-[shimmer_1.5s_infinite]" />
+      )}
       {!error ? (
         <img
           src={src}

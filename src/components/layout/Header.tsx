@@ -150,7 +150,7 @@ export default function Header() {
         <div className="flex items-center gap-sm ml-auto">
           {!isAuthenticated ? (
             <Link to="/login">
-              <Button variant="default" className="bg-primary text-on-primary hover:bg-primary-active">
+              <Button variant="default" className="bg-primary text-on-primary hover:bg-primary-active px-5 py-2.5 text-sm">
                 Sign In
               </Button>
             </Link>
