@@ -1,11 +1,28 @@
 import { useState, useRef } from "react"
-import { Camera, Lock, Save, Eye, EyeOff } from "lucide-react"
+import { Camera, Lock, Save, Eye, EyeOff, Sun, Moon, Monitor } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useAuth } from "@/contexts/AuthContext"
+import { useTheme, type ThemeMode, type ColorPreset } from "@/contexts/ThemeContext"
 import { authApi } from "@/services/api"
+
+const COLOR_PRESETS: { key: ColorPreset; label: string; primary: string; secondary: string }[] = [
+  { key: "royal-plum", label: "Royal Plum", primary: "#82285f", secondary: "#455d58" },
+  { key: "ocean-blue", label: "Ocean Blue", primary: "#1a6b8a", secondary: "#2d4a5e" },
+  { key: "forest-green", label: "Forest Green", primary: "#2d6a4f", secondary: "#4a7c59" },
+  { key: "sunset-orange", label: "Sunset Orange", primary: "#c45d3e", secondary: "#5e4a2d" },
+  { key: "rose-gold", label: "Rose Gold", primary: "#b76e79", secondary: "#6e7b8b" },
+  { key: "midnight", label: "Midnight", primary: "#1a1a2e", secondary: "#16213e" },
+]
+
+const MODE_OPTIONS: { key: ThemeMode; label: string; icon: typeof Sun }[] = [
+  { key: "light", label: "Light", icon: Sun },
+  { key: "dark", label: "Dark", icon: Moon },
+  { key: "system", label: "System", icon: Monitor },
+]
 
 export default function Settings() {
   const { user, updateUser } = useAuth()
+  const { mode, setMode, colorPreset, setColorPreset } = useTheme()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [avatarPreview, setAvatarPreview] = useState<string>(user?.avatar || "")
   const [uploading, setUploading] = useState(false)
@@ -89,12 +106,70 @@ export default function Settings() {
       <div className="max-w-[560px] mx-auto">
         <h1 className="typo-display-lg text-ink mb-lg">Settings</h1>
 
+        {/* Appearance */}
+        <div className="bg-white border border-hairline rounded-[12px] p-md mb-sm dark:bg-surface-soft dark:border-hairline">
+          <h2 className="typo-title-sm text-ink mb-md">Appearance</h2>
+
+          {/* Mode Toggle */}
+          <div className="flex gap-2 mb-md">
+            {MODE_OPTIONS.map((opt) => {
+              const Icon = opt.icon
+              const active = mode === opt.key
+              return (
+                <button
+                  key={opt.key}
+                  onClick={() => setMode(opt.key)}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-[10px] text-sm font-medium transition-all border ${
+                    active
+                      ? "bg-ink text-on-primary border-ink"
+                      : "bg-transparent text-muted border-hairline hover:border-ink/30 hover:text-ink"
+                  }`}
+                >
+                  <Icon className="h-4 w-4" />
+                  {opt.label}
+                </button>
+              )
+            })}
+          </div>
+
+          {/* Color Presets */}
+          <p className="text-xs text-muted mb-3">Color Scheme</p>
+          <div className="grid grid-cols-3 gap-3">
+            {COLOR_PRESETS.map((preset) => {
+              const active = colorPreset === preset.key
+              return (
+                <button
+                  key={preset.key}
+                  onClick={() => setColorPreset(preset.key)}
+                  className={`flex items-center gap-3 p-3 rounded-[10px] border transition-all ${
+                    active
+                      ? "border-ink ring-2 ring-ink/10"
+                      : "border-hairline hover:border-ink/30"
+                  }`}
+                >
+                  <div className="flex shrink-0">
+                    <div
+                      className="w-6 h-6 rounded-full border border-black/10"
+                      style={{ backgroundColor: preset.primary }}
+                    />
+                    <div
+                      className="w-6 h-6 rounded-full border border-black/10 -ml-2"
+                      style={{ backgroundColor: preset.secondary }}
+                    />
+                  </div>
+                  <span className="text-xs font-medium text-ink">{preset.label}</span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
         {/* Avatar */}
-        <div className="bg-white border border-hairline rounded-[12px] p-md mb-sm">
+        <div className="bg-white border border-hairline rounded-[12px] p-md mb-sm dark:bg-surface-soft dark:border-hairline">
           <h2 className="typo-title-sm text-ink mb-md">Profile Photo</h2>
           <div className="flex items-center gap-md">
             <div
-              className="relative w-20 h-20 rounded-full overflow-hidden bg-gray-100 border-2 border-white shadow-sm cursor-pointer group"
+              className="relative w-20 h-20 rounded-full overflow-hidden bg-gray-100 border-2 border-canvas shadow-sm cursor-pointer group"
               onClick={handleAvatarClick}
             >
               {avatarPreview ? (
@@ -134,7 +209,7 @@ export default function Settings() {
         </div>
 
         {/* Password */}
-        <div className="bg-white border border-hairline rounded-[12px] p-md">
+        <div className="bg-white border border-hairline rounded-[12px] p-md dark:bg-surface-soft dark:border-hairline">
           <h2 className="typo-title-sm text-ink mb-md flex items-center gap-2">
             <Lock className="h-4 w-4" />
             Change Password
@@ -149,7 +224,7 @@ export default function Settings() {
                   type={showCurrent ? "text" : "password"}
                   value={currentPassword}
                   onChange={(e) => setCurrentPassword(e.target.value)}
-                  className="w-full px-3 py-2 border border-hairline rounded-[8px] text-sm bg-white focus:outline-none focus:border-primary/50 transition-colors"
+                  className="w-full px-3 py-2 border border-hairline rounded-[8px] text-sm bg-canvas focus:outline-none focus:border-primary/50 transition-colors dark:bg-surface-soft"
                   placeholder="Enter current password"
                 />
                 <button
@@ -170,7 +245,7 @@ export default function Settings() {
                   type={showNew ? "text" : "password"}
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  className="w-full px-3 py-2 border border-hairline rounded-[8px] text-sm bg-white focus:outline-none focus:border-primary/50 transition-colors"
+                  className="w-full px-3 py-2 border border-hairline rounded-[8px] text-sm bg-canvas focus:outline-none focus:border-primary/50 transition-colors dark:bg-surface-soft"
                   placeholder="Enter new password"
                 />
                 <button
@@ -207,7 +282,7 @@ export default function Settings() {
                 type="password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                className="w-full px-3 py-2 border border-hairline rounded-[8px] text-sm bg-white focus:outline-none focus:border-primary/50 transition-colors"
+                className="w-full px-3 py-2 border border-hairline rounded-[8px] text-sm bg-canvas focus:outline-none focus:border-primary/50 transition-colors dark:bg-surface-soft"
                 placeholder="Confirm new password"
               />
             </div>
@@ -223,8 +298,7 @@ export default function Settings() {
           <Button
             onClick={handlePasswordChange}
             disabled={!newPassword || !confirmPassword || savingPassword}
-            className="mt-md !rounded-[8px]"
-            style={{ backgroundColor: "#82285f", color: "#FBF9F4" }}
+            className="mt-md !rounded-[8px] bg-primary text-primary-foreground hover:bg-primary-active"
           >
             <Save className="h-4 w-4 mr-2" />
             {savingPassword ? "Saving..." : "Update Password"}

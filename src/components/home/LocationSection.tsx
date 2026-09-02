@@ -17,6 +17,9 @@ const staggerItem = {
   },
 }
 
+const MAP_EMBED_URL =
+  "https://maps.google.com/maps?q=2184+Madre+Ignacia+Street+Malate+Manila+Philippines&t=&z=15&ie=UTF8&iwloc=&output=embed"
+
 export default function LocationSection() {
   return (
     <section id="contact" className="px-base py-section bg-surface-soft">
@@ -35,21 +38,25 @@ export default function LocationSection() {
         </motion.div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-lg">
-          {/* Map Placeholder */}
+          {/* Google Maps Embed */}
           <motion.div
-            className="bg-canvas rounded-lg border border-hairline overflow-hidden h-80"
+            className="rounded-lg border border-hairline overflow-hidden h-80"
             initial={{ opacity: 0, x: -30 }}
             whileInView={{ opacity: 1, x: 0 }}
             viewport={{ once: true, margin: "-100px" }}
             transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] as const }}
           >
-            <div className="w-full h-full bg-surface-strong flex items-center justify-center">
-              <div className="text-center">
-                <MapPin className="h-12 w-12 text-primary mx-auto mb-md" />
-                <p className="typo-title-md text-ink">2184 Madre Ignacia Street</p>
-                <p className="typo-body-sm text-muted">Malate, Manila, Philippines</p>
-              </div>
-            </div>
+            <iframe
+              src={MAP_EMBED_URL}
+              width="100%"
+              height="100%"
+              style={{ border: 0 }}
+              allowFullScreen
+              loading="lazy"
+              referrerPolicy="no-referrer-when-downgrade"
+              title="Hotel Ava Location"
+              className="w-full h-full"
+            />
           </motion.div>
 
           {/* Contact Info */}

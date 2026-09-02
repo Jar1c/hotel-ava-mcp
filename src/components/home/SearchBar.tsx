@@ -1,10 +1,12 @@
-import { useState } from "react"
+import { useState, useRef } from "react"
 import { useNavigate } from "react-router"
 import { motion } from "motion/react"
 import DatePicker from "react-datepicker"
 import { format } from "date-fns"
-import { Calendar, ChevronDown, Clock } from "lucide-react"
+import { Calendar } from "lucide-react"
 import GuestSelector, { type GuestCount } from "@/components/ui/guest-selector"
+
+export type StayType = "overnight" | "day"
 
 export default function SearchBar() {
   const navigate = useNavigate()
@@ -12,18 +14,30 @@ export default function SearchBar() {
   const [checkOut, setCheckOut] = useState<Date | null>(null)
   const [guests, setGuests] = useState<GuestCount>({ adults: 2, children: 0 })
   const [budget, setBudget] = useState<string>("")
-  const [stays, setStays] = useState<string>("24 Hours")
+  const [calendarOpen, setCalendarOpen] = useState(false)
+  const datePickerRef = useRef<DatePicker>(null)
 
-  const canSearch = checkIn !== null && checkOut !== null
+  const canSearch = checkIn && checkOut
+
+  const handleDateChange = (dates: [Date | null, Date | null] | null) => {
+    if (!dates) return
+    const [start, end] = dates
+    setCheckIn(start)
+    if (start && end) {
+      setCheckOut(end)
+    } else {
+      setCheckOut(null)
+    }
+  }
 
   const handleSearch = () => {
     if (!canSearch) return
     const searchParams = new URLSearchParams()
+    searchParams.set("stayType", "overnight")
     if (checkIn) searchParams.set("checkIn", format(checkIn, "yyyy-MM-dd"))
     if (checkOut) searchParams.set("checkOut", format(checkOut, "yyyy-MM-dd"))
     searchParams.set("adults", String(guests.adults))
     searchParams.set("children", String(guests.children))
-    searchParams.set("stays", stays)
     if (budget) searchParams.set("budget", budget)
     navigate({
       pathname: "/rooms",
@@ -31,74 +45,91 @@ export default function SearchBar() {
     })
   }
 
+  const handleReset = () => {
+    setCheckIn(null)
+    setCheckOut(null)
+  }
+
+  const calendarFooter = (
+    <div className="flex items-center justify-between px-2 pt-3 border-t border-hairline-soft mt-3">
+      <button
+        type="button"
+        onClick={(e) => {
+          e.preventDefault()
+          handleReset()
+        }}
+        className="typo-body-sm text-muted hover:text-ink transition-colors cursor-pointer"
+      >
+        Reset
+      </button>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.preventDefault()
+          setCalendarOpen(false)
+        }}
+        className="typo-button-sm bg-ink text-on-primary rounded-full px-6 py-2 hover:bg-primary-active transition-colors cursor-pointer"
+      >
+        Done
+      </button>
+    </div>
+  )
+
   return (
     <div className="w-full bg-white rounded-[16px] shadow-card-hover border border-hairline">
       <div className="flex flex-col md:flex-row md:items-center">
         {/* Check In */}
-        <div className="w-1/2 md:flex-1 min-w-0 px-5 py-5 relative z-20">
-          <label className="typo-caption font-display font-semibold text-ink uppercase tracking-wider block mb-1.5">Check-In</label>
-          <div className="relative">
+        <div className="w-1/2 md:flex-1 min-w-0 px-5 py-5 relative">
+          <label className="typo-caption font-display font-semibold text-ink uppercase tracking-wider block mb-1.5 cursor-pointer">
+            Check-In
+          </label>
+          <button
+            type="button"
+            onClick={() => setCalendarOpen(true)}
+            className="w-full flex items-center gap-2 text-left bg-transparent border-none p-0 cursor-pointer"
+          >
+            <Calendar className="h-4 w-4 text-muted shrink-0" />
+            <span className="typo-body-sm text-ink">{checkIn ? format(checkIn, "MM/dd/yy") : "mm/dd/yy"}</span>
+          </button>
+
+          <div className="absolute left-0 bottom-0 h-0 w-0">
             <DatePicker
+              ref={datePickerRef}
               selected={checkIn}
-              onChange={(date: Date | null) => setCheckIn(date)}
-              selectsStart
+              onChange={handleDateChange}
               startDate={checkIn}
               endDate={checkOut}
+              selectsRange
+              monthsShown={2}
               minDate={new Date()}
-              popperPlacement="bottom"
+              open={calendarOpen}
+              onCalendarOpen={() => setCalendarOpen(true)}
+              onClickOutside={() => setCalendarOpen(false)}
+              popperPlacement="bottom-start"
               popperProps={{ strategy: "fixed" }}
-              calendarClassName="border border-hairline rounded-[12px] shadow-dropdown"
-              wrapperClassName="w-full"
-              customInput={
-                <button className="w-full flex items-center gap-2 text-left bg-transparent border-none p-0 cursor-pointer">
-                  <Calendar className="h-4 w-4 text-muted shrink-0" />
-                  <span className="typo-body-sm text-ink truncate">{checkIn ? format(checkIn, "MM/dd/yy") : "mm/dd/yy"}</span>
-                </button>
-              }
-            />
+              calendarClassName="ava-dual-calendar border border-hairline rounded-[12px] shadow-dropdown"
+              customInput={<span className="inline-block w-0 h-0 overflow-hidden" />}
+            >
+              {calendarFooter}
+            </DatePicker>
           </div>
         </div>
 
         {/* Check Out */}
-        <div className="w-1/2 md:flex-1 min-w-0 px-5 py-5 relative z-20">
-          <label className="typo-caption font-display font-semibold text-ink uppercase tracking-wider block mb-1.5">Check-Out</label>
-          <div className="relative">
-            <DatePicker
-              selected={checkOut}
-              onChange={(date: Date | null) => setCheckOut(date)}
-              selectsEnd
-              startDate={checkIn}
-              endDate={checkOut}
-              minDate={checkIn || new Date()}
-              popperPlacement="bottom"
-              popperProps={{ strategy: "fixed" }}
-              calendarClassName="border border-hairline rounded-[12px] shadow-dropdown"
-              wrapperClassName="w-full"
-              customInput={
-                <button className="w-full flex items-center gap-2 text-left bg-transparent border-none p-0 cursor-pointer">
-                  <Calendar className="h-4 w-4 text-muted shrink-0" />
-                  <span className="typo-body-sm text-ink truncate">{checkOut ? format(checkOut, "MM/dd/yy") : "mm/dd/yy"}</span>
-                </button>
-              }
-            />
-          </div>
-        </div>
-
-        {/* Stays */}
-        <div className="w-1/2 md:flex-1 min-w-0 px-5 py-5">
-          <label className="typo-caption font-display font-semibold text-ink uppercase tracking-wider block mb-1.5">Stays</label>
-          <div className="relative">
-            <Clock className="absolute left-0 top-1/2 -translate-y-1/2 h-4 w-4 text-muted pointer-events-none" />
-            <select
-              value={stays}
-              onChange={(e) => setStays(e.target.value)}
-              className="w-full bg-transparent border-none typo-body-sm text-ink focus:outline-none appearance-none cursor-pointer pl-5 pr-4 font-semibold"
-            >
-              <option value="12 Hours">12 Hours</option>
-              <option value="24 Hours">24 Hours</option>
-            </select>
-            <ChevronDown className="absolute right-0 top-1/2 -translate-y-1/2 h-4 w-4 text-muted pointer-events-none" />
-          </div>
+        <div className="w-1/2 md:flex-1 min-w-0 px-5 py-5 relative">
+          <label className="typo-caption font-display font-semibold text-ink uppercase tracking-wider block mb-1.5 cursor-pointer">
+            Check-Out
+          </label>
+          <button
+            type="button"
+            onClick={() => setCalendarOpen(true)}
+            className="w-full flex items-center gap-2 text-left bg-transparent border-none p-0 cursor-pointer"
+          >
+            <Calendar className="h-4 w-4 text-muted shrink-0" />
+            <span className="typo-body-sm text-ink">
+              {checkOut ? format(checkOut, "MM/dd/yy") : "mm/dd/yy"}
+            </span>
+          </button>
         </div>
 
         {/* Guests */}

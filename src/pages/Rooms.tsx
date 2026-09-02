@@ -36,13 +36,13 @@ const cardItem = {
 
 function getInitialFilters(searchParams: URLSearchParams): FilterState {
   return {
+    stayType: (searchParams.get("stayType") as "overnight" | "day") || "overnight",
     checkIn: searchParams.get("checkIn") || "",
     checkOut: searchParams.get("checkOut") || "",
     guests: {
       adults: Number(searchParams.get("adults")) || 2,
       children: Number(searchParams.get("children")) || 0,
     },
-    stays: searchParams.get("stays") || "24 Hours",
     budget: Number(searchParams.get("budget")) || 0,
     sortBy: "rating"
   }
@@ -89,11 +89,16 @@ function scoreRoom(room: Room, filters: FilterState): number {
   }
 
   // Availability scoring
-  if (filters.checkIn && filters.checkOut) {
-    if (isRoomAvailable(room, filters.checkIn, filters.checkOut)) {
-      score += 15 // Available = big bonus
-    } else {
-      score -= 50 // Not available = big penalty
+  if (filters.checkIn) {
+    if (filters.stayType === "day") {
+      // Day stay: same date for check-in and check-out
+      score += 15
+    } else if (filters.checkIn && filters.checkOut) {
+      if (isRoomAvailable(room, filters.checkIn, filters.checkOut)) {
+        score += 15
+      } else {
+        score -= 50
+      }
     }
   }
 
@@ -156,8 +161,12 @@ export default function Rooms() {
       result = result.filter((room) => room.price <= filters.budget)
     }
 
-    if (filters.checkIn && filters.checkOut) {
-      result = result.filter((room) => isRoomAvailable(room, filters.checkIn, filters.checkOut))
+    if (filters.checkIn) {
+      if (filters.stayType === "day") {
+        // Day stay: all rooms available for same-day booking
+      } else if (filters.checkOut) {
+        result = result.filter((room) => isRoomAvailable(room, filters.checkIn, filters.checkOut))
+      }
     }
 
     switch (filters.sortBy) {
@@ -241,11 +250,6 @@ export default function Rooms() {
             {!loading && filters.budget > 0 && (
               <span className="typo-caption-sm text-muted">
                 · up to &#x20B1;{filters.budget.toLocaleString()}
-              </span>
-            )}
-            {!loading && filters.stays && (
-              <span className="typo-caption-sm text-muted">
-                · {filters.stays}
               </span>
             )}
             {!loading && (filters.guests.adults + filters.guests.children > 0) && (

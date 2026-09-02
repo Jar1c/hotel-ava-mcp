@@ -1,6 +1,8 @@
 @import "tailwindcss";
 @import "react-datepicker/dist/react-datepicker.css";
 
+@custom-variant dark (&:is(.dark *));
+
 @theme {
   --color-primary: #82285f;
   --color-primary-active: #6b204f;
@@ -73,6 +75,77 @@
   --animation-dropdown-duration: 250ms;
   --animation-dropdown-easing: cubic-bezier(0.16, 1, 0.3, 1);
   --transform-origin: top left;
+}
+
+/* ── Color Presets ─────────────────────────────────── */
+/* Default is Royal Plum (already in @theme above) */
+[data-color-preset="ocean-blue"] {
+  --color-primary: #1a6b8a;
+  --color-primary-active: #145670;
+  --color-primary-disabled: #d0e4ec;
+  --color-ring: #1a6b8a;
+  --color-secondary: #2d4a5e;
+  --color-star-rating: #2d4a5e;
+}
+[data-color-preset="forest-green"] {
+  --color-primary: #2d6a4f;
+  --color-primary-active: #245840;
+  --color-primary-disabled: #d4e8df;
+  --color-ring: #2d6a4f;
+  --color-secondary: #4a7c59;
+  --color-star-rating: #4a7c59;
+}
+[data-color-preset="sunset-orange"] {
+  --color-primary: #c45d3e;
+  --color-primary-active: #a84e33;
+  --color-primary-disabled: #f0d8cf;
+  --color-ring: #c45d3e;
+  --color-secondary: #5e4a2d;
+  --color-star-rating: #5e4a2d;
+}
+[data-color-preset="rose-gold"] {
+  --color-primary: #b76e79;
+  --color-primary-active: #9e5c66;
+  --color-primary-disabled: #edd8db;
+  --color-ring: #b76e79;
+  --color-secondary: #6e7b8b;
+  --color-star-rating: #6e7b8b;
+}
+[data-color-preset="midnight"] {
+  --color-primary: #1a1a2e;
+  --color-primary-active: #12121f;
+  --color-primary-disabled: #d0d0da;
+  --color-ring: #1a1a2e;
+  --color-secondary: #16213e;
+  --color-star-rating: #16213e;
+}
+
+/* ── Dark Mode ─────────────────────────────────────── */
+.dark {
+  --color-foreground: #e8e8e6;
+  --color-background: #1a1a18;
+  --color-border: #3a3a38;
+  --color-input: #3a3a38;
+  --color-destructive: #e05549;
+  --color-destructive-hover: #c4443a;
+
+  --color-canvas: #1a1a18;
+  --color-surface-soft: #242422;
+  --color-surface-strong: #2e2e2c;
+
+  --color-hairline: #3a3a38;
+  --color-hairline-soft: #2e2e2c;
+  --color-border-strong: #4a4a48;
+
+  --color-ink: #e8e8e6;
+  --color-body: #c8c8c4;
+  --color-muted: #8a8a84;
+  --color-muted-soft: #6a6a64;
+
+  --color-popover: #242422;
+  --color-popover-foreground: #e8e8e6;
+
+  --color-scrim: #0e0e0c;
 }
 
 /* Dropdown menu animation */
@@ -391,7 +464,7 @@ html, body {
 }
 
 .react-datepicker__day--today {
-  border: 1px solid var(--color-primary);
+  border: none;
 }
 
 .react-datepicker__day--outside-month {
@@ -496,3 +569,217 @@ input[type="number"]::-webkit-inner-spin-button {
 input[type="number"] {
   -moz-appearance: textfield;
 }
+
+/* Dual calendar (DateRangePicker) — Airbnb/Booking style */
+/* Reset keyboard-selected globally so the imported datepicker CSS can't win */
+.react-datepicker__day--keyboard-selected {
+  background-color: transparent !important;
+  background: transparent !important;
+  color: inherit !important;
+  border: none !important;
+}
+.ava-dual-calendar {
+  padding: 24px 28px 20px !important;
+  width: 700px !important;
+  z-index: 9999 !important;
+  font-family: var(--font-body) !important;
+}
+/* ═══════════════════════════════════════════
+   Hotel Ava — Dual Date Picker Calendar
+   ═══════════════════════════════════════════ */
+
+/* Layout: two months side by side */
+.ava-dual-calendar .react-datepicker__month-container {
+  width: 50% !important;
+  float: left !important;
+  box-sizing: border-box;
+  padding: 0 12px;
+}
+.ava-dual-calendar .react-datepicker__month-container:first-child { padding-right: 24px; }
+.ava-dual-calendar .react-datepicker__month-container:last-child  {
+  padding-left: 24px;
+  border-left: 1px solid var(--color-hairline-soft);
+}
+
+/* Header */
+.ava-dual-calendar .react-datepicker__header {
+  background: none !important;
+  border-bottom: none !important;
+  padding: 0 !important;
+}
+.ava-dual-calendar .react-datepicker__current-month {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--color-ink);
+  margin-bottom: 12px;
+  text-align: center;
+  letter-spacing: -0.01em;
+  font-family: var(--font-display);
+}
+
+/* Month grid */
+.ava-dual-calendar .react-datepicker__month { margin: 0 !important; padding: 0 !important; }
+.ava-dual-calendar .react-datepicker__month-wrapper {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+}
+
+/* Day-name row */
+.ava-dual-calendar .react-datepicker__day-names {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  margin-bottom: 12px;
+  padding: 0;
+}
+.ava-dual-calendar .react-datepicker__day-name {
+  width: auto !important;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-muted) !important;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  text-align: center;
+}
+
+/* Navigation arrows */
+.ava-dual-calendar .react-datepicker__navigation {
+  top: 10px !important;
+  width: 32px !important;
+  height: 32px !important;
+  border-radius: 50% !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.ava-dual-calendar .react-datepicker__navigation:hover { background-color: var(--color-surface-soft) !important; }
+.ava-dual-calendar .react-datepicker__navigation--previous { left: 8px !important; }
+.ava-dual-calendar .react-datepicker__navigation--next    { right: 8px !important; }
+.ava-dual-calendar .react-datepicker__navigation-icon {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+.ava-dual-calendar .react-datepicker__navigation-icon::before { content: "" !important; border: none !important; }
+.ava-dual-calendar .react-datepicker__navigation-icon::after {
+  font-size: 18px !important;
+  font-weight: 500 !important;
+  color: var(--color-ink) !important;
+}
+.ava-dual-calendar .react-datepicker__navigation--previous .react-datepicker__navigation-icon--previous::after { content: "\2039" !important; }
+.ava-dual-calendar .react-datepicker__navigation--next    .react-datepicker__navigation-icon--next::after     { content: "\203A" !important; }
+
+/* ── Base day cell ── */
+.ava-dual-calendar .react-datepicker__day {
+  position: relative;
+  width: 36px !important;
+  height: 36px !important;
+  line-height: 36px !important;
+  font-size: 14px;
+  font-weight: 500;
+  margin: 2px auto !important;
+  padding: 0;
+  text-align: center;
+  color: var(--color-ink) !important;
+  background-color: transparent !important;
+  border-radius: 50% !important;
+  transition: background-color 0.15s ease, color 0.15s ease;
+  cursor: pointer;
+}
+
+/* Suppress keyboard-selected auto-circle */
+.ava-dual-calendar .react-datepicker__day--keyboard-selected,
+.ava-dual-calendar .react-datepicker__day--keyboard-selected:hover {
+  background-color: transparent !important;
+  color: var(--color-ink) !important;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Suppress in-selecting-range preview */
+.ava-dual-calendar .react-datepicker__day--in-selecting-range:not(.react-datepicker__day--range-start):not(.react-datepicker__day--range-end):not(.react-datepicker__day--selected) {
+  background-color: transparent !important;
+  color: var(--color-ink) !important;
+}
+
+/* Hover */
+.ava-dual-calendar .react-datepicker__day:not(.react-datepicker__day--selected):not(.react-datepicker__day--range-start):not(.react-datepicker__day--range-end):not(.react-datepicker__day--disabled):hover {
+  background-color: var(--color-surface-strong) !important;
+  border-radius: 50% !important;
+}
+
+/* In-range bridge — soft tint strip */
+.ava-dual-calendar .react-datepicker__day--in-range:not(.react-datepicker__day--range-start):not(.react-datepicker__day--range-end) {
+  background-color: rgba(130, 40, 95, 0.08) !important;
+  color: var(--color-ink) !important;
+  border-radius: 0 !important;
+}
+
+/* Range start — solid primary circle */
+.ava-dual-calendar .react-datepicker__day--range-start,
+.ava-dual-calendar .react-datepicker__day--selected {
+  background-color: var(--color-primary) !important;
+  color: #fff !important;
+  font-weight: 700;
+  border-radius: 50% !important;
+}
+
+/* Range end — solid primary circle */
+.ava-dual-calendar .react-datepicker__day--range-end {
+  background-color: var(--color-primary) !important;
+  color: #fff !important;
+  font-weight: 700;
+  border-radius: 50% !important;
+}
+
+/* Single-day pick — pure circle, no strip */
+.ava-dual-calendar .react-datepicker__day--range-start.react-datepicker__day--range-end {
+  border-radius: 50% !important;
+}
+
+
+/* Today — no ring, just bold so it's subtly distinguishable */
+.ava-dual-calendar .react-datepicker__day--today {
+  border: none !important;
+  font-weight: 700;
+}
+
+/* Disabled */
+.ava-dual-calendar .react-datepicker__day--disabled {
+  color: var(--color-muted-soft) !important;
+  opacity: 0.35;
+  pointer-events: none;
+  cursor: default;
+}
+
+/* Outside-month days */
+.ava-dual-calendar .react-datepicker__day--outside-month {
+  color: var(--color-muted-soft) !important;
+  opacity: 0.4;
+}
+
+/* Hide chrome: close-icon, triangle, week-shortcut */
+.ava-dual-calendar .react-datepicker__close-icon,
+.ava-dual-calendar .react-datepicker__close-icon::after,
+.ava-dual-calendar .react-datepicker__triangle,
+.ava-dual-calendar .react-datepicker__week-shortcut {
+  display: none !important;
+}
+
+/* Clear float so footer stretches full width */
+.ava-dual-calendar::after {
+  content: "" !important;
+  display: table !important;
+  clear: both !important;
+}
+.ava-dual-calendar .react-datepicker__children-container {
+  clear: both !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+  padding: 0 !important;
+}
+
+/* Always on top */
+.react-datepicker { z-index: 9999 !important; }

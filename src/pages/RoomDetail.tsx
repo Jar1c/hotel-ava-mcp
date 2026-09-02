@@ -7,7 +7,7 @@ import {
   Wifi, Wind, Wine, ConciergeBell, Building2, BedDouble,
   TreePine, Coffee, Sunrise, Bath, UserCheck, Sofa,
   Baby, Waves, Fence, Droplets, Monitor, Armchair,
-  Shirt, Fish, Sunset, UtensilsCrossed, Tv, Sparkles, Music, Clock
+  Shirt, Fish, Sunset, UtensilsCrossed, Tv, Sparkles, Music, Clock, Sun, Moon
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import DateInput from "@/components/ui/date-input"
@@ -23,6 +23,22 @@ const lucideIconMap: Record<string, React.ComponentType<{ className?: string }>>
   Baby, Waves, Fence, Droplets, Monitor, Armchair,
   Shirt, Fish, Sunset, UtensilsCrossed, Tv, Sparkles, Music
 }
+
+interface TimeSlot {
+  id: string
+  label: string
+  time: string
+  hours: number
+  icon: React.ReactNode
+  priceMultiplier: number
+}
+
+const timeSlots: TimeSlot[] = [
+  { id: "morning", label: "Morning", time: "8:00 AM – 12:00 PM", hours: 4, icon: <Sun className="h-4 w-4" />, priceMultiplier: 0.4 },
+  { id: "afternoon", label: "Afternoon", time: "12:00 PM – 5:00 PM", hours: 5, icon: <Sunrise className="h-4 w-4" />, priceMultiplier: 0.5 },
+  { id: "evening", label: "Evening", time: "5:00 PM – 9:00 PM", hours: 4, icon: <Moon className="h-4 w-4" />, priceMultiplier: 0.4 },
+  { id: "fullday", label: "Full Day", time: "8:00 AM – 5:00 PM", hours: 9, icon: <Sun className="h-4 w-4" />, priceMultiplier: 0.75 },
+]
 
 function DetailSkeleton() {
   return (
@@ -65,6 +81,7 @@ export default function RoomDetail() {
   const [searchParams] = useSearchParams()
   const [room, setRoom] = useState<Room | null>(null)
   const [loading, setLoading] = useState(true)
+  const [stayType, setStayType] = useState<"overnight" | "day">("overnight")
   const [checkIn, setCheckIn] = useState<Date | null>(() => {
     const v = searchParams.get("checkIn")
     return v ? new Date(v) : null
@@ -75,23 +92,19 @@ export default function RoomDetail() {
   })
   const [guests, setGuests] = useState(() => Number(searchParams.get("guests")) || 1)
   const [stays, setStays] = useState<string>(searchParams.get("stays") || "24 Hours")
+  const [selectedSlot, setSelectedSlot] = useState<string>("morning")
   const [showAuthModal, setShowAuthModal] = useState(false)
   const { isAuthenticated } = useAuth()
   const navigate = useNavigate()
 
-  // Load dates from URL params on mount (persists after login)
   useEffect(() => {
-    // Try to get dates from current searchParams first
     let checkInDate = searchParams.get("checkIn")
     let checkOutDate = searchParams.get("checkOut")
     let guestsValue = searchParams.get("guests")
 
-    // If not found (because we came from login via returnTo), parse from returnTo param
     if (!checkInDate && !checkOutDate) {
       const returnTo = searchParams.get("returnTo")
       if (returnTo) {
-        // Return URL can be in search params OR hash
-        // Parse both
         let params = new URLSearchParams()
         const questionMarkIndex = returnTo.indexOf("?")
         const hashIndex = returnTo.indexOf("#")
@@ -116,7 +129,6 @@ export default function RoomDetail() {
   useEffect(() => {
     if (!id) return
 
-    // Show cached room instantly
     const cached = getCached<PublicRoomData>(`room_${id}`)
     if (cached) {
       setRoom({
@@ -132,7 +144,6 @@ export default function RoomDetail() {
       setLoading(false)
     }
 
-    // Refresh in background
     publicRoomsApi.getById(id)
       .then((data: PublicRoomData) => {
         setRoom({
@@ -175,7 +186,11 @@ export default function RoomDetail() {
     )
   }
 
-  const totalPrice = room.price + Math.round(room.price * 0.12)
+  const selectedSlotData = timeSlots.find(s => s.id === selectedSlot)
+  const dayUsePrice = Math.round(room.price * (selectedSlotData?.priceMultiplier || 0.4))
+  const totalPrice = stayType === "day"
+    ? dayUsePrice + Math.round(dayUsePrice * 0.12)
+    : room.price + Math.round(room.price * 0.12)
 
   return (
     <div className="px-base py-section">
@@ -244,23 +259,112 @@ export default function RoomDetail() {
 
           <div className="lg:col-span-1">
             <div className="sticky top-24 bg-canvas border border-hairline rounded-[12px] p-lg">
+              {/* Price Display */}
               <div className="mb-lg">
                 <div className="flex items-baseline gap-1">
-                  <span className="typo-display-lg text-secondary">&#x20B1;{room.price.toLocaleString()}</span>
-                  <span className="typo-body-sm text-muted">/ night</span>
+                  <span className="typo-display-lg text-secondary">&#x20B1;{(stayType === "day" ? dayUsePrice : room.price).toLocaleString()}</span>
+                  <span className="typo-body-sm text-muted">/ {stayType === "day" ? (selectedSlotData?.hours ? `${selectedSlotData.hours}h` : "slot") : "night"}</span>
                 </div>
               </div>
 
-              <div className="space-y-md mb-lg">
-                <div className="grid grid-cols-2 gap-3">
+              {/* Stay Type Toggle */}
+              <div className="flex gap-2 mb-lg">
+                <button
+                  type="button"
+                  onClick={() => setStayType("overnight")}
+                  className={`flex-1 py-2.5 rounded-[12px] text-sm font-semibold transition-all ${
+                    stayType === "overnight"
+                      ? "bg-primary text-on-primary shadow-sm"
+                      : "bg-white text-muted border border-hairline hover:border-primary/30"
+                  }`}
+                >
+                  Overnight Stay
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStayType("day")}
+                  className={`flex-1 py-2.5 rounded-[12px] text-sm font-semibold transition-all ${
+                    stayType === "day"
+                      ? "bg-primary text-on-primary shadow-sm"
+                      : "bg-white text-muted border border-hairline hover:border-primary/30"
+                  }`}
+                >
+                  Day Use
+                </button>
+              </div>
+
+              {/* Overnight: Date pickers */}
+              {stayType === "overnight" && (
+                <div className="space-y-md mb-lg">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="typo-caption text-muted block mb-xs">Check-in</label>
+                      <DatePicker
+                        selected={checkIn}
+                        onChange={(date: Date | null) => setCheckIn(date)}
+                        selectsStart
+                        startDate={checkIn}
+                        endDate={checkOut}
+                        minDate={new Date()}
+                        customInput={<DateInput placeholder="Select date" />}
+                        placeholderText="Select date"
+                      />
+                    </div>
+                    <div>
+                      <label className="typo-caption text-muted block mb-xs">Check-out</label>
+                      <DatePicker
+                        selected={checkOut}
+                        onChange={(date: Date | null) => setCheckOut(date)}
+                        selectsEnd
+                        startDate={checkIn}
+                        endDate={checkOut}
+                        minDate={checkIn || new Date()}
+                        customInput={<DateInput placeholder="Select date" />}
+                        placeholderText="Select date"
+                      />
+                    </div>
+                  </div>
+
                   <div>
-                    <label className="typo-caption text-muted block mb-xs">Check-in</label>
+                    <label className="typo-caption text-muted block mb-xs">Stays</label>
+                    <div className="relative">
+                      <Clock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted pointer-events-none" />
+                      <select
+                        value={stays}
+                        onChange={(e) => setStays(e.target.value)}
+                        className="w-full pl-9 pr-3 py-2 rounded-[12px] border border-hairline bg-white typo-body-sm text-ink focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary appearance-none"
+                      >
+                        <option value="12 Hours">12 Hours</option>
+                        <option value="24 Hours">24 Hours</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="typo-caption text-muted block mb-xs">Guests</label>
+                    <select
+                      value={guests}
+                      onChange={(e) => setGuests(Number(e.target.value))}
+                      className="w-full px-3 py-2 rounded-[12px] border border-hairline bg-white typo-body-sm text-ink focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary appearance-none"
+                    >
+                      {Array.from({ length: room.capacity }, (_, i) => i + 1).map((n) => (
+                        <option key={n} value={n}>
+                          {n} {n === 1 ? "Guest" : "Guests"}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              {/* Day Use: Time Slot Picker */}
+              {stayType === "day" && (
+                <div className="space-y-md mb-lg">
+                  <div>
+                    <label className="typo-caption text-muted block mb-xs">Select Date</label>
                     <DatePicker
                       selected={checkIn}
                       onChange={(date: Date | null) => setCheckIn(date)}
-                      selectsStart
-                      startDate={checkIn}
-                      endDate={checkOut}
                       minDate={new Date()}
                       customInput={<DateInput placeholder="Select date" />}
                       placeholderText="Select date"
@@ -268,51 +372,54 @@ export default function RoomDetail() {
                   </div>
 
                   <div>
-                    <label className="typo-caption text-muted block mb-xs">Check-out</label>
-                    <DatePicker
-                      selected={checkOut}
-                      onChange={(date: Date | null) => setCheckOut(date)}
-                      selectsEnd
-                      startDate={checkIn}
-                      endDate={checkOut}
-                      minDate={checkIn || new Date()}
-                      customInput={<DateInput placeholder="Select date" />}
-                      placeholderText="Select date"
-                    />
+                    <label className="typo-caption text-muted block mb-xs">Choose Time Slot</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {timeSlots.map((slot) => (
+                        <button
+                          key={slot.id}
+                          type="button"
+                          onClick={() => setSelectedSlot(slot.id)}
+                          className={`p-3 rounded-[12px] text-left transition-all ${
+                            selectedSlot === slot.id
+                              ? "bg-primary/10 border-2 border-primary"
+                              : "bg-white border border-hairline hover:border-primary/30"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className={selectedSlot === slot.id ? "text-primary" : "text-muted"}>
+                              {slot.icon}
+                            </span>
+                            <span className={`text-sm font-semibold ${selectedSlot === slot.id ? "text-primary" : "text-ink"}`}>
+                              {slot.label}
+                            </span>
+                          </div>
+                          <p className="text-xs text-muted">{slot.time}</p>
+                          <p className="text-xs font-medium text-ink mt-1">
+                            &#x20B1;{Math.round(room.price * slot.priceMultiplier).toLocaleString()}
+                          </p>
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                </div>
 
-                <div>
-                  <label className="typo-caption text-muted block mb-xs">Stays</label>
-                  <div className="relative">
-                    <Clock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted pointer-events-none" />
+                  <div>
+                    <label className="typo-caption text-muted block mb-xs">Guests</label>
                     <select
-                      value={stays}
-                      onChange={(e) => setStays(e.target.value)}
-                      className="w-full pl-9 pr-3 py-2 rounded-[12px] border border-hairline bg-white typo-body-sm text-ink focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary appearance-none"
+                      value={guests}
+                      onChange={(e) => setGuests(Number(e.target.value))}
+                      className="w-full px-3 py-2 rounded-[12px] border border-hairline bg-white typo-body-sm text-ink focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary appearance-none"
                     >
-                      <option value="12 Hours">12 Hours</option>
-                      <option value="24 Hours">24 Hours</option>
+                      {Array.from({ length: room.capacity }, (_, i) => i + 1).map((n) => (
+                        <option key={n} value={n}>
+                          {n} {n === 1 ? "Guest" : "Guests"}
+                        </option>
+                      ))}
                     </select>
                   </div>
                 </div>
+              )}
 
-                <div>
-                  <label className="typo-caption text-muted block mb-xs">Guests</label>
-                  <select
-                    value={guests}
-                    onChange={(e) => setGuests(Number(e.target.value))}
-                    className="w-full px-3 py-2 rounded-[12px] border border-hairline bg-white typo-body-sm text-ink focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary appearance-none"
-                  >
-                    {Array.from({ length: room.capacity }, (_, i) => i + 1).map((n) => (
-                      <option key={n} value={n}>
-                        {n} {n === 1 ? "Guest" : "Guests"}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
+              {/* Book Now Button */}
               <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
                 <Button
                   className="w-full bg-primary text-on-primary hover:bg-primary-active !rounded-[12px]"
@@ -321,10 +428,14 @@ export default function RoomDetail() {
                       setShowAuthModal(true)
                     } else {
                       const params = new URLSearchParams()
+                      params.set("stayType", stayType)
                       if (checkIn) params.set("checkIn", checkIn.toISOString())
-                      if (checkOut) params.set("checkOut", checkOut.toISOString())
+                      if (stayType === "overnight" && checkOut) params.set("checkOut", checkOut.toISOString())
+                      if (stayType === "day") {
+                        params.set("timeSlot", selectedSlot)
+                      }
                       params.set("guests", String(guests))
-                      params.set("stays", stays)
+                      if (stayType === "overnight") params.set("stays", stays)
                       navigate(`/booking/${id}?${params.toString()}`)
                     }
                   }}
@@ -333,14 +444,17 @@ export default function RoomDetail() {
                 </Button>
               </motion.div>
 
+              {/* Price Breakdown */}
               <div className="mt-lg pt-lg border-t border-hairline">
                 <div className="flex justify-between mb-sm">
-                  <span className="typo-body-sm text-muted">Per night</span>
-                  <span className="typo-body-sm text-ink">&#x20B1;{room.price.toLocaleString()}</span>
+                  <span className="typo-body-sm text-muted">
+                    {stayType === "day" ? `${selectedSlotData?.label} (${selectedSlotData?.hours}h)` : "Per night"}
+                  </span>
+                  <span className="typo-body-sm text-ink">&#x20B1;{(stayType === "day" ? dayUsePrice : room.price).toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between mb-sm">
                   <span className="typo-body-sm text-muted">Taxes & fees</span>
-                  <span className="typo-body-sm text-ink">&#x20B1;{Math.round(room.price * 0.12).toLocaleString()}</span>
+                  <span className="typo-body-sm text-ink">&#x20B1;{Math.round((stayType === "day" ? dayUsePrice : room.price) * 0.12).toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between font-medium pt-sm border-t border-hairline">
                   <span className="typo-body-md text-ink">Total</span>
@@ -348,6 +462,7 @@ export default function RoomDetail() {
                 </div>
               </div>
 
+              {/* Highlights */}
               <div className="mt-lg">
                 <h3 className="typo-caption text-muted mb-sm">Highlights</h3>
                 <ul className="space-y-sm">
