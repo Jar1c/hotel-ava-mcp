@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { userBookingsApi, type UserBookingData } from "@/services/api"
 import { useToast } from "@/contexts/ToastContext"
 import LoadingDots from "@/components/LoadingDots"
+import ConfirmDialog from "@/components/ui/confirm-dialog"
 
 const PRIMARY = "#82285f"
 const CANVAS = "#FBF9F8"
@@ -44,6 +45,7 @@ export default function MyBookings() {
   const [paying, setPaying] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<TabFilter>("all")
   const [page, setPage] = useState(1)
+  const [cancelDialog, setCancelDialog] = useState<{ open: boolean; id: string | null }>({ open: false, id: null })
 
   useEffect(() => {
     if (searchParams.get("payment") === "cancelled") {
@@ -68,7 +70,6 @@ export default function MyBookings() {
   const pagedBookings = filteredBookings.slice((page - 1) * PER_PAGE, page * PER_PAGE)
 
   const handleCancel = async (id: string) => {
-    if (!confirm("Cancel this booking? This action cannot be undone.")) return
     setCancelling(id)
     try {
       await userBookingsApi.cancel(id)
@@ -250,7 +251,7 @@ export default function MyBookings() {
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => handleCancel(booking.id)}
+                              onClick={() => setCancelDialog({ open: true, id: booking.id })}
                               disabled={cancelling === booking.id}
                               className="text-muted hover:text-ink hover:bg-gray-50 !rounded-[8px] text-xs"
                             >
@@ -277,7 +278,7 @@ export default function MyBookings() {
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                onClick={() => handleCancel(booking.id)}
+                                onClick={() => setCancelDialog({ open: true, id: booking.id })}
                                 disabled={cancelling === booking.id}
                                 className="text-muted hover:text-ink hover:bg-gray-50 !rounded-[8px] text-xs"
                               >
@@ -331,6 +332,19 @@ export default function MyBookings() {
           </>
         )}
       </div>
+
+      <ConfirmDialog
+        open={cancelDialog.open}
+        onOpenChange={(open) => setCancelDialog({ open, id: cancelDialog.id })}
+        title="Cancel Booking"
+        description="Are you sure you want to cancel this booking? This action cannot be undone."
+        confirmLabel="Yes, Cancel"
+        cancelLabel="Keep Booking"
+        variant="danger"
+        onConfirm={() => {
+          if (cancelDialog.id) handleCancel(cancelDialog.id)
+        }}
+      />
     </div>
   )
 }
