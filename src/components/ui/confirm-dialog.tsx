@@ -29,8 +29,8 @@ export default function ConfirmDialog({
         <div className="p-6 pb-4">
           {variant === "danger" && (
             <div className="flex justify-center mb-4">
-              <div className="w-12 h-12 rounded-full bg-red-50 flex items-center justify-center">
-                <AlertTriangle className="h-6 w-6 text-[#A4423A]" />
+              <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ backgroundColor: "color-mix(in srgb, var(--color-primary) 10%, transparent)" }}>
+                <AlertTriangle className="h-6 w-6 text-ink" />
               </div>
             </div>
           )}
@@ -54,7 +54,7 @@ export default function ConfirmDialog({
             }}
             className="flex-1 !rounded-[10px] h-11 font-medium"
             style={{
-              backgroundColor: variant === "danger" ? "#A4423A" : "#82285f",
+              backgroundColor: "var(--color-primary)",
               color: "#FBF9F4",
             }}
           >
