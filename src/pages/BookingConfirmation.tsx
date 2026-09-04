@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react"
 import { useParams, useNavigate } from "react-router"
-import { CheckCircle, ArrowRight } from "lucide-react"
+import { ArrowRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import confetti from "canvas-confetti"
+import { Player } from "@lottiefiles/react-lottie-player"
 
 const PRIMARY = "#82285f"
 
@@ -40,35 +40,6 @@ export default function BookingConfirmation() {
       .finally(() => setLoading(false))
   }, [id])
 
-  useEffect(() => {
-    if (!loading && booking) {
-      const isMobile = window.innerWidth < 768
-      const particleCount = isMobile ? 50 : 100
-
-      const duration = 3000
-      const end = Date.now() + duration
-
-      const frame = () => {
-        confetti({
-          particleCount,
-          angle: 60,
-          spread: 55,
-          origin: { x: 0 },
-          colors: ["#82285f", "#455d58", "#FFD700", "#FF69B4"],
-        })
-        confetti({
-          particleCount,
-          angle: 120,
-          spread: 55,
-          origin: { x: 1 },
-          colors: ["#82285f", "#455d58", "#FFD700", "#FF69B4"],
-        })
-        if (Date.now() < end) requestAnimationFrame(frame)
-      }
-      frame()
-    }
-  }, [loading, id])
-
   if (loading) {
     return (
       <div className="px-base py-section animate-pulse">
@@ -84,21 +55,12 @@ export default function BookingConfirmation() {
   return (
     <div className="px-base py-section">
       <div className="max-w-[640px] mx-auto text-center">
-        {/* Animated Checkmark */}
+        {/* Confetti Animation */}
         <div className="mb-lg relative inline-flex">
-          <div
-            className="w-24 h-24 rounded-full flex items-center justify-center"
-            style={{ backgroundColor: "#E8F5E9" }}
-          >
-            <CheckCircle
-              className="h-14 w-14"
-              style={{ color: "#3D6B4F" }}
-              strokeWidth={1.5}
-            />
-          </div>
-          <div
-            className="absolute inset-0 rounded-full animate-ping opacity-20"
-            style={{ backgroundColor: "#3D6B4F" }}
+          <Player
+            src="https://lottiefiles.com/free-animation/confetti-3ofTs67sBx"
+            className="h-48 w-48"
+            autoplay
           />
         </div>
 
