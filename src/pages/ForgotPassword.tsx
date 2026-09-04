@@ -25,8 +25,11 @@ export default function ForgotPassword() {
     }
     setSubmitting(true)
     try {
+      const redirectBase = import.meta.env.PROD
+        ? "https://hotelava.vercel.app"
+        : window.location.origin
       const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/reset-password`,
+        redirectTo: `${redirectBase}/reset-password`,
       })
       if (resetError) throw resetError
       setSuccess(true)
