@@ -2,6 +2,7 @@ import { useState, useEffect } from "react"
 import { useParams, useNavigate } from "react-router"
 import { CheckCircle, ArrowRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import confetti from "canvas-confetti"
 
 const PRIMARY = "#82285f"
 
@@ -38,6 +39,35 @@ export default function BookingConfirmation() {
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [id])
+
+  useEffect(() => {
+    if (!loading && booking) {
+      const isMobile = window.innerWidth < 768
+      const particleCount = isMobile ? 50 : 100
+
+      const duration = 3000
+      const end = Date.now() + duration
+
+      const frame = () => {
+        confetti({
+          particleCount,
+          angle: 60,
+          spread: 55,
+          origin: { x: 0 },
+          colors: ["#82285f", "#455d58", "#FFD700", "#FF69B4"],
+        })
+        confetti({
+          particleCount,
+          angle: 120,
+          spread: 55,
+          origin: { x: 1 },
+          colors: ["#82285f", "#455d58", "#FFD700", "#FF69B4"],
+        })
+        if (Date.now() < end) requestAnimationFrame(frame)
+      }
+      frame()
+    }
+  }, [loading, id])
 
   if (loading) {
     return (
