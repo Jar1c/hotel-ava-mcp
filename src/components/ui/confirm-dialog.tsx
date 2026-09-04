@@ -1,6 +1,7 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { AlertTriangle } from "lucide-react"
+import LoadingDots from "@/components/LoadingDots"
 
 interface ConfirmDialogProps {
   open: boolean
@@ -10,6 +11,7 @@ interface ConfirmDialogProps {
   confirmLabel?: string
   cancelLabel?: string
   variant?: "danger" | "default"
+  loading?: boolean
   onConfirm: () => void
 }
 
@@ -21,10 +23,11 @@ export default function ConfirmDialog({
   confirmLabel = "Confirm",
   cancelLabel = "Cancel",
   variant = "danger",
+  loading = false,
   onConfirm,
 }: ConfirmDialogProps) {
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={loading ? undefined : onOpenChange}>
       <DialogContent className="!rounded-[16px] !max-w-[400px] !p-0 overflow-hidden">
         <div className="p-6 pb-4">
           {variant === "danger" && (
@@ -43,22 +46,28 @@ export default function ConfirmDialog({
           <Button
             variant="outline"
             onClick={() => onOpenChange(false)}
+            disabled={loading}
             className="flex-1 !rounded-[10px] h-11 border-hairline text-ink font-medium hover:bg-gray-50"
           >
             {cancelLabel}
           </Button>
           <Button
-            onClick={() => {
-              onConfirm()
-              onOpenChange(false)
-            }}
+            onClick={onConfirm}
+            disabled={loading}
             className="flex-1 !rounded-[10px] h-11 font-medium"
             style={{
               backgroundColor: "var(--color-primary)",
               color: "#FBF9F4",
             }}
           >
-            {confirmLabel}
+            {loading ? (
+              <span className="flex items-center gap-2">
+                <LoadingDots size="sm" />
+                Cancelling...
+              </span>
+            ) : (
+              confirmLabel
+            )}
           </Button>
         </div>
       </DialogContent>

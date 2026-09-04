@@ -255,8 +255,17 @@ export default function MyBookings() {
                               disabled={cancelling === booking.id}
                               className="text-muted hover:text-ink hover:bg-gray-50 !rounded-[8px] text-xs"
                             >
-                              <X className="h-3.5 w-3.5 mr-1" />
-                              {cancelling === booking.id ? "Cancelling..." : "Cancel"}
+                              {cancelling === booking.id ? (
+                                <span className="flex items-center gap-1">
+                                  <LoadingDots size="sm" />
+                                  Cancelling...
+                                </span>
+                              ) : (
+                                <>
+                                  <X className="h-3.5 w-3.5 mr-1" />
+                                  Cancel
+                                </>
+                              )}
                             </Button>
                           )}
                           {booking.status.toLowerCase() === "pending" && (
@@ -282,7 +291,14 @@ export default function MyBookings() {
                                 disabled={cancelling === booking.id}
                                 className="text-muted hover:text-ink hover:bg-gray-50 !rounded-[8px] text-xs"
                               >
-                                Cancel
+                                {cancelling === booking.id ? (
+                                  <span className="flex items-center gap-1">
+                                    <LoadingDots size="sm" />
+                                    Cancelling...
+                                  </span>
+                                ) : (
+                                  "Cancel"
+                                )}
                               </Button>
                             </>
                           )}
@@ -341,6 +357,7 @@ export default function MyBookings() {
         confirmLabel="Yes, Cancel"
         cancelLabel="Keep Booking"
         variant="danger"
+        loading={!!cancelling}
         onConfirm={() => {
           if (cancelDialog.id) handleCancel(cancelDialog.id)
         }}
