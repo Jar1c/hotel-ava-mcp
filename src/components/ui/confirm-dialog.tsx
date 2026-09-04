@@ -1,5 +1,6 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
+import { AlertTriangle } from "lucide-react"
 
 interface ConfirmDialogProps {
   open: boolean
@@ -24,16 +25,25 @@ export default function ConfirmDialog({
 }: ConfirmDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="!rounded-[12px] !max-w-[360px]">
-        <DialogHeader>
-          <DialogTitle className="text-ink">{title}</DialogTitle>
-          <DialogDescription className="text-muted">{description}</DialogDescription>
-        </DialogHeader>
-        <div className="flex justify-end gap-2 mt-4">
+      <DialogContent className="!rounded-[16px] !max-w-[400px] !p-0 overflow-hidden">
+        <div className="p-6 pb-4">
+          {variant === "danger" && (
+            <div className="flex justify-center mb-4">
+              <div className="w-12 h-12 rounded-full bg-red-50 flex items-center justify-center">
+                <AlertTriangle className="h-6 w-6 text-[#A4423A]" />
+              </div>
+            </div>
+          )}
+          <DialogHeader className="text-center">
+            <DialogTitle className="text-lg font-semibold text-ink">{title}</DialogTitle>
+            <DialogDescription className="text-sm text-muted mt-2 leading-relaxed">{description}</DialogDescription>
+          </DialogHeader>
+        </div>
+        <div className="flex gap-3 px-6 pb-6">
           <Button
             variant="outline"
             onClick={() => onOpenChange(false)}
-            className="!rounded-[8px]"
+            className="flex-1 !rounded-[10px] h-11 border-hairline text-ink font-medium hover:bg-gray-50"
           >
             {cancelLabel}
           </Button>
@@ -42,7 +52,7 @@ export default function ConfirmDialog({
               onConfirm()
               onOpenChange(false)
             }}
-            className="!rounded-[8px]"
+            className="flex-1 !rounded-[10px] h-11 font-medium"
             style={{
               backgroundColor: variant === "danger" ? "#A4423A" : "#82285f",
               color: "#FBF9F4",
