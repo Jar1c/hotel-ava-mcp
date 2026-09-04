@@ -2,9 +2,46 @@ import { useState, useEffect } from "react"
 import { useParams, useNavigate } from "react-router"
 import { ArrowRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Player } from "@lottiefiles/react-lottie-player"
 
 const PRIMARY = "#82285f"
+
+function ConfettiEffect() {
+  const [pieces, setPieces] = useState<{ id: number; left: number; delay: number; color: string; size: number; rotation: number }[]>([])
+
+  useEffect(() => {
+    const colors = ["#82285f", "#455d58", "#FFD700", "#FF69B4", "#FF6347", "#4169E1"]
+    const generated = Array.from({ length: 50 }, (_, i) => ({
+      id: i,
+      left: Math.random() * 100,
+      delay: Math.random() * 2,
+      color: colors[Math.floor(Math.random() * colors.length)],
+      size: Math.random() * 8 + 4,
+      rotation: Math.random() * 360,
+    }))
+    setPieces(generated)
+  }, [])
+
+  return (
+    <div className="absolute inset-0 overflow-hidden pointer-events-none">
+      {pieces.map((p) => (
+        <div
+          key={p.id}
+          className="absolute animate-confetti-fall"
+          style={{
+            left: `${p.left}%`,
+            top: "-10px",
+            width: `${p.size}px`,
+            height: `${p.size}px`,
+            backgroundColor: p.color,
+            borderRadius: Math.random() > 0.5 ? "50%" : "2px",
+            animationDelay: `${p.delay}s`,
+            transform: `rotate(${p.rotation}deg)`,
+          }}
+        />
+      ))}
+    </div>
+  )
+}
 
 export default function BookingConfirmation() {
   const { id } = useParams<{ id: string }>()
@@ -56,12 +93,8 @@ export default function BookingConfirmation() {
     <div className="px-base py-section">
       <div className="max-w-[640px] mx-auto text-center">
         {/* Confetti Animation */}
-        <div className="mb-lg relative inline-flex">
-          <Player
-            src="https://lottiefiles.com/free-animation/confetti-3ofTs67sBx"
-            className="h-48 w-48"
-            autoplay
-          />
+        <div className="mb-lg relative inline-flex h-48 w-full justify-center">
+          <ConfettiEffect />
         </div>
 
         <h1 className="typo-display-xl text-ink mb-sm">Booking Confirmed!</h1>

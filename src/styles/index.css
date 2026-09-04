@@ -792,3 +792,22 @@ input[type="number"] {
 .loading-dot {
   animation: loadingDot 1.2s ease-in-out infinite;
 }
+
+/* Confetti fall animation */
+@keyframes confetti-fall {
+  0% {
+    transform: translateY(0) rotateZ(0deg);
+    opacity: 1;
+  }
+  75% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(500px) rotateZ(720deg);
+    opacity: 0;
+  }
+}
+
+.animate-confetti-fall {
+  animation: confetti-fall 3s ease-in forwards;
+}
