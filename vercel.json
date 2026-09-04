@@ -1,6 +1,9 @@
 {
   "buildCommand": "vite build",
   "outputDirectory": "dist",
+  "routes": [
+    { "src": "/api/(.*)", "dest": "/api/index.py" }
+  ],
   "rewrites": [
     { "source": "/((?!assets/|api/).*)", "destination": "/index.html" }
   ]
