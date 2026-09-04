@@ -2,6 +2,7 @@ import { lazy, Suspense } from "react"
 import { BrowserRouter, Routes, Route } from "react-router"
 import RootLayout from "./layouts/RootLayout"
 import ProtectedRoute from "./components/ProtectedRoute"
+import LoadingDots from "./components/LoadingDots"
 
 const Home = lazy(() => import("./pages/Home"))
 const Rooms = lazy(() => import("./pages/Rooms"))
@@ -33,9 +34,7 @@ const AdminSettings = lazy(() => import("./pages/admin/Settings"))
 function PageLoader() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#F4F6F8]">
-      <div className="flex flex-col items-center gap-3">
-        <div className="w-8 h-8 border-2 border-[#D5DADF] border-t-[#82285f] rounded-full animate-spin" />
-      </div>
+      <LoadingDots size="lg" className="text-primary" />
     </div>
   )
 }
@@ -57,13 +56,17 @@ export default function App() {
             <Route index element={<Home />} />
             <Route path="rooms" element={<Rooms />} />
             <Route path="rooms/:id" element={<RoomDetail />} />
-            <Route path="booking/:id" element={<Booking />} />
-            <Route path="booking/confirmation/:id" element={<BookingConfirmation />} />
             <Route path="booking/failed" element={<PaymentFailed />} />
-            <Route path="my-bookings" element={<MyBookings />} />
-            <Route path="settings" element={<Settings />} />
-            <Route path="profile" element={<Profile />} />
             <Route path="*" element={<NotFound />} />
+
+            {/* Authenticated user routes */}
+            <Route element={<ProtectedRoute />}>
+              <Route path="booking/:id" element={<Booking />} />
+              <Route path="booking/confirmation/:id" element={<BookingConfirmation />} />
+              <Route path="my-bookings" element={<MyBookings />} />
+              <Route path="settings" element={<Settings />} />
+              <Route path="profile" element={<Profile />} />
+            </Route>
           </Route>
 
           {/* Admin side — completely separate */}

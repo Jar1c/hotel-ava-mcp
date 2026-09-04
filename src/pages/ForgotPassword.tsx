@@ -2,7 +2,8 @@ import { useState } from "react"
 import { Link, useNavigate } from "react-router"
 import { Mail, ArrowRight, CheckCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { authApi } from "@/services/api"
+import { supabase } from "@/lib/supabase"
+import LoadingDots from "@/components/LoadingDots"
 import hotelLogo from "@/assets/images/Hotel Ava logo.png"
 
 const PRIMARY = "#82285f"
@@ -24,7 +25,10 @@ export default function ForgotPassword() {
     }
     setSubmitting(true)
     try {
-      await authApi.forgotPassword(email)
+      const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      })
+      if (resetError) throw resetError
       setSuccess(true)
     } catch {
       setError("Something went wrong. Please try again.")
@@ -41,16 +45,16 @@ export default function ForgotPassword() {
   if (success) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-canvas px-4">
-        <div className="w-full max-w-sm text-center">
-          <div className="bg-white rounded-[12px] p-8 shadow-sm">
+        <div className="w-full max-w-[448px]">
+          <div className="bg-white rounded-[16px] p-8 shadow-sm text-center">
             <div className="w-14 h-14 rounded-full bg-[#E8F0EB] flex items-center justify-center mx-auto mb-5">
               <CheckCircle className="size-7 text-[#3D6B4F]" />
             </div>
             <h1 className="font-display text-xl font-bold text-ink mb-2">Check Your Email</h1>
-            <p className="text-sm text-muted mb-6">
+            <p className="text-sm text-muted mb-4 leading-relaxed">
               We&apos;ve sent a password reset link to <strong>{email}</strong>. Click the link in the email to reset your password.
             </p>
-            <p className="text-xs text-muted mb-6">
+            <p className="text-xs text-muted mb-6 leading-relaxed">
               Didn&apos;t receive the email? Check your spam folder or try again.
             </p>
             <Button
@@ -68,7 +72,7 @@ export default function ForgotPassword() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-canvas px-4">
-      <div style={{ width: "100%", maxWidth: "24rem" }}>
+      <div className="w-full max-w-[448px]">
         {/* Back */}
         <button
           type="button"
@@ -123,10 +127,7 @@ export default function ForgotPassword() {
           >
             {submitting ? (
               <span className="flex items-center gap-2">
-                <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
-                </svg>
+                <LoadingDots size="sm" />
                 Sending...
               </span>
             ) : (

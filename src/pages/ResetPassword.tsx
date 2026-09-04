@@ -1,17 +1,15 @@
 import { useState, useEffect } from "react"
-import { useNavigate, useSearchParams } from "react-router"
+import { useNavigate } from "react-router"
 import { Lock, Eye, EyeOff, ArrowRight, CheckCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { authApi } from "@/services/api"
+import { supabase } from "@/lib/supabase"
+import LoadingDots from "@/components/LoadingDots"
 import hotelLogo from "@/assets/images/Hotel Ava logo.png"
 
 const PRIMARY = "#82285f"
 
 export default function ResetPassword() {
   const navigate = useNavigate()
-  const [searchParams] = useSearchParams()
-  const accessToken = searchParams.get("access_token") || ""
-  const refreshToken = searchParams.get("refresh_token") || ""
 
   const [newPassword, setNewPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
@@ -20,18 +18,54 @@ export default function ResetPassword() {
   const [success, setSuccess] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [focused, setFocused] = useState<string | null>(null)
+  const [tokenValid, setTokenValid] = useState<boolean>(false)
+  const [checking, setChecking] = useState(true)
 
   useEffect(() => {
-    if (!accessToken || !refreshToken) {
-      setError("Invalid or expired reset link. Please request a new one.")
+    const handleRecovery = async () => {
+      const url = new URL(window.location.href)
+      const code = url.searchParams.get("code")
+
+      if (code) {
+        // PKCE flow — exchange the code for a session
+        const { error } = await supabase.auth.exchangeCodeForSession(code)
+        if (!error) {
+          setTokenValid(true)
+        }
+        // Clean up the URL
+        window.history.replaceState({}, "", window.location.pathname)
+      } else {
+        // Fallback: check if a session already exists
+        const { data: { session } } = await supabase.auth.getSession()
+        if (session) setTokenValid(true)
+      }
+      setChecking(false)
     }
-  }, [accessToken, refreshToken])
+
+    handleRecovery()
+
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        if (event === "PASSWORD_RECOVERY" || (event === "SIGNED_IN" && session)) {
+          setTokenValid(true)
+          setChecking(false)
+        }
+      }
+    )
+
+    const timer = setTimeout(() => setChecking(false), 3000)
+
+    return () => {
+      authListener.subscription.unsubscribe()
+      clearTimeout(timer)
+    }
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
 
-    if (!accessToken || !refreshToken) {
+    if (!tokenValid) {
       setError("Invalid or expired reset link.")
       return
     }
@@ -58,13 +92,14 @@ export default function ResetPassword() {
 
     setSubmitting(true)
     try {
-      await authApi.resetPassword({
-        access_token: accessToken,
-        refresh_token: refreshToken,
-        new_password: newPassword,
+      const { data, error: updateError } = await supabase.auth.updateUser({
+        password: newPassword,
       })
+      if (updateError) throw updateError
+      console.log("Password updated:", data)
       setSuccess(true)
-    } catch {
+    } catch (err) {
+      console.error("Reset password error:", err)
       setError("Failed to reset password. The link may have expired.")
     } finally {
       setSubmitting(false)
@@ -79,13 +114,13 @@ export default function ResetPassword() {
   if (success) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-canvas px-4">
-        <div className="w-full max-w-sm text-center">
-          <div className="bg-white rounded-[12px] p-8 shadow-sm">
+        <div className="w-full max-w-[448px] text-center">
+          <div className="bg-white rounded-[16px] p-8 shadow-sm">
             <div className="w-14 h-14 rounded-full bg-[#E8F0EB] flex items-center justify-center mx-auto mb-5">
               <CheckCircle className="size-7 text-[#3D6B4F]" />
             </div>
             <h1 className="font-display text-xl font-bold text-ink mb-2">Password Reset!</h1>
-            <p className="text-sm text-muted mb-6">
+            <p className="text-sm text-muted mb-6 leading-relaxed">
               Your password has been updated. You can now sign in with your new password.
             </p>
             <Button
@@ -101,9 +136,42 @@ export default function ResetPassword() {
     )
   }
 
+  if (checking) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-canvas px-4">
+        <div className="flex flex-col items-center gap-3">
+          <LoadingDots size="lg" className="text-primary" />
+          <p className="text-sm text-muted">Verifying reset link...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!tokenValid) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-canvas px-4">
+        <div className="w-full max-w-[448px] text-center">
+          <div className="bg-white rounded-[16px] p-8 shadow-sm">
+            <h1 className="font-display text-xl font-bold text-error mb-2">Invalid or Expired Link</h1>
+            <p className="text-sm text-muted mb-6 leading-relaxed">
+              This password reset link is invalid or has expired. Please request a new one.
+            </p>
+            <Button
+              onClick={() => navigate("/forgot-password")}
+              className="w-full !rounded-[10px] font-medium"
+              style={{ backgroundColor: PRIMARY, color: "#FBF9F4" }}
+            >
+              Request New Link
+            </Button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-canvas px-4">
-      <div style={{ width: "100%", maxWidth: "24rem" }}>
+      <div className="w-full max-w-[448px]">
         {/* Logo */}
         <div className="flex justify-center mb-8">
           <img src={hotelLogo} alt="Hotel Ava" className="h-14 w-auto" />
@@ -171,16 +239,13 @@ export default function ResetPassword() {
 
           <Button
             type="submit"
-            disabled={submitting || !accessToken || !refreshToken}
+            disabled={submitting || !tokenValid}
             className="w-full py-2.5 font-medium !rounded-[10px] transition-all duration-200 hover:opacity-90 active:scale-[0.985] disabled:opacity-50 flex items-center justify-center gap-2"
             style={{ backgroundColor: PRIMARY, color: "#FBF9F4" }}
           >
             {submitting ? (
               <span className="flex items-center gap-2">
-                <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
-                </svg>
+                <LoadingDots size="sm" />
                 Resetting...
               </span>
             ) : (

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react"
 import { Link, useSearchParams, useNavigate } from "react-router"
-import { CheckCircle, XCircle, Loader2 } from "lucide-react"
+import { CheckCircle, XCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import LoadingDots from "@/components/LoadingDots"
 import hotelLogo from "@/assets/images/Hotel Ava logo.png"
 
 type VerifyState = "loading" | "success" | "redirecting" | "expired"
@@ -67,7 +68,7 @@ export default function VerifyEmail() {
           {state === "loading" && (
             <>
               <div className="mx-auto mb-5 flex items-center justify-center w-16 h-16 rounded-full bg-[#F4F6F8]">
-                <Loader2 className="size-7 text-[#82285f] animate-spin" />
+                <LoadingDots size="lg" className="text-primary" />
               </div>
               <h1 className="text-lg font-bold text-[#2A2A28] mb-2">Verifying your email...</h1>
               <p className="text-sm text-[#7A7A70]">Please wait while we confirm your address.</p>
@@ -101,7 +102,7 @@ export default function VerifyEmail() {
                 Your account is ready. Redirecting you to the main page...
               </p>
               <div className="flex items-center justify-center gap-2 text-sm text-[#82285f]">
-                <Loader2 className="size-4 animate-spin" />
+                <LoadingDots size="sm" className="text-primary" />
                 <span className="font-medium">Redirecting...</span>
               </div>
             </>

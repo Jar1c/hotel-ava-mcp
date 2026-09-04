@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button"
 import { useAuth } from "@/contexts/AuthContext"
 import { useTheme, type ThemeMode, type ColorPreset } from "@/contexts/ThemeContext"
 import { authApi } from "@/services/api"
+import LoadingDots from "@/components/LoadingDots"
 
 const COLOR_PRESETS: { key: ColorPreset; label: string; primary: string; secondary: string }[] = [
   { key: "royal-plum", label: "Royal Plum", primary: "#82285f", secondary: "#455d58" },
@@ -184,7 +185,7 @@ export default function Settings() {
               </div>
               {uploading && (
                 <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <LoadingDots size="sm" className="text-white" />
                 </div>
               )}
             </div>

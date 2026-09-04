@@ -4,7 +4,7 @@ import Header from "@/components/layout/Header"
 import Footer from "@/components/layout/Footer"
 import { useAuth } from "@/contexts/AuthContext"
 
-const hideHeaderFooter = ["/login", "/register"]
+const hideHeaderFooter = ["/login", "/register", "/forgot-password", "/reset-password", "/verify-email"]
 
 export default function RootLayout() {
   const location = useLocation()

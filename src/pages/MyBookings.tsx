@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react"
 import { useNavigate, useSearchParams } from "react-router"
-import { CalendarDays, Users, Clock, X, ChevronRight, Loader2, SlidersHorizontal, ChevronLeft, LayoutGrid, CheckCircle, BadgeCheck, XCircle } from "lucide-react"
+import { CalendarDays, Users, Clock, X, ChevronRight, SlidersHorizontal, ChevronLeft, LayoutGrid, CheckCircle, BadgeCheck, XCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { userBookingsApi, type UserBookingData } from "@/services/api"
 import { useToast } from "@/contexts/ToastContext"
+import LoadingDots from "@/components/LoadingDots"
 
 const PRIMARY = "#82285f"
 const CANVAS = "#FBF9F8"
@@ -267,7 +268,7 @@ export default function MyBookings() {
                                 style={{ backgroundColor: PRIMARY, color: CANVAS }}
                               >
                                 {paying === booking.id ? (
-                                  <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                                  <LoadingDots size="sm" className="mr-1" />
                                 ) : (
                                   <ChevronRight className="h-3.5 w-3.5 ml-0.5" />
                                 )}

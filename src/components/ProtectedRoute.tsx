@@ -1,14 +1,14 @@
 import { Navigate, Outlet } from "react-router"
 import { useAuth } from "@/contexts/AuthContext"
+import LoadingDots from "@/components/LoadingDots"
 
 export default function ProtectedRoute({ requireAdmin = false }) {
   const { isAuthenticated, isAdmin, loading } = useAuth()
 
-  // Wait for auth state to be resolved before making redirect decisions
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-canvas">
-        <div className="w-8 h-8 border-3 border-primary border-t-transparent rounded-full animate-spin" />
+        <LoadingDots size="lg" className="text-primary" />
       </div>
     )
   }

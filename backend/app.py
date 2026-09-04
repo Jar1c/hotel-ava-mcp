@@ -138,6 +138,7 @@ def login():
             }
         }), 200
     except Exception as e:
+        print(f"Login error: {type(e).__name__}: {e}")
         return jsonify({"error": "Invalid email or password"}), 401
 
 
@@ -317,8 +318,7 @@ def change_password():
 
     try:
         set_auth(token)
-        # Use Supabase admin API to update password
-        supabase.auth.admin.update_user_by_id(user_id, {"password": new_password})
+        supabase.auth.update_user({"password": new_password})
         return jsonify({"message": "Password updated successfully"}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500

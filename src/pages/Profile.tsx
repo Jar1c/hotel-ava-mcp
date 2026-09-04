@@ -1,11 +1,12 @@
 import { useState, useEffect } from "react"
 import { Navigate } from "react-router"
-import { User, Lock, Camera, Pencil, Check, X, Trash2, Loader2, AlertTriangle } from "lucide-react"
+import { User, Lock, Camera, Pencil, Check, X, Trash2, AlertTriangle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { Avatar, AvatarFallback, AvatarImage, HotelLogoIcon } from "@/components/ui/avatar"
 import { useAuth } from "@/contexts/AuthContext"
 import { authApi } from "@/services/api"
+import LoadingDots from "@/components/LoadingDots"
 
 const PRIMARY = "#82285f"
 const INK = "#2A2A28"
@@ -180,7 +181,7 @@ export default function Profile() {
                       </Avatar>
                       <div className="absolute inset-0 rounded-[6px] flex items-center justify-center bg-black/0 group-hover:bg-black/30 transition-all duration-200">
                         {avatarLoading ? (
-                          <Loader2 className="size-6 text-white animate-spin" />
+                          <LoadingDots size="sm" className="text-white" />
                         ) : (
                           <Camera className="size-6 text-white opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
                         )}
