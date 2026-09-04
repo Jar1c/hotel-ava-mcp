@@ -78,6 +78,7 @@ export default function MyBookings() {
     } catch {
     } finally {
       setCancelling(null)
+      setCancelDialog({ open: false, id: null })
     }
   }
 
