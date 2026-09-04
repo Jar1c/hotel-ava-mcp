@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useCallback, type ReactNode } from "react"
+import { CheckCircle, XCircle, Info } from "lucide-react"
 
 interface Toast {
   id: number
@@ -28,24 +29,31 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     }, 4000)
   }, [])
 
+  const icons = {
+    success: <CheckCircle className="h-5 w-5 text-[#3D6B4F]" />,
+    error: <XCircle className="h-5 w-5 text-[#A4423A]" />,
+    default: <Info className="h-5 w-5" style={{ color: "var(--color-primary)" }} />,
+  }
+
   return (
     <ToastContext.Provider value={{ toast }}>
       {children}
-      {/* Toast container */}
-      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[9999] flex flex-col gap-2 pointer-events-none">
+      {/* Toast container - top right like phone notifications */}
+      <div className="fixed top-20 right-4 z-[9999] flex flex-col gap-2 pointer-events-none">
         {toasts.map((t) => (
           <div
             key={t.id}
-            className="pointer-events-auto bg-white border border-hairline rounded-[12px] shadow-lg px-4 py-3 w-[340px] animate-toast-pop"
-            style={{
-              borderLeftWidth: "4px",
-              borderLeftColor: t.variant === "error" ? "#A4423A" : t.variant === "success" ? "#3D6B4F" : "#82285f",
-            }}
+            className="pointer-events-auto bg-white rounded-[14px] shadow-[0_4px_20px_rgba(0,0,0,0.12)] px-4 py-3 w-[320px] animate-toast-slide flex items-start gap-3"
           >
-            <p className="typo-body-sm font-medium text-ink">{t.title}</p>
-            {t.description && (
-              <p className="typo-caption-sm text-muted mt-0.5">{t.description}</p>
-            )}
+            <div className="shrink-0 mt-0.5">
+              {icons[t.variant || "default"]}
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-ink leading-tight">{t.title}</p>
+              {t.description && (
+                <p className="text-xs text-muted mt-0.5 leading-snug">{t.description}</p>
+              )}
+            </div>
           </div>
         ))}
       </div>

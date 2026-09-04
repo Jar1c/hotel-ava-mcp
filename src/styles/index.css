@@ -812,12 +812,12 @@ input[type="number"] {
   animation: confetti-fall 3s ease-in forwards;
 }
 
-/* Toast pop animation */
-@keyframes toast-pop {
-  0% { transform: translateY(20px); opacity: 0; }
-  100% { transform: translateY(0); opacity: 1; }
+/* Toast slide animation - like phone notifications */
+@keyframes toast-slide {
+  0% { transform: translateX(100%); opacity: 0; }
+  100% { transform: translateX(0); opacity: 1; }
 }
 
-.animate-toast-pop {
-  animation: toast-pop 0.3s ease-out both;
+.animate-toast-slide {
+  animation: toast-slide 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
