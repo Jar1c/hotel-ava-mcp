@@ -16,6 +16,7 @@ export interface RoomFormData {
   capacity: number
   amenities: string[]
   images: string[]
+  description: string
   status: "available" | "occupied" | "maintenance"
 }
 
@@ -76,6 +77,7 @@ function emptyForm(): RoomFormData {
     capacity: roomTypePresets["Standard"].capacity,
     amenities: [...roomTypePresets["Standard"].amenities],
     images: [],
+    description: "",
     status: "available",
   }
 }
@@ -333,6 +335,18 @@ export default function RoomFormSheet({ open, onClose, onSave, editRoom }: RoomF
                     </div>
                   </div>
                 </div>
+              </div>
+
+              {/* Description */}
+              <div>
+                <label className="block text-[10px] font-bold text-[#6b7280] uppercase tracking-wider mb-1">About This Room</label>
+                <textarea
+                  value={form.description}
+                  onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+                  placeholder="Describe the room, its features, and what makes it special..."
+                  rows={3}
+                  className="w-full rounded-[6px] border border-[#e2e4e8] bg-white px-3 py-2.5 text-[13px] text-[#1a1d26] placeholder:text-[#b0b3b8] focus:outline-none focus:ring-2 focus:ring-[#82285f]/15 focus:border-[#82285f] transition-all resize-none"
+                />
               </div>
             </div>
           </div>

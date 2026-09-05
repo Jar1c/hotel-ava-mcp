@@ -59,6 +59,7 @@ async function fetchRooms(): Promise<AdminRoom[]> {
       capacity: r.capacity,
       amenities: r.amenities || [],
       images: r.images || [],
+      description: r.description || "",
       status: r.status,
       bookings: r.bookings,
       revenue: r.revenue,
@@ -79,6 +80,7 @@ export async function addRoom(room: Omit<AdminRoom, "id" | "bookings" | "revenue
       capacity: room.capacity,
       amenities: room.amenities,
       images: room.images,
+      description: room.description,
       status: room.status,
     })
     clearCache("rooms")
@@ -90,6 +92,7 @@ export async function addRoom(room: Omit<AdminRoom, "id" | "bookings" | "revenue
       capacity: data.capacity,
       amenities: data.amenities || [],
       images: data.images || [],
+      description: data.description || "",
       status: data.status,
       bookings: 0,
       revenue: 0,
@@ -108,6 +111,7 @@ export async function updateRoom(room: AdminRoom): Promise<AdminRoom | null> {
       capacity: room.capacity,
       amenities: room.amenities,
       images: room.images,
+      description: room.description,
       status: room.status,
     })
     clearCache("rooms")
@@ -119,6 +123,7 @@ export async function updateRoom(room: AdminRoom): Promise<AdminRoom | null> {
       capacity: data.capacity,
       amenities: data.amenities || [],
       images: data.images || [],
+      description: data.description || "",
       status: data.status,
       bookings: data.bookings,
       revenue: data.revenue,

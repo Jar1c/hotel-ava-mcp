@@ -196,6 +196,7 @@ export interface RoomData {
   capacity: number
   amenities: string[]
   images: string[]
+  description: string
   status: "available" | "occupied" | "maintenance"
   bookings: number
   revenue: number
