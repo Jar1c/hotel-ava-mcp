@@ -156,6 +156,7 @@ async function fetchBookings(): Promise<Booking[]> {
     const bookings = await bookingsApi.getAll()
     const result = bookings.map((b: BookingData) => ({
       id: b.id,
+      fullId: b.fullId,
       guestName: b.guestName,
       guestEmail: b.guestEmail,
       roomType: b.roomType,
@@ -165,6 +166,10 @@ async function fetchBookings(): Promise<Booking[]> {
       nights: b.nights,
       amount: b.amount,
       status: b.status as BookingStatus,
+      stay_type: (b as any).stay_type,
+      duration: (b as any).duration,
+      start_time: (b as any).start_time,
+      createdAt: (b as any).createdAt,
     }))
     setCache("bookings", result)
     return result
@@ -185,6 +190,7 @@ async function fetchRecentBookings(limit: number): Promise<Booking[]> {
     const bookings = await bookingsApi.getAll(limit)
     const result = bookings.map((b: BookingData) => ({
       id: b.id,
+      fullId: b.fullId,
       guestName: b.guestName,
       guestEmail: b.guestEmail,
       roomType: b.roomType,

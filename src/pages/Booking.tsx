@@ -68,13 +68,35 @@ export default function Booking() {
     Number(searchParams.get("duration")) || 4
   )
   const [startTime, setStartTime] = useState<string>(
-    searchParams.get("startTime") || "10:00 AM"
+    searchParams.get("startTime") || ""
   )
 
   const startTimes = useMemo(() => {
     const maxStart = 24 - dayDuration
-    return generateStartTimes(maxStart)
-  }, [dayDuration])
+    const allTimes = generateStartTimes(maxStart)
+    if (!checkIn) return allTimes
+    const now = new Date()
+    const selectedDate = new Date(checkIn)
+    const isToday = selectedDate.toDateString() === now.toDateString()
+    if (!isToday) return allTimes
+    const currentHour = now.getHours()
+    return allTimes.filter((t) => {
+      const match = t.match(/(\d+):00\s*(AM|PM)/i)
+      if (!match) return true
+      let h = parseInt(match[1])
+      const period = match[2].toUpperCase()
+      if (period === "PM" && h !== 12) h += 12
+      if (period === "AM" && h === 12) h = 0
+      return h > currentHour
+    })
+  }, [dayDuration, checkIn])
+
+  // Reset startTime if it's no longer available (e.g. date changed to today and hour passed)
+  useEffect(() => {
+    if (startTime && startTimes.length > 0 && !startTimes.includes(startTime)) {
+      setStartTime("")
+    }
+  }, [startTimes])
 
   const endTime = useMemo(() => addHoursToTime(startTime, dayDuration), [startTime, dayDuration])
 
@@ -116,7 +138,7 @@ export default function Booking() {
   const taxes = Math.round(subtotal * 0.12)
   const total = subtotal + taxes
 
-  const canSubmit = hasDate && validNights && !submitting
+  const canSubmit = hasDate && validNights && !submitting && (isOvernight || !!startTime)
 
   const handleSubmit = async () => {
     if (!canSubmit || !room || !user) return
@@ -349,6 +371,7 @@ export default function Booking() {
                         onChange={(e) => setStartTime(e.target.value)}
                         className="w-full pl-9 pr-3 py-2 rounded-[12px] border border-hairline bg-white typo-body-sm text-ink focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary appearance-none"
                       >
+                        <option value="" disabled>Select Time</option>
                         {startTimes.map((t) => (
                           <option key={t} value={t}>{t}</option>
                         ))}
@@ -358,7 +381,7 @@ export default function Booking() {
                       </div>
                     </div>
                   </div>
-                  {checkIn && (
+                  {checkIn && startTime && (
                     <div className="bg-primary/5 border border-primary/10 rounded-[10px] px-3 py-2 flex items-center gap-2">
                       <Clock className="h-4 w-4 text-primary" />
                       <span className="text-sm text-ink font-medium">
@@ -446,7 +469,7 @@ export default function Booking() {
                           {checkIn!.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                           {isOvernight && checkOut ? ` – ${checkOut!.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}` : ""}
                         </p>
-                        {!isOvernight && (
+                        {!isOvernight && startTime && (
                           <p className="typo-caption-sm text-muted">{startTime} – {endTime}</p>
                         )}
                       </>

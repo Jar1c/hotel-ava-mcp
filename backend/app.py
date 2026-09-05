@@ -88,6 +88,107 @@ def today_str():
     return date.today().isoformat()
 
 
+# ── Notifications ────────────────────────────────────────────────────────────────
+
+MAX_NOTIFICATIONS = 30
+
+
+def create_notification(user_id, notif_type, title, message, booking_id=None):
+    """Insert a notification and trim old ones to MAX_NOTIFICATIONS."""
+    try:
+        # Use the global supabase client (which has auth set via set_auth).
+        # The anon-only client can't do writes — Supabase REST API requires
+        # a valid Authorization header even when RLS policy is WITH CHECK (true).
+        notif_data = {
+            "user_id": user_id,
+            "type": notif_type,
+            "title": title,
+            "message": message,
+        }
+        if booking_id:
+            notif_data["booking_id"] = booking_id
+        supabase.table("notifications").insert(notif_data).execute()
+
+        # Trim to MAX_NOTIFICATIONS: keep newest, delete oldest
+        all_notifs = supabase.table("notifications").select("id").eq("user_id", user_id).order("created_at", desc=True).execute()
+        if all_notifs.data and len(all_notifs.data) > MAX_NOTIFICATIONS:
+            old_ids = [n["id"] for n in all_notifs.data[MAX_NOTIFICATIONS:]]
+            supabase.table("notifications").delete().in_("id", old_ids).execute()
+    except Exception as e:
+        print(f"Notification error: {e}")
+
+
+@app.route("/api/notifications", methods=["GET"])
+def get_notifications():
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    user_id = get_user_from_token(token)
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    try:
+        limit = request.args.get("limit", default=30, type=int)
+        res = supabase.table("notifications").select("*").eq("user_id", user_id).order("created_at", desc=True).limit(limit).execute()
+        return jsonify(res.data or []), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/notifications/unread-count", methods=["GET"])
+def get_unread_count():
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    user_id = get_user_from_token(token)
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    try:
+        res = supabase.table("notifications").select("id", count="exact").eq("user_id", user_id).eq("read", False).execute()
+        return jsonify({"count": res.count or 0}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/notifications/<notif_id>/read", methods=["PUT"])
+def mark_notification_read(notif_id):
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    user_id = get_user_from_token(token)
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    try:
+        supabase.table("notifications").update({"read": True}).eq("id", notif_id).eq("user_id", user_id).execute()
+        return jsonify({"success": True}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/notifications/read-all", methods=["PUT"])
+def mark_all_read():
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    user_id = get_user_from_token(token)
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    try:
+        supabase.table("notifications").update({"read": True}).eq("user_id", user_id).eq("read", False).execute()
+        return jsonify({"success": True}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/notifications/<notif_id>", methods=["DELETE"])
+def delete_notification(notif_id):
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    user_id = get_user_from_token(token)
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    try:
+        supabase.table("notifications").delete().eq("id", notif_id).eq("user_id", user_id).execute()
+        return jsonify({"success": True}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 # ── Auth ───────────────────────────────────────────────────────────────────────
 
 @app.route("/api/auth/register", methods=["POST"])
@@ -783,9 +884,22 @@ def create_booking():
     special_requests = data.get("special_requests", "")
     payment_method = data.get("payment_method", "gcash")
     total_price = data.get("total_price", 0)
+    stay_type = data.get("stay_type", "overnight")
+    stays = data.get("stays", "24 Hours")
+    duration = data.get("duration")
+    start_time = data.get("start_time")
 
-    if not room_id or not check_in or not check_out:
-        return jsonify({"error": "room_id, check_in, and check_out are required"}), 400
+    if not room_id or not check_in:
+        return jsonify({"error": "room_id and check_in are required"}), 400
+
+    if stay_type == "overnight" and not check_out:
+        return jsonify({"error": "check_out is required for overnight bookings"}), 400
+
+    # For day-use, set check_out to next day to satisfy DB constraint
+    if stay_type == "day":
+        from datetime import datetime, timedelta
+        check_in_date = datetime.strptime(check_in, "%Y-%m-%d")
+        check_out = (check_in_date + timedelta(days=1)).strftime("%Y-%m-%d")
 
     try:
         # Verify room exists and is available
@@ -796,15 +910,19 @@ def create_booking():
         room = room_res.data[0]
 
         # Check for overlapping bookings
-        overlap_res = supabase.table("bookings").select("id").eq("room_id", room_id).eq("status", "confirmed").or_(
-            f"and(check_in.lte.{check_out},check_out.gte.{check_in})"
-        ).execute()
+        if stay_type == "overnight":
+            overlap_res = supabase.table("bookings").select("id").eq("room_id", room_id).eq("status", "confirmed").or_(
+                f"and(check_in.lte.{check_out},check_out.gte.{check_in})"
+            ).execute()
+        else:
+            # Day-use: check same date overlaps
+            overlap_res = supabase.table("bookings").select("id").eq("room_id", room_id).eq("status", "confirmed").eq("check_in", check_in).eq("stay_type", "day").execute()
 
         if overlap_res.data and len(overlap_res.data) > 0:
             return jsonify({"error": "Room is not available for the selected dates"}), 409
 
         # Create booking with pending status
-        booking_res = supabase.table("bookings").insert({
+        booking_insert = {
             "user_id": user_id,
             "room_id": room_id,
             "check_in": check_in,
@@ -817,7 +935,14 @@ def create_booking():
             "email": email,
             "phone": phone,
             "special_requests": special_requests,
-        }).execute()
+            "stay_type": stay_type,
+            "stays": stays,
+        }
+        if stay_type == "day":
+            booking_insert["duration"] = duration
+            booking_insert["start_time"] = start_time
+
+        booking_res = supabase.table("bookings").insert(booking_insert).execute()
 
         if not booking_res.data:
             return jsonify({"error": "Failed to create booking"}), 500
@@ -834,6 +959,9 @@ def create_booking():
         )
 
         if checkout_url:
+            create_notification(user_id, "booking", "Booking Pending",
+                f"Your booking for {room['name']} on {check_in} is awaiting payment.",
+                booking_id=booking_id)
             return jsonify({
                 "booking_id": booking_id,
                 "checkout_url": checkout_url,
@@ -842,6 +970,9 @@ def create_booking():
         else:
             # No PayMongo configured — confirm directly
             supabase.table("bookings").update({"status": "confirmed"}).eq("id", booking_id).execute()
+            create_notification(user_id, "booking", "Booking Confirmed",
+                f"Your booking for {room['name']} on {check_in} is confirmed!",
+                booking_id=booking_id)
             return jsonify({
                 "booking_id": booking_id,
                 "status": "confirmed",
@@ -876,7 +1007,7 @@ def get_my_bookings():
             room = rooms_map.get(b.get("room_id"), {})
             nights = days_between(b["check_in"], b["check_out"])
             images = room.get("images", [])
-            result.append({
+            booking_data = {
                 "id": b["id"],
                 "room_id": b.get("room_id"),
                 "room_name": room.get("name", "Unknown"),
@@ -890,7 +1021,12 @@ def get_my_bookings():
                 "status": b["status"],
                 "payment_method": b.get("payment_method", ""),
                 "created_at": b["created_at"],
-            })
+                "stay_type": b.get("stay_type", "overnight"),
+                "stays": b.get("stays", "24 Hours"),
+                "duration": b.get("duration"),
+                "start_time": b.get("start_time"),
+            }
+            result.append(booking_data)
 
         return jsonify(result), 200
     except Exception as e:
@@ -934,6 +1070,10 @@ def get_booking(booking_id):
             "special_requests": b.get("special_requests", ""),
             "payment_method": b.get("payment_method", ""),
             "created_at": b["created_at"],
+            "stay_type": b.get("stay_type", "overnight"),
+            "stays": b.get("stays", "24 Hours"),
+            "duration": b.get("duration"),
+            "start_time": b.get("start_time"),
         }), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -955,10 +1095,13 @@ def cancel_booking(booking_id):
         b = booking_res.data[0]
         if b["user_id"] != user_id:
             return jsonify({"error": "Forbidden"}), 403
-        if b["status"] != "confirmed":
+        if b["status"] not in ("pending", "confirmed"):
             return jsonify({"error": "Booking cannot be cancelled"}), 400
 
         supabase.table("bookings").update({"status": "cancelled"}).eq("id", booking_id).execute()
+        create_notification(user_id, "booking", "Booking Cancelled",
+            "Your booking has been cancelled successfully.",
+            booking_id=booking_id)
         return jsonify({"status": "cancelled"}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -973,7 +1116,7 @@ def retry_booking_payment(booking_id):
         return jsonify({"error": "Unauthorized"}), 401
 
     try:
-        booking_res = supabase.table("bookings").select("user_id, status, total_price, room_name").eq("id", booking_id).execute()
+        booking_res = supabase.table("bookings").select("user_id, status, total_price, email").eq("id", booking_id).execute()
         if not booking_res.data:
             return jsonify({"error": "Booking not found"}), 404
 
@@ -983,8 +1126,7 @@ def retry_booking_payment(booking_id):
         if b["status"] != "pending":
             return jsonify({"error": "Only pending bookings can be paid"}), 400
 
-        user_res = supabase.table("users").select("email").eq("id", user_id).execute()
-        email = user_res.data[0]["email"] if user_res.data else ""
+        email = b.get("email", "")
 
         checkout_url = create_paymongo_checkout(
             booking_id,
@@ -1041,6 +1183,7 @@ def get_bookings():
             room = rooms_map.get(rid, {})
             result.append({
                 "id": b["id"][:8].upper(),
+                "fullId": b["id"],
                 "guestName": users_map.get(uid, "Unknown"),
                 "guestEmail": "",
                 "roomType": room.get("type", "Unknown"),
@@ -1050,9 +1193,150 @@ def get_bookings():
                 "nights": nights,
                 "amount": b["total_price"],
                 "status": b["status"],
+                "stay_type": b.get("stay_type", "overnight"),
+                "duration": b.get("duration"),
+                "start_time": b.get("start_time"),
+                "createdAt": b.get("created_at", ""),
             })
 
         return jsonify(result), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/bookings/auto-complete", methods=["POST"])
+def auto_complete_bookings():
+    """Auto-complete confirmed bookings past their end, and auto-cancel unpaid bookings past their date."""
+    import re as _re
+    from datetime import datetime
+
+    try:
+        now = datetime.utcnow()
+        today_str = now.strftime("%Y-%m-%d")
+        current_time_minutes = now.hour * 60 + now.minute
+
+        # 1) Auto-complete confirmed bookings
+        confirmed_res = supabase.table("bookings").select("*").eq("status", "confirmed").execute()
+        confirmed = confirmed_res.data or []
+
+        completed_ids = []
+        for b in confirmed:
+            should_complete = False
+            stay_type = b.get("stay_type", "overnight")
+
+            if stay_type == "day":
+                start_time = b.get("start_time")
+                duration = b.get("duration")
+                check_in = b.get("check_in", "")
+                if start_time and duration and check_in == today_str:
+                    match = _re.match(r"(\d+):00\s*(AM|PM)", start_time, _re.IGNORECASE)
+                    if match:
+                        h = int(match.group(1))
+                        period = match.group(2).upper()
+                        if period == "PM" and h != 12:
+                            h += 12
+                        if period == "AM" and h == 12:
+                            h = 0
+                        start_minutes = h * 60
+                        end_minutes = start_minutes + (duration * 60)
+                        if current_time_minutes >= end_minutes:
+                            should_complete = True
+            else:
+                check_out = b.get("check_out", "")
+                if check_out and check_out < today_str:
+                    should_complete = True
+
+            if should_complete:
+                result = supabase.table("bookings").update({"status": "completed"}).eq("id", b["id"]).eq("status", "confirmed").execute()
+                # Only notify if the status actually changed (prevents duplicates on repeated calls)
+                if result.data:
+                    completed_ids.append(b["id"])
+                    room_name = "your room"
+                    if b.get("room_id"):
+                        rr = supabase.table("rooms").select("name").eq("id", b["room_id"]).execute()
+                        if rr.data:
+                            room_name = rr.data[0]["name"]
+                    create_notification(b["user_id"], "booking", "Stay Completed",
+                        f"Your stay at {room_name} has been marked as completed. We hope to see you again!",
+                        booking_id=b["id"])
+
+        # 2) Auto-cancel unpaid (pending) bookings past their check-in date
+        pending_res = supabase.table("bookings").select("*").eq("status", "pending").execute()
+        pending = pending_res.data or []
+
+        cancelled_ids = []
+        for b in pending:
+            check_in = b.get("check_in", "")
+            if check_in and check_in < today_str:
+                result = supabase.table("bookings").update({"status": "cancelled"}).eq("id", b["id"]).eq("status", "pending").execute()
+                if result.data:
+                    cancelled_ids.append(b["id"])
+                    room_name = "your room"
+                    if b.get("room_id"):
+                        rr = supabase.table("rooms").select("name").eq("id", b["room_id"]).execute()
+                        if rr.data:
+                            room_name = rr.data[0]["name"]
+                    create_notification(b["user_id"], "booking", "Booking Expired",
+                        f"Your unpaid booking for {room_name} has been automatically cancelled.",
+                        booking_id=b["id"])
+
+        return jsonify({
+            "completed": len(completed_ids),
+            "cancelled": len(cancelled_ids),
+        }), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/bookings/<booking_id>/status", methods=["PUT"])
+def update_booking_status(booking_id):
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    set_auth(token)
+    user_id = get_user_from_token(token)
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.get_json()
+    new_status = data.get("status")
+    valid_statuses = ["pending", "confirmed", "cancelled", "completed", "checked-out"]
+    if new_status not in valid_statuses:
+        return jsonify({"error": f"Invalid status. Must be one of: {', '.join(valid_statuses)}"}), 400
+
+    try:
+        # Verify booking exists and get user_id for notification
+        booking_res = supabase.table("bookings").select("id, room_id, check_in, user_id").eq("id", booking_id).execute()
+        if not booking_res.data:
+            return jsonify({"error": "Booking not found"}), 404
+
+        b = booking_res.data[0]
+        booking_user_id = b.get("user_id")
+
+        # Get room name for notification message
+        room_name = "your room"
+        if b.get("room_id"):
+            room_res = supabase.table("rooms").select("name").eq("id", b["room_id"]).execute()
+            if room_res.data:
+                room_name = room_res.data[0]["name"]
+
+        # Update status
+        result = supabase.table("bookings").update({"status": new_status}).eq("id", booking_id).execute()
+
+        if not result.data:
+            return jsonify({"error": "Failed to update booking"}), 500
+
+        # Send notification to the booking's user
+        if booking_user_id:
+            status_messages = {
+                "confirmed": ("Booking Confirmed", f"Your booking for {room_name} on {b.get('check_in', '')} is confirmed!"),
+                "cancelled": ("Booking Cancelled", f"Your booking for {room_name} has been cancelled."),
+                "completed": ("Stay Completed", f"Your stay at {room_name} has been marked as completed. We hope to see you again!"),
+                "checked-out": ("Checked Out", f"You have been checked out from {room_name}. Thank you for staying with us!"),
+            }
+            if new_status in status_messages:
+                title, msg = status_messages[new_status]
+                create_notification(booking_user_id, "booking", title, msg, booking_id=booking_id)
+
+        return jsonify({"message": f"Booking status updated to {new_status}", "status": new_status}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -1607,16 +1891,26 @@ def paymongo_webhook():
                 booking_id = metadata["booking_id"]
 
             if booking_id:
-                # Update booking status to confirmed
-                result = supabase.table("bookings").update({"status": "confirmed"}).eq("id", booking_id).execute()
+                # Update booking status to confirmed (only if still pending)
+                result = supabase.table("bookings").update({"status": "confirmed"}).eq("id", booking_id).eq("status", "pending").execute()
                 print(f"Booking {booking_id} confirmed via webhook")
 
-                # Mark the room as occupied
-                booking_res = supabase.table("bookings").select("room_id").eq("id", booking_id).execute()
-                if booking_res.data:
-                    room_id = booking_res.data[0].get("room_id")
-                    if room_id:
-                        supabase.table("rooms").update({"available": False}).eq("id", room_id).execute()
+                # Only notify if the status actually changed
+                if result.data:
+                    booking_res = supabase.table("bookings").select("user_id, room_id, check_in").eq("id", booking_id).execute()
+                    if booking_res.data:
+                        b = booking_res.data[0]
+                        room_name = "your room"
+                        if b.get("room_id"):
+                            rr = supabase.table("rooms").select("name").eq("id", b["room_id"]).execute()
+                            if rr.data:
+                                room_name = rr.data[0]["name"]
+                        create_notification(b["user_id"], "booking", "Payment Confirmed",
+                            f"Payment received! Your booking for {room_name} on {b.get('check_in', '')} is now confirmed.",
+                            booking_id=booking_id)
+                        room_id = b.get("room_id")
+                        if room_id:
+                            supabase.table("rooms").update({"available": False}).eq("id", room_id).execute()
             else:
                 print(f"Webhook: Could not find booking_id from description: {description}")
 
@@ -1630,20 +1924,34 @@ def paymongo_webhook():
 def confirm_booking_after_payment(booking_id):
     """Called by frontend after successful PayMongo redirect."""
     try:
-        # Update booking status to confirmed
-        supabase.table("bookings").update({"status": "confirmed"}).eq("id", booking_id).execute()
+        # Get booking details before update
+        booking_res = supabase.table("bookings").select("user_id, room_id, check_in, status").eq("id", booking_id).execute()
 
-        booking_res = supabase.table("bookings").select("room_id, check_in, check_out").eq("id", booking_id).execute()
-        if booking_res.data:
-            b = booking_res.data[0]
-            room_res = supabase.table("rooms").select("name").eq("id", b["room_id"]).execute()
-            room_name = room_res.data[0]["name"] if room_res.data else "Room"
+        if not booking_res.data:
+            return jsonify({"error": "Booking not found"}), 404
+
+        b = booking_res.data[0]
+        if b["status"] == "confirmed":
+            return jsonify({"booking_id": booking_id, "status": "confirmed"}), 200
+
+        # Update booking status to confirmed
+        result = supabase.table("bookings").update({"status": "confirmed"}).eq("id", booking_id).eq("status", "pending").execute()
+
+        if result.data:
+            room_name = "your room"
+            if b.get("room_id"):
+                rr = supabase.table("rooms").select("name").eq("id", b["room_id"]).execute()
+                if rr.data:
+                    room_name = rr.data[0]["name"]
+            create_notification(b["user_id"], "booking", "Booking Confirmed",
+                f"Your booking for {room_name} on {b.get('check_in', '')} is confirmed!",
+                booking_id=booking_id)
             return jsonify({
                 "booking_id": booking_id,
                 "status": "confirmed",
                 "room_name": room_name,
                 "check_in": b["check_in"],
-                "check_out": b["check_out"],
+                "check_out": "",
             }), 200
 
         return jsonify({"booking_id": booking_id, "status": "confirmed"}), 200

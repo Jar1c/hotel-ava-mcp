@@ -250,6 +250,10 @@ export interface UserBookingData {
   status: string
   payment_method: string
   created_at: string
+  stay_type?: string
+  stays?: string
+  duration?: number
+  start_time?: string
 }
 
 export const userBookingsApi = {
@@ -271,6 +275,7 @@ export const userBookingsApi = {
 
 export interface BookingData {
   id: string
+  fullId?: string
   guestName: string
   guestEmail: string
   roomType: string
@@ -287,6 +292,13 @@ export const bookingsApi = {
     const params = limit ? `?limit=${limit}` : ""
     return apiFetch<BookingData[]>(`/bookings${params}`)
   },
+  updateStatus: (bookingId: string, status: string) =>
+    apiFetch<{ message: string; status: string }>(`/bookings/${bookingId}/status`, {
+      method: "PUT",
+      body: JSON.stringify({ status }),
+    }),
+  autoComplete: () =>
+    apiFetch<{ completed: number; ids: string[] }>("/bookings/auto-complete", { method: "POST" }),
 }
 
 // ── Guests ─────────────────────────────────────────────────────────────────────
@@ -398,4 +410,32 @@ export const analyticsApi = {
   getRevenueForecast: () => apiFetch<ForecastPoint[]>("/analytics/forecast/revenue"),
   getDemandInsights: () => apiFetch<DemandInsightData[]>("/analytics/demand-insights"),
   getDiscountOffers: () => apiFetch<DiscountOfferData[]>("/analytics/discount-offers"),
+}
+
+// ── Notifications ──────────────────────────────────────────────────────────────
+
+export interface NotificationData {
+  id: string
+  user_id: string
+  type: "booking" | "promo" | "reminder" | "system"
+  title: string
+  message: string
+  read: boolean
+  booking_id: string | null
+  created_at: string
+}
+
+export const notificationsApi = {
+  getAll: (limit = 30) => apiFetch<NotificationData[]>(`/notifications?limit=${limit}`),
+
+  getUnreadCount: () => apiFetch<{ count: number }>("/notifications/unread-count"),
+
+  markRead: (id: string) =>
+    apiFetch(`/notifications/${id}/read`, { method: "PUT" }),
+
+  markAllRead: () =>
+    apiFetch("/notifications/read-all", { method: "PUT" }),
+
+  delete: (id: string) =>
+    apiFetch(`/notifications/${id}`, { method: "DELETE" }),
 }

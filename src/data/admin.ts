@@ -2,6 +2,7 @@ export type BookingStatus = "confirmed" | "pending" | "completed" | "checked-out
 
 export interface Booking {
   id: string
+  fullId?: string
   guestName: string
   guestEmail: string
   roomType: string
@@ -11,6 +12,10 @@ export interface Booking {
   nights: number
   amount: number
   status: BookingStatus
+  stay_type?: string
+  duration?: number
+  start_time?: string
+  createdAt?: string
 }
 
 export interface MonthlyRevenue {

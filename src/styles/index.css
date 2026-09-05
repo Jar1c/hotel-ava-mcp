@@ -491,11 +491,12 @@ html, body {
 }
 
 .react-datepicker__navigation-icon::before {
-  border-color: var(--color-ink);
+  border-color: #1a1d26 !important;
+  opacity: 1 !important;
 }
 
 .react-datepicker__navigation:hover .react-datepicker__navigation-icon::before {
-  border-color: var(--color-primary);
+  border-color: var(--color-primary) !important;
 }
 
 .react-datepicker__triangle {
@@ -583,6 +584,8 @@ input[type="number"] {
   width: 700px !important;
   z-index: 9999 !important;
   font-family: var(--font-body) !important;
+  overflow: visible !important;
+  position: relative !important;
 }
 /* ═══════════════════════════════════════════
    Hotel Ava — Dual Date Picker Calendar
@@ -641,34 +644,45 @@ input[type="number"] {
   text-align: center;
 }
 
-/* Navigation arrows */
+/* Navigation arrows — SVG background approach */
 .ava-dual-calendar .react-datepicker__navigation {
   top: 10px !important;
   width: 32px !important;
   height: 32px !important;
   border-radius: 50% !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
+  background-color: transparent !important;
+  background-repeat: no-repeat !important;
+  background-position: center !important;
+  background-size: 16px 16px !important;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background-color 0.15s;
 }
-.ava-dual-calendar .react-datepicker__navigation:hover { background-color: var(--color-surface-soft) !important; }
-.ava-dual-calendar .react-datepicker__navigation--previous { left: 8px !important; }
-.ava-dual-calendar .react-datepicker__navigation--next    { right: 8px !important; }
+.ava-dual-calendar .react-datepicker__navigation:hover {
+  background-color: var(--color-surface-soft) !important;
+}
+.ava-dual-calendar .react-datepicker__navigation--previous {
+  left: 8px !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%232a2a28' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='15 18 9 12 15 6'%3E%3C/polyline%3E%3C/svg%3E") !important;
+}
+.ava-dual-calendar .react-datepicker__navigation--next {
+  right: 8px !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%232a2a28' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='9 18 15 12 9 6'%3E%3C/polyline%3E%3C/svg%3E") !important;
+}
+.ava-dual-calendar .react-datepicker__navigation--previous:hover {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2382285f' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='15 18 9 12 15 6'%3E%3C/polyline%3E%3C/svg%3E") !important;
+}
+.ava-dual-calendar .react-datepicker__navigation--next:hover {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2382285f' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='9 18 15 12 9 6'%3E%3C/polyline%3E%3C/svg%3E") !important;
+}
+/* Hide the text/icon inside the button since we use background-image */
 .ava-dual-calendar .react-datepicker__navigation-icon {
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
+  display: none !important;
 }
-.ava-dual-calendar .react-datepicker__navigation-icon::before { content: "" !important; border: none !important; }
-.ava-dual-calendar .react-datepicker__navigation-icon::after {
-  font-size: 18px !important;
-  font-weight: 500 !important;
-  color: var(--color-ink) !important;
+.ava-dual-calendar .react-datepicker__navigation--previous[disabled],
+.ava-dual-calendar .react-datepicker__navigation--next[disabled] {
+  opacity: 0.3 !important;
+  cursor: not-allowed !important;
 }
-.ava-dual-calendar .react-datepicker__navigation--previous .react-datepicker__navigation-icon--previous::after { content: "\2039" !important; }
-.ava-dual-calendar .react-datepicker__navigation--next    .react-datepicker__navigation-icon--next::after     { content: "\203A" !important; }
 
 /* ── Base day cell ── */
 .ava-dual-calendar .react-datepicker__day {

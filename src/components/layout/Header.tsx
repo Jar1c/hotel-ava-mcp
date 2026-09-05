@@ -1,5 +1,5 @@
 import { NavLink, Link, useLocation, useNavigate } from "react-router"
-import { useState } from "react"
+import { useState, useCallback } from "react"
 import { User, LogOut, Settings, CalendarDays, ChevronDown, Bell, CheckCheck, Tag, Clock } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage, HotelLogoIcon } from "@/components/ui/avatar"
@@ -11,52 +11,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { useAuth } from "@/contexts/AuthContext"
+import { useNotifications } from "@/contexts/NotificationContext"
 import { publicNavItems, guestNavItems } from "@/data/navigation"
 import hotelAvaLogo from "@/assets/images/Hotel Ava logo.png"
-
-interface Notification {
-  id: number
-  type: "booking" | "promo" | "reminder" | "system"
-  title: string
-  message: string
-  time: string
-  read: boolean
-}
-
-const mockNotifications: Notification[] = [
-  {
-    id: 1,
-    type: "booking",
-    title: "Booking Confirmed",
-    message: "Your stay at Standard Room on Sep 15-16 is confirmed.",
-    time: "2 min ago",
-    read: false,
-  },
-  {
-    id: 2,
-    type: "promo",
-    title: "Weekend Special Offer",
-    message: "Get 15% off on all suites this weekend! Book now.",
-    time: "1 hour ago",
-    read: false,
-  },
-  {
-    id: 3,
-    type: "reminder",
-    title: "Upcoming Check-in",
-    message: "Don't forget! Your check-in is tomorrow at 2 PM.",
-    time: "3 hours ago",
-    read: true,
-  },
-  {
-    id: 4,
-    type: "system",
-    title: "Profile Updated",
-    message: "Your account settings have been saved successfully.",
-    time: "1 day ago",
-    read: true,
-  },
-]
+import { formatDistanceToNow } from "date-fns"
 
 const notifTypeStyles: Record<string, { bg: string; icon: React.ReactNode }> = {
   booking: { bg: "bg-gray-100", icon: <CalendarDays className="size-4 text-ink" /> },
@@ -67,16 +25,36 @@ const notifTypeStyles: Record<string, { bg: string; icon: React.ReactNode }> = {
 
 export default function Header() {
   const { isAuthenticated, user, logout } = useAuth()
+  const { notifications, unreadCount, fetchNotifications, markRead, markAllRead } = useNotifications()
   const location = useLocation()
   const navigate = useNavigate()
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
   const [isLoggingOut, setIsLoggingOut] = useState(false)
-  const [notifications, setNotifications] = useState(mockNotifications)
+  const [dropdownOpen, setDropdownOpen] = useState(false)
 
-  const unreadCount = notifications.filter((n) => !n.read).length
+  const handleDropdownOpenChange = useCallback((open: boolean) => {
+    setDropdownOpen(open)
+    if (open) {
+      fetchNotifications()
+    }
+  }, [fetchNotifications])
 
-  const markAllRead = () => {
-    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })))
+  const handleNotifClick = useCallback((notif: typeof notifications[0]) => {
+    if (!notif.read) {
+      markRead(notif.id)
+    }
+    if (notif.booking_id) {
+      setDropdownOpen(false)
+      navigate("/my-bookings")
+    }
+  }, [markRead, navigate])
+
+  const formatTime = (dateStr: string) => {
+    try {
+      return formatDistanceToNow(new Date(dateStr), { addSuffix: true })
+    } catch {
+      return "just now"
+    }
   }
 
   const handleSignOut = async () => {
@@ -157,12 +135,12 @@ export default function Header() {
           ) : (
             <>
               {/* Notification bell */}
-              <DropdownMenu>
+              <DropdownMenu open={dropdownOpen} onOpenChange={handleDropdownOpenChange}>
                 <DropdownMenuTrigger className="relative flex size-9 items-center justify-center rounded-full bg-[#f0f1f3] text-[#6b7280] hover:bg-[#e2e4e8] transition-all duration-200 cursor-pointer">
                   <Bell className="size-[18px]" />
                   {unreadCount > 0 && (
                     <span className="absolute -top-0.5 -right-0.5 flex items-center justify-center size-4 rounded-full bg-[#A4423A] text-white text-[10px] font-bold">
-                      {unreadCount}
+                      {unreadCount > 9 ? "9+" : unreadCount}
                     </span>
                   )}
                 </DropdownMenuTrigger>
@@ -171,7 +149,7 @@ export default function Header() {
                   <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
                     <span className="text-sm font-semibold text-ink">Notifications</span>
                     {unreadCount > 0 && (
-                      <button onClick={markAllRead} className="text-xs text-primary hover:text-primary-active cursor-pointer flex items-center gap-1">
+                      <button onClick={() => markAllRead()} className="text-xs text-primary hover:text-primary-active cursor-pointer flex items-center gap-1">
                         <CheckCheck className="size-3.5" />
                         Mark all read
                       </button>
@@ -180,34 +158,44 @@ export default function Header() {
 
                   {/* Notification list */}
                   <div className="max-h-80 overflow-y-auto overscroll-contain">
-                    {notifications.map((notif) => (
-                      <div
-                        key={notif.id}
-                        className={`flex items-start gap-3 px-4 py-3 hover:bg-gray-50 transition-colors cursor-pointer border-b border-gray-50 last:border-b-0 ${!notif.read ? "bg-primary/5" : ""}`}
-                      >
-                        {/* Type icon */}
-                        <div className={`shrink-0 w-9 h-9 rounded-full flex items-center justify-center ${notifTypeStyles[notif.type].bg}`}>
-                          {notifTypeStyles[notif.type].icon}
-                        </div>
-
-                        {/* Content */}
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-medium text-ink truncate">{notif.title}</span>
-                            {!notif.read && (
-                              <span className="shrink-0 size-2 rounded-full bg-primary" />
-                            )}
-                          </div>
-                          <p className="text-xs text-muted mt-0.5 line-clamp-2">{notif.message}</p>
-                          <span className="text-[11px] text-muted-soft mt-1 block">{notif.time}</span>
-                        </div>
+                    {notifications.length === 0 ? (
+                      <div className="py-8 text-center text-sm text-muted">
+                        No notifications yet
                       </div>
-                    ))}
+                    ) : (
+                      notifications.map((notif) => (
+                        <div
+                          key={notif.id}
+                          onClick={() => handleNotifClick(notif)}
+                          className={`flex items-start gap-3 px-4 py-3 hover:bg-gray-50 transition-colors cursor-pointer border-b border-gray-50 last:border-b-0 ${!notif.read ? "bg-primary/5" : ""}`}
+                        >
+                          {/* Type icon */}
+                          <div className={`shrink-0 w-9 h-9 rounded-full flex items-center justify-center ${notifTypeStyles[notif.type]?.bg || "bg-gray-100"}`}>
+                            {notifTypeStyles[notif.type]?.icon || <Bell className="size-4 text-ink" />}
+                          </div>
+
+                          {/* Content */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-medium text-ink truncate">{notif.title}</span>
+                              {!notif.read && (
+                                <span className="shrink-0 size-2 rounded-full bg-primary" />
+                              )}
+                            </div>
+                            <p className="text-xs text-muted mt-0.5 line-clamp-2">{notif.message}</p>
+                            <span className="text-[11px] text-muted-soft mt-1 block">{formatTime(notif.created_at)}</span>
+                          </div>
+                        </div>
+                      ))
+                    )}
                   </div>
 
                   {/* Footer */}
                   <div className="border-t border-gray-100 px-4 py-2.5">
-                    <button className="w-full text-center text-xs text-primary hover:text-primary-active font-medium cursor-pointer">
+                    <button
+                      onClick={() => { setDropdownOpen(false); navigate("/my-bookings") }}
+                      className="w-full text-center text-xs text-primary hover:text-primary-active font-medium cursor-pointer"
+                    >
                       View all notifications
                     </button>
                   </div>

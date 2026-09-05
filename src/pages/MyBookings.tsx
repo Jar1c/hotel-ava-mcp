@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router"
 import { CalendarDays, Users, Clock, X, ChevronRight, SlidersHorizontal, ChevronLeft, LayoutGrid, CheckCircle, BadgeCheck, XCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { userBookingsApi, type UserBookingData } from "@/services/api"
+import { bookingsApi } from "@/services/api"
 import { useToast } from "@/contexts/ToastContext"
 import LoadingDots from "@/components/LoadingDots"
 import ConfirmDialog from "@/components/ui/confirm-dialog"
@@ -28,10 +29,13 @@ const tabs: { id: TabFilter; label: string; icon: React.ReactNode }[] = [
   { id: "cancelled", label: "Cancelled", icon: <XCircle className="h-4 w-4" /> },
 ]
 
-function formatDateRange(checkIn: string, checkOut: string) {
+function formatDateRange(checkIn: string, checkOut: string, stayType?: string) {
   const ci = new Date(checkIn)
-  const co = new Date(checkOut)
   const opts: Intl.DateTimeFormatOptions = { month: "2-digit", day: "2-digit", year: "2-digit" }
+  if (stayType === "day") {
+    return ci.toLocaleDateString("en-US", opts)
+  }
+  const co = new Date(checkOut)
   return `${ci.toLocaleDateString("en-US", opts)} – ${co.toLocaleDateString("en-US", opts)}`
 }
 
@@ -55,11 +59,14 @@ export default function MyBookings() {
   }, [])
 
   useEffect(() => {
-    userBookingsApi
-      .getMine()
-      .then((data) => setBookings(data))
-      .catch(() => {})
-      .finally(() => setLoading(false))
+    // Auto-complete expired bookings first, then fetch
+    bookingsApi.autoComplete().catch(() => {}).finally(() => {
+      userBookingsApi
+        .getMine()
+        .then((data) => setBookings(data))
+        .catch(() => {})
+        .finally(() => setLoading(false))
+    })
   }, [])
 
   const filteredBookings = activeTab === "all"
@@ -75,7 +82,9 @@ export default function MyBookings() {
       await userBookingsApi.cancel(id)
       setBookings((prev) => prev.map((b) => (b.id === id ? { ...b, status: "cancelled" } : b)))
       toast({ title: "Booking cancelled", description: "Your booking has been cancelled.", variant: "success" })
-    } catch {
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to cancel booking"
+      toast({ title: "Cancel failed", description: msg, variant: "error" })
     } finally {
       setCancelling(null)
       setCancelDialog({ open: false, id: null })
@@ -89,7 +98,9 @@ export default function MyBookings() {
       if (data.checkout_url) {
         window.location.href = data.checkout_url
       }
-    } catch {
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to create payment session"
+      toast({ title: "Payment failed", description: msg, variant: "error" })
     } finally {
       setPaying(null)
     }
@@ -229,11 +240,14 @@ export default function MyBookings() {
                         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] text-muted">
                           <span className="inline-flex items-center gap-1.5">
                             <CalendarDays className="h-3.5 w-3.5 shrink-0" />
-                            {formatDateRange(booking.check_in, booking.check_out)}
+                            {formatDateRange(booking.check_in, booking.check_out, booking.stay_type)}
                           </span>
                           <span className="inline-flex items-center gap-1.5">
                             <Clock className="h-3.5 w-3.5 shrink-0" />
-                            {booking.nights} {booking.nights === 1 ? "night" : "nights"}
+                            {booking.stay_type === "day" && booking.duration
+                              ? `${booking.duration}h${booking.start_time ? ` (${booking.start_time})` : ""}`
+                              : `${booking.nights} ${booking.nights === 1 ? "night" : "nights"}`
+                            }
                           </span>
                           <span className="inline-flex items-center gap-1.5">
                             <Users className="h-3.5 w-3.5 shrink-0" />
