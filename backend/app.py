@@ -583,6 +583,7 @@ def get_rooms():
                 "capacity": r["capacity"],
                 "amenities": r.get("amenities") or [],
                 "images": r.get("images") or [],
+                "description": r.get("description", ""),
                 "status": status,
                 "bookings": stats["count"],
                 "revenue": stats["revenue"],
@@ -609,6 +610,7 @@ def add_room():
             "capacity": data["capacity"],
             "amenities": data.get("amenities", []),
             "images": data.get("images", []),
+            "description": data.get("description", ""),
             "available": data.get("status") != "maintenance",
         }
         # Re-set auth after require_admin query (it may reset session context)
@@ -624,6 +626,7 @@ def add_room():
             "capacity": r["capacity"],
             "amenities": r.get("amenities") or [],
             "images": r.get("images") or [],
+            "description": r.get("description", ""),
             "status": "available" if r["available"] else "maintenance",
             "bookings": 0,
             "revenue": 0,
@@ -648,6 +651,7 @@ def update_room(room_id):
             "capacity": data["capacity"],
             "amenities": data.get("amenities", []),
             "images": data.get("images", []),
+            "description": data.get("description", ""),
             "available": data.get("status") != "maintenance",
         }
         # Re-set auth after require_admin query
@@ -678,6 +682,7 @@ def update_room(room_id):
             "capacity": r["capacity"],
             "amenities": r.get("amenities") or [],
             "images": r.get("images") or [],
+            "description": r.get("description", ""),
             "status": status,
             "bookings": count,
             "revenue": revenue,
