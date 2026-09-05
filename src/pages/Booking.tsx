@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { useParams, useNavigate, useSearchParams } from "react-router"
 import { ArrowLeft, Calendar, Check, CreditCard, AlertCircle, Clock } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -12,6 +12,31 @@ import { useAuth } from "@/contexts/AuthContext"
 import LoadingDots from "@/components/LoadingDots"
 
 const PRIMARY = "#82285f"
+
+const DAY_USE_DURATIONS = [4, 6, 8, 12] as const
+
+function generateStartTimes(maxHour: number = 20): string[] {
+  const times: string[] = []
+  for (let h = 6; h <= maxHour; h++) {
+    const period = h >= 12 ? "PM" : "AM"
+    const hour12 = h > 12 ? h - 12 : h === 0 ? 12 : h
+    times.push(`${hour12}:00 ${period}`)
+  }
+  return times
+}
+
+function addHoursToTime(timeStr: string, hours: number): string {
+  const match = timeStr.match(/(\d+):00\s*(AM|PM)/i)
+  if (!match) return ""
+  let h = parseInt(match[1])
+  const period = match[2].toUpperCase()
+  if (period === "PM" && h !== 12) h += 12
+  if (period === "AM" && h === 12) h = 0
+  h += hours
+  const endPeriod = h >= 12 ? "PM" : "AM"
+  const endH12 = h > 12 ? h - 12 : h === 0 ? 12 : h
+  return `${endH12}:00 ${endPeriod}`
+}
 
 export default function Booking() {
   const { id } = useParams<{ id: string }>()
@@ -36,6 +61,22 @@ export default function Booking() {
   )
   const [guests, setGuests] = useState(Number(searchParams.get("guests")) || 1)
   const [stays, setStays] = useState<string>(searchParams.get("stays") || "24 Hours")
+  const [stayType, setStayType] = useState<"overnight" | "day">(
+    (searchParams.get("stayType") as "overnight" | "day") || "overnight"
+  )
+  const [dayDuration, setDayDuration] = useState<number>(
+    Number(searchParams.get("duration")) || 4
+  )
+  const [startTime, setStartTime] = useState<string>(
+    searchParams.get("startTime") || "10:00 AM"
+  )
+
+  const startTimes = useMemo(() => {
+    const maxStart = 24 - dayDuration
+    return generateStartTimes(maxStart)
+  }, [dayDuration])
+
+  const endTime = useMemo(() => addHoursToTime(startTime, dayDuration), [startTime, dayDuration])
 
   useEffect(() => {
     if (!id) return
@@ -64,14 +105,18 @@ export default function Booking() {
       .finally(() => setLoading(false))
   }, [id])
 
-  const hasDates = checkIn !== null && checkOut !== null
-  const nights = hasDates ? Math.ceil((checkOut!.getTime() - checkIn!.getTime()) / (1000 * 60 * 60 * 24)) : 0
-  const validNights = nights > 0
-  const subtotal = validNights && room ? room.price * nights : 0
+  const isOvernight = stayType === "overnight"
+  const hasDate = checkIn !== null
+  const hasDates = isOvernight ? (checkIn !== null && checkOut !== null) : hasDate
+  const nights = isOvernight && hasDates ? Math.ceil((checkOut!.getTime() - checkIn!.getTime()) / (1000 * 60 * 60 * 24)) : 0
+  const validNights = isOvernight ? nights > 0 : true
+  const subtotal = isOvernight
+    ? (validNights && room ? room.price * nights : 0)
+    : (room ? Math.round(room.price * (dayDuration / 24)) : 0)
   const taxes = Math.round(subtotal * 0.12)
   const total = subtotal + taxes
 
-  const canSubmit = hasDates && validNights && !submitting
+  const canSubmit = hasDate && validNights && !submitting
 
   const handleSubmit = async () => {
     if (!canSubmit || !room || !user) return
@@ -89,9 +134,12 @@ export default function Booking() {
         body: JSON.stringify({
           room_id: room.id,
           check_in: checkIn!.toISOString().split("T")[0],
-          check_out: checkOut!.toISOString().split("T")[0],
+          check_out: isOvernight ? checkOut!.toISOString().split("T")[0] : checkIn!.toISOString().split("T")[0],
           guests,
-          stays,
+          stays: isOvernight ? stays : `${dayDuration} Hours`,
+          stay_type: stayType,
+          duration: isOvernight ? null : dayDuration,
+          start_time: isOvernight ? null : startTime,
           full_name: user.name,
           email: user.email,
           total_price: total,
@@ -169,58 +217,171 @@ export default function Booking() {
                 <Calendar className="h-5 w-5 text-primary" />
                 Stay Details
               </h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-md">
-                <div>
-                  <label className="typo-caption text-muted block mb-xs">Check-in</label>
-                  <DatePicker
-                    selected={checkIn}
-                    onChange={(date: Date | null) => {
-                      setCheckIn(date)
-                      if (date && checkOut && date >= checkOut) setCheckOut(null)
-                    }}
-                    selectsStart startDate={checkIn} endDate={checkOut}
-                    minDate={new Date()}
-                    customInput={<DateInput placeholder="Select date" />}
-                  />
-                </div>
-                <div>
-                  <label className="typo-caption text-muted block mb-xs">Check-out</label>
-                  <DatePicker
-                    selected={checkOut}
-                    onChange={(date: Date | null) => setCheckOut(date)}
-                    selectsEnd startDate={checkIn} endDate={checkOut}
-                    minDate={checkIn ? new Date(checkIn.getTime() + 86400000) : new Date()}
-                    customInput={<DateInput placeholder="Select date" />}
-                  />
-                </div>
-                <div>
-                  <label className="typo-caption text-muted block mb-xs">Stays</label>
-                  <div className="relative">
-                    <Clock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted pointer-events-none" />
+
+              {/* Stay Type Toggle */}
+              <div className="flex gap-2 mb-md">
+                <button
+                  type="button"
+                  onClick={() => setStayType("overnight")}
+                  className={`flex-1 py-2.5 rounded-[12px] text-sm font-semibold transition-all ${
+                    stayType === "overnight"
+                      ? "bg-primary text-on-primary shadow-sm"
+                      : "bg-white text-muted border border-hairline hover:border-primary/30"
+                  }`}
+                >
+                  Overnight Stay
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStayType("day")}
+                  className={`flex-1 py-2.5 rounded-[12px] text-sm font-semibold transition-all ${
+                    stayType === "day"
+                      ? "bg-primary text-on-primary shadow-sm"
+                      : "bg-white text-muted border border-hairline hover:border-primary/30"
+                  }`}
+                >
+                  Day Use
+                </button>
+              </div>
+
+              {isOvernight ? (
+                /* Overnight: Check-in + Check-out */
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-md">
+                  <div>
+                    <label className="typo-caption text-muted block mb-xs">Check-in</label>
+                    <DatePicker
+                      selected={checkIn}
+                      onChange={(date: Date | null) => {
+                        setCheckIn(date)
+                        if (date && checkOut && date >= checkOut) setCheckOut(null)
+                      }}
+                      selectsStart startDate={checkIn} endDate={checkOut}
+                      minDate={new Date()}
+                      customInput={<DateInput placeholder="Select date" />}
+                    />
+                  </div>
+                  <div>
+                    <label className="typo-caption text-muted block mb-xs">Check-out</label>
+                    <DatePicker
+                      selected={checkOut}
+                      onChange={(date: Date | null) => setCheckOut(date)}
+                      selectsEnd startDate={checkIn} endDate={checkOut}
+                      minDate={checkIn ? new Date(checkIn.getTime() + 86400000) : new Date()}
+                      customInput={<DateInput placeholder="Select date" />}
+                    />
+                  </div>
+                  <div>
+                    <label className="typo-caption text-muted block mb-xs">Stays</label>
+                    <div className="relative">
+                      <Clock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted pointer-events-none" />
+                      <select
+                        value={stays}
+                        onChange={(e) => setStays(e.target.value)}
+                        className="w-full pl-9 pr-3 py-2 rounded-[12px] border border-hairline bg-white typo-body-sm text-ink focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary appearance-none"
+                      >
+                        <option value="12 Hours">12 Hours</option>
+                        <option value="24 Hours">24 Hours</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="typo-caption text-muted block mb-xs">Guests</label>
                     <select
-                      value={stays}
-                      onChange={(e) => setStays(e.target.value)}
-                      className="w-full pl-9 pr-3 py-2 rounded-[12px] border border-hairline bg-white typo-body-sm text-ink focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary appearance-none"
+                      value={guests}
+                      onChange={(e) => setGuests(Number(e.target.value))}
+                      className="w-full px-3 py-2 rounded-[12px] border border-hairline bg-white typo-body-sm text-ink focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary appearance-none"
                     >
-                      <option value="12 Hours">12 Hours</option>
-                      <option value="24 Hours">24 Hours</option>
+                      {Array.from({ length: room.capacity }, (_, i) => i + 1).map((n) => (
+                        <option key={n} value={n}>{n} {n === 1 ? "Guest" : "Guests"}</option>
+                      ))}
                     </select>
                   </div>
                 </div>
-                <div>
-                  <label className="typo-caption text-muted block mb-xs">Guests</label>
-                  <select
-                    value={guests}
-                    onChange={(e) => setGuests(Number(e.target.value))}
-                    className="w-full px-3 py-2 rounded-[12px] border border-hairline bg-white typo-body-sm text-ink focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary appearance-none"
-                  >
-                    {Array.from({ length: room.capacity }, (_, i) => i + 1).map((n) => (
-                      <option key={n} value={n}>{n} {n === 1 ? "Guest" : "Guests"}</option>
-                    ))}
-                  </select>
+              ) : (
+                /* Day Use: Date + Duration + Start Time */
+                <div className="space-y-md">
+                  <div>
+                    <label className="typo-caption text-muted block mb-xs">Date</label>
+                    <DatePicker
+                      selected={checkIn}
+                      onChange={(date: Date | null) => setCheckIn(date)}
+                      minDate={new Date()}
+                      customInput={<DateInput placeholder="Select date" />}
+                    />
+                  </div>
+                  <div>
+                    <label className="typo-caption text-muted block mb-xs">Duration</label>
+                    <div className="grid grid-cols-4 gap-2">
+                      {DAY_USE_DURATIONS.map((d) => (
+                        <button
+                          key={d}
+                          type="button"
+                          onClick={() => {
+                            setDayDuration(d)
+                            const maxStart = 24 - d
+                            const match = startTime.match(/(\d+):00/)
+                            if (match) {
+                              let h = parseInt(match[1])
+                              if (startTime.includes("PM") && !startTime.startsWith("12")) h += 12
+                              if (startTime.startsWith("12") && startTime.includes("PM")) h = 12
+                              if (h > maxStart) {
+                                setStartTime(`${maxStart > 12 ? maxStart - 12 : maxStart}:00 ${maxStart >= 12 ? "PM" : "AM"}`)
+                              }
+                            }
+                          }}
+                          className={`py-2.5 rounded-[10px] text-sm font-semibold transition-all ${
+                            dayDuration === d
+                              ? "bg-primary text-on-primary shadow-sm"
+                              : "bg-white text-muted border border-hairline hover:border-primary/30"
+                          }`}
+                        >
+                          {d}h
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="typo-caption text-muted block mb-xs">Start Time</label>
+                    <div className="relative">
+                      <Clock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted pointer-events-none" />
+                      <select
+                        value={startTime}
+                        onChange={(e) => setStartTime(e.target.value)}
+                        className="w-full pl-9 pr-3 py-2 rounded-[12px] border border-hairline bg-white typo-body-sm text-ink focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary appearance-none"
+                      >
+                        {startTimes.map((t) => (
+                          <option key={t} value={t}>{t}</option>
+                        ))}
+                      </select>
+                      <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-muted">
+                        <svg className="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
+                      </div>
+                    </div>
+                  </div>
+                  {checkIn && (
+                    <div className="bg-primary/5 border border-primary/10 rounded-[10px] px-3 py-2 flex items-center gap-2">
+                      <Clock className="h-4 w-4 text-primary" />
+                      <span className="text-sm text-ink font-medium">
+                        {startTime} – {endTime}
+                      </span>
+                    </div>
+                  )}
+                  <div>
+                    <label className="typo-caption text-muted block mb-xs">Guests</label>
+                    <select
+                      value={guests}
+                      onChange={(e) => setGuests(Number(e.target.value))}
+                      className="w-full px-3 py-2 rounded-[12px] border border-hairline bg-white typo-body-sm text-ink focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary appearance-none"
+                    >
+                      {Array.from({ length: room.capacity }, (_, i) => i + 1).map((n) => (
+                        <option key={n} value={n}>{n} {n === 1 ? "Guest" : "Guests"}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
-              </div>
-              {validNights && (
+              )}
+
+              {isOvernight && validNights && (
                 <p className="typo-caption text-muted mt-md">
                   {nights} {nights === 1 ? "night" : "nights"} stay
                 </p>
@@ -255,18 +416,20 @@ export default function Booking() {
 
                   <div className={`border-t border-hairline mt-md pt-md space-y-sm ${!validNights ? "opacity-50" : ""}`}>
                     <div className="flex justify-between typo-body-sm">
-                      <span className="text-muted">Per night</span>
-                      <span className="text-ink">₱{room.price.toLocaleString()}</span>
+                      <span className="text-muted">{isOvernight ? "Per night" : `Day Use (${dayDuration}h)`}</span>
+                      <span className="text-ink">₱{(isOvernight ? room.price : Math.round(room.price * (dayDuration / 24))).toLocaleString()}</span>
                     </div>
-                    <div className="flex justify-between typo-body-sm">
-                      <span className="text-muted">
-                        × {validNights ? nights : "—"} {validNights ? (nights === 1 ? "night" : "nights") : "nights"}
-                      </span>
-                      <span className="text-ink">{validNights ? `₱${subtotal.toLocaleString()}` : "—"}</span>
-                    </div>
+                    {isOvernight && (
+                      <div className="flex justify-between typo-body-sm">
+                        <span className="text-muted">
+                          × {validNights ? nights : "—"} {validNights ? (nights === 1 ? "night" : "nights") : "nights"}
+                        </span>
+                        <span className="text-ink">{validNights ? `₱${subtotal.toLocaleString()}` : "—"}</span>
+                      </div>
+                    )}
                     <div className="flex justify-between typo-body-sm">
                       <span className="text-muted">Taxes & fees (12%)</span>
-                      <span className="text-ink">{validNights ? `₱${taxes.toLocaleString()}` : "—"}</span>
+                      <span className="text-ink">₱{taxes.toLocaleString()}</span>
                     </div>
                     <div className="flex justify-between font-semibold pt-sm border-t border-hairline">
                       <span className="typo-body-md text-ink">Total</span>
@@ -277,16 +440,21 @@ export default function Booking() {
                   </div>
 
                   <div className="mt-md pt-md border-t border-hairline space-y-xs">
-                    {hasDates && validNights ? (
-                      <p className="typo-caption-sm text-muted">
-                        {checkIn!.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "2-digit" })} –{" "}
-                        {checkOut!.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "2-digit" })}
-                      </p>
+                    {hasDate ? (
+                      <>
+                        <p className="typo-caption-sm text-muted">
+                          {checkIn!.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                          {isOvernight && checkOut ? ` – ${checkOut!.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}` : ""}
+                        </p>
+                        {!isOvernight && (
+                          <p className="typo-caption-sm text-muted">{startTime} – {endTime}</p>
+                        )}
+                      </>
                     ) : (
-                      <p className="typo-caption-sm text-muted">Dates not selected</p>
+                      <p className="typo-caption-sm text-muted">Date not selected</p>
                     )}
                     <p className="typo-caption-sm text-muted">{guests} {guests === 1 ? "guest" : "guests"}</p>
-                    <p className="typo-caption-sm text-muted">{stays}</p>
+                    {isOvernight && <p className="typo-caption-sm text-muted">{stays}</p>}
                   </div>
 
                   <div className="mt-md space-y-xs">

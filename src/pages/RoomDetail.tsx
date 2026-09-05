@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { useParams, Link, useNavigate, useSearchParams } from "react-router"
 import { motion } from "motion/react"
 import DatePicker from "react-datepicker"
@@ -7,7 +7,7 @@ import {
   Wifi, Wind, Wine, ConciergeBell, Building2, BedDouble,
   TreePine, Coffee, Sunrise, Bath, UserCheck, Sofa,
   Baby, Waves, Fence, Droplets, Monitor, Armchair,
-  Shirt, Fish, Sunset, UtensilsCrossed, Tv, Sparkles, Music, Clock, Sun, Moon
+  Shirt, Fish, Sunset, UtensilsCrossed, Tv, Sparkles, Music, Clock
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import DateInput from "@/components/ui/date-input"
@@ -24,21 +24,30 @@ const lucideIconMap: Record<string, React.ComponentType<{ className?: string }>>
   Shirt, Fish, Sunset, UtensilsCrossed, Tv, Sparkles, Music
 }
 
-interface TimeSlot {
-  id: string
-  label: string
-  time: string
-  hours: number
-  icon: React.ReactNode
-  priceMultiplier: number
+const DAY_USE_DURATIONS = [4, 6, 8, 12] as const
+
+function generateStartTimes(maxHour: number = 20): string[] {
+  const times: string[] = []
+  for (let h = 6; h <= maxHour; h++) {
+    const period = h >= 12 ? "PM" : "AM"
+    const hour12 = h > 12 ? h - 12 : h === 0 ? 12 : h
+    times.push(`${hour12}:00 ${period}`)
+  }
+  return times
 }
 
-const timeSlots: TimeSlot[] = [
-  { id: "morning", label: "Morning", time: "8:00 AM – 12:00 PM", hours: 4, icon: <Sun className="h-4 w-4" />, priceMultiplier: 0.4 },
-  { id: "afternoon", label: "Afternoon", time: "12:00 PM – 5:00 PM", hours: 5, icon: <Sunrise className="h-4 w-4" />, priceMultiplier: 0.5 },
-  { id: "evening", label: "Evening", time: "5:00 PM – 9:00 PM", hours: 4, icon: <Moon className="h-4 w-4" />, priceMultiplier: 0.4 },
-  { id: "fullday", label: "Full Day", time: "8:00 AM – 5:00 PM", hours: 9, icon: <Sun className="h-4 w-4" />, priceMultiplier: 0.75 },
-]
+function addHoursToTime(timeStr: string, hours: number): string {
+  const match = timeStr.match(/(\d+):00\s*(AM|PM)/i)
+  if (!match) return ""
+  let h = parseInt(match[1])
+  const period = match[2].toUpperCase()
+  if (period === "PM" && h !== 12) h += 12
+  if (period === "AM" && h === 12) h = 0
+  h += hours
+  const endPeriod = h >= 12 ? "PM" : "AM"
+  const endH12 = h > 12 ? h - 12 : h === 0 ? 12 : h
+  return `${endH12}:00 ${endPeriod}`
+}
 
 function DetailSkeleton() {
   return (
@@ -92,7 +101,8 @@ export default function RoomDetail() {
   })
   const [guests, setGuests] = useState(() => Number(searchParams.get("guests")) || 1)
   const [stays, setStays] = useState<string>(searchParams.get("stays") || "24 Hours")
-  const [selectedSlot, setSelectedSlot] = useState<string>("morning")
+  const [dayDuration, setDayDuration] = useState<number>(4)
+  const [startTime, setStartTime] = useState<string>("10:00 AM")
   const [showAuthModal, setShowAuthModal] = useState(false)
   const { isAuthenticated } = useAuth()
   const navigate = useNavigate()
@@ -186,8 +196,14 @@ export default function RoomDetail() {
     )
   }
 
-  const selectedSlotData = timeSlots.find(s => s.id === selectedSlot)
-  const dayUsePrice = Math.round(room.price * (selectedSlotData?.priceMultiplier || 0.4))
+  const startTimes = useMemo(() => {
+    const maxStart = 24 - dayDuration
+    return generateStartTimes(maxStart)
+  }, [dayDuration])
+
+  const endTime = useMemo(() => addHoursToTime(startTime, dayDuration), [startTime, dayDuration])
+
+  const dayUsePrice = stayType === "day" ? Math.round(room.price * (dayDuration / 24)) : 0
   const totalPrice = stayType === "day"
     ? dayUsePrice + Math.round(dayUsePrice * 0.12)
     : room.price + Math.round(room.price * 0.12)
@@ -263,7 +279,7 @@ export default function RoomDetail() {
               <div className="mb-lg">
                 <div className="flex items-baseline gap-1">
                   <span className="typo-display-lg text-secondary">&#x20B1;{(stayType === "day" ? dayUsePrice : room.price).toLocaleString()}</span>
-                  <span className="typo-body-sm text-muted">/ {stayType === "day" ? (selectedSlotData?.hours ? `${selectedSlotData.hours}h` : "slot") : "night"}</span>
+                  <span className="typo-body-sm text-muted">/ {stayType === "day" ? `${dayDuration}h` : "night"}</span>
                 </div>
               </div>
 
@@ -357,7 +373,7 @@ export default function RoomDetail() {
                 </div>
               )}
 
-              {/* Day Use: Time Slot Picker */}
+              {/* Day Use: Duration + Start Time */}
               {stayType === "day" && (
                 <div className="space-y-md mb-lg">
                   <div>
@@ -372,35 +388,59 @@ export default function RoomDetail() {
                   </div>
 
                   <div>
-                    <label className="typo-caption text-muted block mb-xs">Choose Time Slot</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      {timeSlots.map((slot) => (
+                    <label className="typo-caption text-muted block mb-xs">Duration</label>
+                    <div className="grid grid-cols-4 gap-2">
+                      {DAY_USE_DURATIONS.map((d) => (
                         <button
-                          key={slot.id}
+                          key={d}
                           type="button"
-                          onClick={() => setSelectedSlot(slot.id)}
-                          className={`p-3 rounded-[12px] text-left transition-all ${
-                            selectedSlot === slot.id
-                              ? "bg-primary/10 border-2 border-primary"
-                              : "bg-white border border-hairline hover:border-primary/30"
+                          onClick={() => {
+                            setDayDuration(d)
+                            const maxStart = 24 - d
+                            const currentMaxHour = parseInt(startTime) + (startTime.includes("PM") && !startTime.startsWith("12") ? 12 : startTime.startsWith("12") && startTime.includes("PM") ? 12 : 0)
+                            if (currentMaxHour > maxStart) {
+                              setStartTime(`${maxStart > 12 ? maxStart - 12 : maxStart}:00 ${maxStart >= 12 ? "PM" : "AM"}`)
+                            }
+                          }}
+                          className={`py-2.5 rounded-[10px] text-sm font-semibold transition-all ${
+                            dayDuration === d
+                              ? "bg-primary text-on-primary shadow-sm"
+                              : "bg-white text-muted border border-hairline hover:border-primary/30"
                           }`}
                         >
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className={selectedSlot === slot.id ? "text-primary" : "text-muted"}>
-                              {slot.icon}
-                            </span>
-                            <span className={`text-sm font-semibold ${selectedSlot === slot.id ? "text-primary" : "text-ink"}`}>
-                              {slot.label}
-                            </span>
-                          </div>
-                          <p className="text-xs text-muted">{slot.time}</p>
-                          <p className="text-xs font-medium text-ink mt-1">
-                            &#x20B1;{Math.round(room.price * slot.priceMultiplier).toLocaleString()}
-                          </p>
+                          {d}h
                         </button>
                       ))}
                     </div>
                   </div>
+
+                  <div>
+                    <label className="typo-caption text-muted block mb-xs">Start Time</label>
+                    <div className="relative">
+                      <Clock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted pointer-events-none" />
+                      <select
+                        value={startTime}
+                        onChange={(e) => setStartTime(e.target.value)}
+                        className="w-full pl-9 pr-3 py-2 rounded-[12px] border border-hairline bg-white typo-body-sm text-ink focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary appearance-none"
+                      >
+                        {startTimes.map((t) => (
+                          <option key={t} value={t}>{t}</option>
+                        ))}
+                      </select>
+                      <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-muted">
+                        <svg className="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
+                      </div>
+                    </div>
+                  </div>
+
+                  {checkIn && (
+                    <div className="bg-primary/5 border border-primary/10 rounded-[10px] px-3 py-2 flex items-center gap-2">
+                      <Clock className="h-4 w-4 text-primary" />
+                      <span className="text-sm text-ink font-medium">
+                        {startTime} – {endTime}
+                      </span>
+                    </div>
+                  )}
 
                   <div>
                     <label className="typo-caption text-muted block mb-xs">Guests</label>
@@ -432,7 +472,8 @@ export default function RoomDetail() {
                       if (checkIn) params.set("checkIn", checkIn.toISOString())
                       if (stayType === "overnight" && checkOut) params.set("checkOut", checkOut.toISOString())
                       if (stayType === "day") {
-                        params.set("timeSlot", selectedSlot)
+                        params.set("duration", String(dayDuration))
+                        params.set("startTime", startTime)
                       }
                       params.set("guests", String(guests))
                       if (stayType === "overnight") params.set("stays", stays)
@@ -448,7 +489,7 @@ export default function RoomDetail() {
               <div className="mt-lg pt-lg border-t border-hairline">
                 <div className="flex justify-between mb-sm">
                   <span className="typo-body-sm text-muted">
-                    {stayType === "day" ? `${selectedSlotData?.label} (${selectedSlotData?.hours}h)` : "Per night"}
+                    {stayType === "day" ? `Day Use (${dayDuration}h)` : "Per night"}
                   </span>
                   <span className="typo-body-sm text-ink">&#x20B1;{(stayType === "day" ? dayUsePrice : room.price).toLocaleString()}</span>
                 </div>
