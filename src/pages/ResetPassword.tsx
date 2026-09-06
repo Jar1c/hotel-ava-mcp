@@ -207,13 +207,22 @@ export default function ResetPassword() {
                 {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
             </div>
-            {newPassword && (
-              <div className="flex gap-3 text-[11px] mt-1.5" style={{ color: "#7A7A70" }}>
-                <span className={newPassword.length >= 8 ? "text-[#3D6B4F]" : ""}>8+ chars</span>
-                <span className={/[A-Z]/.test(newPassword) ? "text-[#3D6B4F]" : ""}>Uppercase</span>
-                <span className={/[0-9]/.test(newPassword) ? "text-[#3D6B4F]" : ""}>Number</span>
-              </div>
-            )}
+             {newPassword && (
+               <div className="flex flex-col gap-1 mt-1.5">
+                 <p className={`text-xs flex items-center gap-1.5 ${newPassword.length >= 8 ? "text-emerald-600" : "text-muted"}`}>
+                   <span className={`w-1.5 h-1.5 rounded-full ${newPassword.length >= 8 ? "bg-emerald-500" : "bg-gray-300"}`} />
+                   At least 8 characters
+                 </p>
+                 <p className={`text-xs flex items-center gap-1.5 ${/[A-Z]/.test(newPassword) ? "text-emerald-600" : "text-muted"}`}>
+                   <span className={`w-1.5 h-1.5 rounded-full ${/[A-Z]/.test(newPassword) ? "bg-emerald-500" : "bg-gray-300"}`} />
+                   One uppercase letter
+                 </p>
+                 <p className={`text-xs flex items-center gap-1.5 ${/[0-9]/.test(newPassword) ? "text-emerald-600" : "text-muted"}`}>
+                   <span className={`w-1.5 h-1.5 rounded-full ${/[0-9]/.test(newPassword) ? "bg-emerald-500" : "bg-gray-300"}`} />
+                   One number
+                 </p>
+               </div>
+             )}
           </div>
 
           <div>
