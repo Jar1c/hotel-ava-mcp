@@ -25,7 +25,7 @@ const notifTypeStyles: Record<string, { bg: string; icon: React.ReactNode }> = {
 
 export default function Header() {
   const { isAuthenticated, user, logout } = useAuth()
-  const { notifications, unreadCount, fetchNotifications, markRead, markAllRead } = useNotifications()
+  const { notifications, unreadCount, loading, fetchNotifications, markRead, markAllRead } = useNotifications()
   const location = useLocation()
   const navigate = useNavigate()
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
@@ -158,7 +158,11 @@ export default function Header() {
 
                   {/* Notification list */}
                   <div className="max-h-80 overflow-y-auto overscroll-contain">
-                    {notifications.length === 0 ? (
+                    {notifications.length === 0 && loading ? (
+                      <div className="py-8 text-center text-sm text-muted">
+                        Loading...
+                      </div>
+                    ) : notifications.length === 0 ? (
                       <div className="py-8 text-center text-sm text-muted">
                         No notifications yet
                       </div>

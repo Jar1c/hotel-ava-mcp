@@ -91,8 +91,8 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       return
     }
 
-    fetchUnreadCount()
-    fetchNotifications()
+    // Fetch both in parallel on mount
+    Promise.all([fetchUnreadCount(), fetchNotifications()]).catch(() => {})
 
     // Poll unread count every 10s
     pollRef.current = setInterval(fetchUnreadCount, 10000)
