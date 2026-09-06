@@ -1914,8 +1914,8 @@ def paymongo_webhook():
                             rr = supabase.table("rooms").select("name").eq("id", b["room_id"]).execute()
                             if rr.data:
                                 room_name = rr.data[0]["name"]
-                        create_notification(b["user_id"], "payment", "Payment Failed",
-                            f"Payment for your booking of {room_name} on {b.get('check_in', '')} failed. You can retry from My Bookings.",
+                        create_notification(b["user_id"], "booking", "Booking Failed",
+                            f"Your booking for {room_name} on {b.get('check_in', '')} has been cancelled due to a failed payment.",
                             booking_id=booking_id)
                 print(f"Booking {booking_id} payment failed via webhook")
 
@@ -2030,8 +2030,8 @@ def report_payment_failed(booking_id):
             if rr.data:
                 room_name = rr.data[0]["name"]
 
-        create_notification(b["user_id"], "payment", "Payment Failed",
-            f"Payment for your booking of {room_name} on {b.get('check_in', '')} failed. You can retry from My Bookings.",
+        create_notification(b["user_id"], "booking", "Booking Failed",
+            f"Your booking for {room_name} on {b.get('check_in', '')} has been cancelled due to a failed payment.",
             booking_id=booking_id)
 
         return jsonify({"booking_id": booking_id, "status": "cancelled"}), 200
