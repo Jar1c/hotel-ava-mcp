@@ -94,8 +94,8 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     fetchUnreadCount()
     fetchNotifications()
 
-    // Poll unread count every 30s
-    pollRef.current = setInterval(fetchUnreadCount, 30000)
+    // Poll unread count every 10s
+    pollRef.current = setInterval(fetchUnreadCount, 10000)
 
     return () => {
       if (pollRef.current) clearInterval(pollRef.current)
