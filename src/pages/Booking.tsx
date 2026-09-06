@@ -64,7 +64,6 @@ export default function Booking() {
     adults: Number(searchParams.get("adults")) || 2,
     children: Number(searchParams.get("children")) || 0,
   }))
-  const [stays, setStays] = useState<string>(searchParams.get("stays") || "24 Hours")
   const [stayType, setStayType] = useState<"overnight" | "day">(
     (searchParams.get("stayType") as "overnight" | "day") || "overnight"
   )
@@ -162,7 +161,7 @@ export default function Booking() {
           check_in: checkIn!.toISOString().split("T")[0],
           check_out: isOvernight ? checkOut!.toISOString().split("T")[0] : checkIn!.toISOString().split("T")[0],
           guests: guests.adults + guests.children,
-          stays: isOvernight ? stays : `${dayDuration} Hours`,
+          stays: isOvernight ? `${nights} Night${nights > 1 ? "s" : ""}` : `${dayDuration} Hours`,
           stay_type: stayType,
           duration: isOvernight ? null : dayDuration,
           start_time: isOvernight ? null : startTime,
@@ -295,20 +294,6 @@ export default function Booking() {
                       minDate={checkIn ? new Date(checkIn.getTime() + 86400000) : new Date()}
                       customInput={<DateInput placeholder="Select date" />}
                     />
-                  </div>
-                  <div>
-                    <label className="typo-caption text-muted block mb-xs">Stays</label>
-                    <div className="relative">
-                      <Clock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted pointer-events-none" />
-                      <select
-                        value={stays}
-                        onChange={(e) => setStays(e.target.value)}
-                        className="w-full pl-9 pr-3 py-2 rounded-[12px] border border-hairline bg-white typo-body-sm text-ink focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary appearance-none"
-                      >
-                        <option value="12 Hours">12 Hours</option>
-                        <option value="24 Hours">24 Hours</option>
-                      </select>
-                    </div>
                   </div>
                   <div>
                     <label className="typo-caption text-muted block mb-xs">Guests</label>
@@ -469,7 +454,7 @@ export default function Booking() {
                       <p className="typo-caption-sm text-muted">Date not selected</p>
                     )}
                     <p className="typo-caption-sm text-muted">{guests.adults} {guests.adults === 1 ? "adult" : "adults"}{guests.children > 0 ? `, ${guests.children} ${guests.children === 1 ? "child" : "children"}` : ""}</p>
-                    {isOvernight && <p className="typo-caption-sm text-muted">{stays}</p>}
+                    {isOvernight && <p className="typo-caption-sm text-muted">{nights} {nights === 1 ? "night" : "nights"}</p>}
                   </div>
 
                   <div className="mt-md space-y-xs">

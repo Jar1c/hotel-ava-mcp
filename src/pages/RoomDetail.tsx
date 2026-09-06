@@ -106,7 +106,6 @@ export default function RoomDetail() {
     adults: Number(searchParams.get("adults")) || 2,
     children: Number(searchParams.get("children")) || 0,
   }))
-  const [stays, setStays] = useState<string>(searchParams.get("stays") || "24 Hours")
   const [dayDuration, setDayDuration] = useState<number>(
     Number(searchParams.get("duration")) || 4
   )
@@ -161,11 +160,10 @@ export default function RoomDetail() {
       params.set("duration", String(dayDuration))
       if (startTime) params.set("startTime", startTime)
     }
-                          params.set("adults", String(guests.adults))
-                          params.set("children", String(guests.children))
-    if (stayType === "overnight") params.set("stays", stays)
+    params.set("adults", String(guests.adults))
+    params.set("children", String(guests.children))
     window.history.replaceState(null, "", `?${params.toString()}`)
-  }, [stayType, checkIn, checkOut, guests, stays, dayDuration, startTime])
+  }, [stayType, checkIn, checkOut, guests, dayDuration, startTime])
 
   useEffect(() => {
     if (!id) return
@@ -237,6 +235,12 @@ export default function RoomDetail() {
 
   const endTime = useMemo(() => addHoursToTime(startTime, dayDuration), [startTime, dayDuration])
 
+  const nights = useMemo(() => {
+    if (!checkIn || !checkOut || stayType !== "overnight") return 1
+    const diff = checkOut.getTime() - checkIn.getTime()
+    return Math.max(1, Math.ceil(diff / (1000 * 60 * 60 * 24)))
+  }, [checkIn, checkOut, stayType])
+
   if (loading) return <DetailSkeleton />
 
   if (!room) {
@@ -257,9 +261,9 @@ export default function RoomDetail() {
   }
 
   const dayUsePrice = stayType === "day" ? Math.round(room.price * (dayDuration / 24)) : 0
-  const totalPrice = stayType === "day"
-    ? dayUsePrice + Math.round(dayUsePrice * 0.12)
-    : room.price + Math.round(room.price * 0.12)
+  const overnightTotal = stayType === "overnight" ? room.price * nights : 0
+  const subtotal = stayType === "day" ? dayUsePrice : overnightTotal
+  const totalPrice = subtotal + Math.round(subtotal * 0.12)
 
   return (
     <div className="px-base py-section">
@@ -331,8 +335,8 @@ export default function RoomDetail() {
               {/* Price Display */}
               <div className="mb-lg">
                 <div className="flex items-baseline gap-1">
-                  <span className="typo-display-lg text-secondary">&#x20B1;{(stayType === "day" ? dayUsePrice : room.price).toLocaleString()}</span>
-                  <span className="typo-body-sm text-muted">/ {stayType === "day" ? `${dayDuration}h` : "night"}</span>
+                  <span className="typo-display-lg text-secondary">&#x20B1;{room.price.toLocaleString()}</span>
+                  <span className="typo-body-sm text-muted">/ night</span>
                 </div>
               </div>
 
@@ -391,21 +395,6 @@ export default function RoomDetail() {
                         customInput={<DateInput placeholder="Select date" />}
                         placeholderText="Select date"
                       />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="typo-caption text-muted block mb-xs">Stays</label>
-                    <div className="relative">
-                      <Clock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted pointer-events-none" />
-                      <select
-                        value={stays}
-                        onChange={(e) => setStays(e.target.value)}
-                        className="w-full pl-9 pr-3 py-2 rounded-[12px] border border-hairline bg-white typo-body-sm text-ink focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary appearance-none"
-                      >
-                        <option value="12 Hours">12 Hours</option>
-                        <option value="24 Hours">24 Hours</option>
-                      </select>
                     </div>
                   </div>
 
@@ -528,7 +517,6 @@ export default function RoomDetail() {
                           }
     params.set("adults", String(guests.adults))
     params.set("children", String(guests.children))
-                          if (stayType === "overnight") params.set("stays", stays)
                           navigate(`/booking/${id}?${params.toString()}`)
                         }
                       }}
@@ -543,13 +531,13 @@ export default function RoomDetail() {
               <div className="mt-lg pt-lg border-t border-hairline">
                 <div className="flex justify-between mb-sm">
                   <span className="typo-body-sm text-muted">
-                    {stayType === "day" ? `Day Use (${dayDuration}h)` : "Per night"}
+                    {stayType === "day" ? `Day Use (${dayDuration}h)` : `₱${room.price.toLocaleString()} × ${nights} night${nights > 1 ? "s" : ""}`}
                   </span>
-                  <span className="typo-body-sm text-ink">&#x20B1;{(stayType === "day" ? dayUsePrice : room.price).toLocaleString()}</span>
+                  <span className="typo-body-sm text-ink">&#x20B1;{subtotal.toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between mb-sm">
                   <span className="typo-body-sm text-muted">Taxes & fees</span>
-                  <span className="typo-body-sm text-ink">&#x20B1;{Math.round((stayType === "day" ? dayUsePrice : room.price) * 0.12).toLocaleString()}</span>
+                  <span className="typo-body-sm text-ink">&#x20B1;{Math.round(subtotal * 0.12).toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between font-medium pt-sm border-t border-hairline">
                   <span className="typo-body-md text-ink">Total</span>
