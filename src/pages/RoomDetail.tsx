@@ -44,7 +44,7 @@ function addHoursToTime(timeStr: string, hours: number): string {
   const period = match[2].toUpperCase()
   if (period === "PM" && h !== 12) h += 12
   if (period === "AM" && h === 12) h = 0
-  h += hours
+  h = (h + hours) % 24
   const endPeriod = h >= 12 ? "PM" : "AM"
   const endH12 = h > 12 ? h - 12 : h === 0 ? 12 : h
   return `${endH12}:00 ${endPeriod}`
