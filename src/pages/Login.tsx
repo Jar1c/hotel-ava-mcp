@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Link, useNavigate, useSearchParams } from "react-router"
 import { Mail, Lock, Eye, EyeOff, ArrowRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -7,6 +7,8 @@ import LoadingDots from "@/components/LoadingDots"
 import hotelLogo from "@/assets/images/Hotel Ava logo.png"
 
 const PRIMARY = "#82285f"
+const MAX_ATTEMPTS = 5
+const COOLDOWN_SECONDS = 60
 
 export default function Login() {
   const { login } = useAuth()
@@ -14,31 +16,59 @@ export default function Login() {
   const [searchParams] = useSearchParams()
   const returnTo = searchParams.get("returnTo") || "/"
 
-  const [showPassword, setShowPassword] = useState(false)
-  const [focused, setFocused] = useState<string | null>(null)
-  const [email, setEmail] = useState("")
-  const [password, setPassword] = useState("")
-  const [error, setError] = useState<string | null>(null)
-  const [submitting, setSubmitting] = useState(false)
+   const [showPassword, setShowPassword] = useState(false)
+   const [focused, setFocused] = useState<string | null>(null)
+   const [email, setEmail] = useState("")
+   const [password, setPassword] = useState("")
+   const [error, setError] = useState<string | null>(null)
+   const [submitting, setSubmitting] = useState(false)
+   const [attempts, setAttempts] = useState(0)
+   const [cooldown, setCooldown] = useState(0)
+   const cooldownRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError(null)
-    setSubmitting(true)
-    try {
-      const user = await login(email, password)
-      // Redirect admins to admin dashboard
-      if (user?.role === "admin") {
-        navigate("/admin/dashboard")
-      } else {
-        navigate(returnTo)
-      }
-    } catch {
-      setError("Invalid credentials. Please try again.")
-    } finally {
-      setSubmitting(false)
-    }
-  }
+   useEffect(() => {
+     if (cooldown > 0) {
+       cooldownRef.current = setInterval(() => {
+         setCooldown((prev) => {
+           if (prev <= 1) {
+             if (cooldownRef.current) clearInterval(cooldownRef.current)
+             return 0
+           }
+           return prev - 1
+         })
+       }, 1000)
+     }
+     return () => {
+       if (cooldownRef.current) clearInterval(cooldownRef.current)
+     }
+    }, [cooldown])
+
+    const handleSubmit = async (e: React.FormEvent) => {
+     e.preventDefault()
+     setError(null)
+     if (cooldown > 0) return
+     setSubmitting(true)
+     try {
+       const user = await login(email, password)
+       setAttempts(0)
+       if (user?.role === "admin") {
+         navigate("/admin/dashboard")
+       } else {
+         navigate(returnTo)
+       }
+     } catch {
+       const newAttempts = attempts + 1
+       setAttempts(newAttempts)
+       if (newAttempts >= MAX_ATTEMPTS) {
+         setCooldown(COOLDOWN_SECONDS)
+         setError(`Too many attempts. Please wait ${COOLDOWN_SECONDS}s before trying again.`)
+       } else {
+         setError(`Invalid credentials. ${MAX_ATTEMPTS - newAttempts} attempt(s) left.`)
+       }
+     } finally {
+       setSubmitting(false)
+     }
+   }
 
   const inputClass = (_field: string) =>
     `w-full pl-10 pr-4 py-2.5 rounded-[10px] border typo-body-sm text-ink placeholder:text-muted-soft bg-white transition-all duration-150 focus:outline-none`
@@ -227,25 +257,27 @@ export default function Login() {
               </Link>
             </div>
 
-            {/* CTA Button */}
-            <Button
-              type="submit"
-              disabled={submitting}
-              className="w-full py-2.5 font-medium !rounded-[10px] transition-all duration-200 hover:opacity-90 active:scale-[0.985] disabled:opacity-50 flex items-center justify-center gap-2"
-              style={{ backgroundColor: PRIMARY, color: "#FBF9F4" }}
-            >
-              {submitting ? (
-                <span className="flex items-center gap-2">
-                  <LoadingDots size="sm" />
-                  Signing in...
-                </span>
-              ) : (
-                <>
-                  Sign In
-                  <ArrowRight className="w-4 h-4" />
-                </>
-              )}
-            </Button>
+             {/* CTA Button */}
+             <Button
+               type="submit"
+               disabled={submitting || cooldown > 0}
+               className="w-full py-2.5 font-medium !rounded-[10px] transition-all duration-200 hover:opacity-90 active:scale-[0.985] disabled:opacity-50 flex items-center justify-center gap-2"
+               style={{ backgroundColor: PRIMARY, color: "#FBF9F4" }}
+             >
+               {submitting ? (
+                 <span className="flex items-center gap-2">
+                   <LoadingDots size="sm" />
+                   Signing in...
+                 </span>
+               ) : cooldown > 0 ? (
+                 `Wait ${cooldown}s`
+               ) : (
+                 <>
+                   Sign In
+                   <ArrowRight className="w-4 h-4" />
+                 </>
+               )}
+             </Button>
 
             {/* Error Message */}
             {error && (
