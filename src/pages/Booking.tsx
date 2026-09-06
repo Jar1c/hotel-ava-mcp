@@ -48,7 +48,9 @@ export default function Booking() {
    const [room, setRoom] = useState<Room | null>(null)
    const [loading, setLoading] = useState(true)
    const [submitting, setSubmitting] = useState(false)
-   const [submitted, setSubmitted] = useState(false)
+   const [submitted, setSubmitted] = useState(() => {
+     try { return sessionStorage.getItem("booking_submitted") === "true" } catch { return false }
+   })
    const [errorDialog, setErrorDialog] = useState<{ open: boolean; title: string; message: string }>({
     open: false,
     title: "",
@@ -95,12 +97,18 @@ export default function Booking() {
     })
   }, [dayDuration, checkIn])
 
-  // Reset startTime if it's no longer available (e.g. date changed to today and hour passed)
-  useEffect(() => {
-    if (startTime && startTimes.length > 0 && !startTimes.includes(startTime)) {
-      setStartTime("")
-    }
-  }, [startTimes])
+   // Persist submitted state across page reloads
+   useEffect(() => {
+     if (submitted) sessionStorage.setItem("booking_submitted", "true")
+     else sessionStorage.removeItem("booking_submitted")
+   }, [submitted])
+
+   // Reset startTime if it's no longer available (e.g. date changed to today and hour passed)
+   useEffect(() => {
+     if (startTime && startTimes.length > 0 && !startTimes.includes(startTime)) {
+       setStartTime("")
+     }
+   }, [startTimes])
 
   const endTime = useMemo(() => addHoursToTime(startTime, dayDuration), [startTime, dayDuration])
 
