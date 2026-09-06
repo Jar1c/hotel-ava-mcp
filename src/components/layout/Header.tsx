@@ -182,7 +182,7 @@ export default function Header() {
                                 <span className="shrink-0 size-2 rounded-full bg-primary" />
                               )}
                             </div>
-                            <p className="text-xs text-muted mt-0.5 line-clamp-2">{notif.message}</p>
+                            <p className="text-xs text-muted mt-0.5">{notif.message}</p>
                             <span className="text-[11px] text-muted-soft mt-1 block">{formatTime(notif.created_at)}</span>
                           </div>
                         </div>
