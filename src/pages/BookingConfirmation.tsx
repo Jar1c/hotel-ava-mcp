@@ -96,35 +96,42 @@ export default function BookingConfirmation() {
      )
    }
 
-   if (error) {
-     return (
-       <div className="px-base py-section">
-         <div className="max-w-[640px] mx-auto text-center">
-           <h1 className="typo-display-xl text-ink mb-sm">Confirmation Failed</h1>
-           <p className="typo-body-lg text-muted mb-lg">
-             We couldn't confirm your booking. Please contact support or try again.
-           </p>
-           <div className="flex flex-col sm:flex-row gap-sm justify-center">
-             <Button
-               onClick={() => navigate("/")}
-               className="!rounded-[12px] px-lg"
-               style={{ backgroundColor: PRIMARY, color: "#FBF9F4" }}
-             >
-               Back to Home
-               <ArrowRight className="h-4 w-4 ml-2" />
-             </Button>
-             <Button
-               variant="outline"
-               onClick={() => navigate("/my-bookings")}
-               className="!rounded-[12px] px-lg"
-             >
-               View My Bookings
-             </Button>
-           </div>
-         </div>
-       </div>
-     )
-   }
+    if (error) {
+      return (
+        <div className="px-base py-section">
+          <div className="max-w-[640px] mx-auto text-center">
+            <h1 className="typo-display-xl text-ink mb-sm">Confirmation Failed</h1>
+            <p className="typo-body-lg text-muted mb-lg">
+              We couldn't confirm your booking. Please contact support or try again.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-sm justify-center">
+              <Button
+                onClick={() => navigate(0)}
+                className="!rounded-[12px] px-lg"
+                style={{ backgroundColor: PRIMARY, color: "#FBF9F4" }}
+              >
+                Retry
+              </Button>
+              <Button
+                onClick={() => navigate("/")}
+                className="!rounded-[12px] px-lg"
+                style={{ backgroundColor: PRIMARY, color: "#FBF9F4" }}
+              >
+                Back to Home
+                <ArrowRight className="h-4 w-4 ml-2" />
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => navigate("/my-bookings")}
+                className="!rounded-[12px] px-lg"
+              >
+                View My Bookings
+              </Button>
+            </div>
+          </div>
+        </div>
+      )
+    }
 
   return (
     <div className="px-base py-section">
