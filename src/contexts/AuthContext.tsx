@@ -75,6 +75,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       })
   }, [])
 
+  // Cross-tab auth sync: detect when another tab logs in/out
+  useEffect(() => {
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key !== "access_token") return
+
+      const newToken = e.newValue
+      if (!newToken) {
+        // Another tab logged out
+        localStorage.removeItem("refresh_token")
+        localStorage.removeItem("auth_user")
+        setUser(null)
+        setLoading(false)
+      } else {
+        // Another tab logged in — re-verify with the new token
+        authApi.getProfile()
+          .then((profile) => {
+            const userObj: User = {
+              id: profile.id,
+              email: profile.email,
+              name: profile.name,
+              role: (profile.role || "guest") as UserRole,
+              avatar: profile.avatar_url || "",
+            }
+            setUser(userObj)
+            localStorage.setItem("auth_user", JSON.stringify(userObj))
+          })
+          .catch(() => {
+            // If profile fails, stay on current state
+          })
+      }
+    }
+
+    window.addEventListener("storage", handleStorage)
+    return () => window.removeEventListener("storage", handleStorage)
+  }, [])
+
   const role: UserRole = user?.role ?? "public"
   const isAuthenticated = user !== null
   const isAdmin = user?.role === "admin"
