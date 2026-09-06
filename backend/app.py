@@ -1208,10 +1208,10 @@ def get_bookings():
 def auto_complete_bookings():
     """Auto-complete confirmed bookings past their end, and auto-cancel unpaid bookings past their date."""
     import re as _re
-    from datetime import datetime
+    from datetime import datetime, timezone
 
     try:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         today_str = now.strftime("%Y-%m-%d")
         current_time_minutes = now.hour * 60 + now.minute
 

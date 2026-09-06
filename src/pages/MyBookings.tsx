@@ -59,14 +59,15 @@ export default function MyBookings() {
   }, [])
 
   useEffect(() => {
-    // Auto-complete expired bookings first, then fetch
-    bookingsApi.autoComplete().catch(() => {}).finally(() => {
-      userBookingsApi
-        .getMine()
-        .then((data) => setBookings(data))
-        .catch(() => {})
-        .finally(() => setLoading(false))
-    })
+    // Fetch bookings immediately — don't wait for auto-complete
+    userBookingsApi
+      .getMine()
+      .then((data) => setBookings(data))
+      .catch(() => {})
+      .finally(() => setLoading(false))
+
+    // Fire auto-complete in background (non-blocking)
+    bookingsApi.autoComplete().catch(() => {})
   }, [])
 
   const filteredBookings = activeTab === "all"
