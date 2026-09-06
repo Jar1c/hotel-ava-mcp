@@ -22,31 +22,54 @@ export default function Login() {
    const [password, setPassword] = useState("")
    const [error, setError] = useState<string | null>(null)
    const [submitting, setSubmitting] = useState(false)
-   const [attempts, setAttempts] = useState(0)
-   const [cooldown, setCooldown] = useState(0)
+   const [attempts, setAttempts] = useState(() => {
+     try { return parseInt(localStorage.getItem("login_attempts") || "0", 10) } catch { return 0 }
+   })
+   const [cooldownUntil, setCooldownUntil] = useState(() => {
+     try {
+       const end = parseInt(localStorage.getItem("login_cooldown_until") || "0", 10)
+       return end > Date.now() ? end : 0
+     } catch { return 0 }
+   })
    const cooldownRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
    useEffect(() => {
-     if (cooldown > 0) {
-       cooldownRef.current = setInterval(() => {
-         setCooldown((prev) => {
-           if (prev <= 1) {
-             if (cooldownRef.current) clearInterval(cooldownRef.current)
-             return 0
-           }
-           return prev - 1
-         })
-       }, 1000)
+     localStorage.setItem("login_attempts", String(attempts))
+   }, [attempts])
+
+   useEffect(() => {
+     if (cooldownUntil > 0) {
+       localStorage.setItem("login_cooldown_until", String(cooldownUntil))
+     } else {
+       localStorage.removeItem("login_cooldown_until")
      }
+   }, [cooldownUntil])
+
+   useEffect(() => {
+     if (cooldownUntil <= 0) return
+     const remaining = Math.ceil((cooldownUntil - Date.now()) / 1000)
+     if (remaining <= 0) {
+       setCooldownUntil(0)
+       setAttempts(0)
+       return
+     }
+     cooldownRef.current = setInterval(() => {
+       const r = Math.ceil((cooldownUntil - Date.now()) / 1000)
+       if (r <= 0) {
+         if (cooldownRef.current) clearInterval(cooldownRef.current)
+         setCooldownUntil(0)
+         setAttempts(0)
+       }
+     }, 1000)
      return () => {
        if (cooldownRef.current) clearInterval(cooldownRef.current)
      }
-    }, [cooldown])
+   }, [])
 
     const handleSubmit = async (e: React.FormEvent) => {
-     e.preventDefault()
-     setError(null)
-     if (cooldown > 0) return
+      e.preventDefault()
+      setError(null)
+      if (cooldownUntil > 0) return
      setSubmitting(true)
      try {
        const user = await login(email, password)
@@ -60,7 +83,7 @@ export default function Login() {
        const newAttempts = attempts + 1
        setAttempts(newAttempts)
        if (newAttempts >= MAX_ATTEMPTS) {
-         setCooldown(COOLDOWN_SECONDS)
+         setCooldownUntil(Date.now() + COOLDOWN_SECONDS * 1000)
          setError(`Too many attempts. Please wait ${COOLDOWN_SECONDS}s before trying again.`)
        } else if (newAttempts >= MAX_ATTEMPTS - 2) {
          setError(`Invalid credentials. ${MAX_ATTEMPTS - newAttempts} attempt(s) left.`)
@@ -262,7 +285,7 @@ export default function Login() {
              {/* CTA Button */}
              <Button
                type="submit"
-               disabled={submitting || cooldown > 0}
+                disabled={submitting || cooldownUntil > 0}
                className="w-full py-2.5 font-medium !rounded-[10px] transition-all duration-200 hover:opacity-90 active:scale-[0.985] disabled:opacity-50 flex items-center justify-center gap-2"
                style={{ backgroundColor: PRIMARY, color: "#FBF9F4" }}
              >
@@ -271,8 +294,8 @@ export default function Login() {
                    <LoadingDots size="sm" />
                    Signing in...
                  </span>
-               ) : cooldown > 0 ? (
-                 `Wait ${cooldown}s`
+                ) : cooldownUntil > 0 ? (
+                  `Wait ${Math.ceil((cooldownUntil - Date.now()) / 1000)}s`
                ) : (
                  <>
                    Sign In
