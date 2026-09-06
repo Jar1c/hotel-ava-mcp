@@ -312,7 +312,9 @@ export default function Booking() {
                   </div>
                   <div>
                     <label className="typo-caption text-muted block mb-xs">Guests</label>
-                    <GuestSelector value={guests} onChange={setGuests} />
+                    <div className="px-3 py-2 rounded-[12px] border border-hairline bg-white">
+                      <GuestSelector value={guests} onChange={setGuests} />
+                    </div>
                   </div>
                 </div>
               ) : (
@@ -387,7 +389,9 @@ export default function Booking() {
                   )}
                   <div>
                     <label className="typo-caption text-muted block mb-xs">Guests</label>
-                    <GuestSelector value={guests} onChange={setGuests} />
+                    <div className="px-3 py-2 rounded-[12px] border border-hairline bg-white">
+                      <GuestSelector value={guests} onChange={setGuests} />
+                    </div>
                   </div>
                 </div>
               )}
