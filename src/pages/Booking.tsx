@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import DatePicker from "react-datepicker"
 import DateInput from "@/components/ui/date-input"
+import GuestSelector, { type GuestCount } from "@/components/ui/guest-selector"
 import { publicRoomsApi, type PublicRoomData } from "@/services/api"
 import { rooms as fallbackRooms, type Room } from "@/data/rooms"
 import { getCached, setCache } from "@/lib/cache"
@@ -59,7 +60,10 @@ export default function Booking() {
   const [checkOut, setCheckOut] = useState<Date | null>(
     searchParams.get("checkOut") ? new Date(searchParams.get("checkOut")!) : null
   )
-  const [guests, setGuests] = useState(Number(searchParams.get("guests")) || 1)
+  const [guests, setGuests] = useState<GuestCount>(() => ({
+    adults: Number(searchParams.get("adults")) || 2,
+    children: Number(searchParams.get("children")) || 0,
+  }))
   const [stays, setStays] = useState<string>(searchParams.get("stays") || "24 Hours")
   const [stayType, setStayType] = useState<"overnight" | "day">(
     (searchParams.get("stayType") as "overnight" | "day") || "overnight"
@@ -157,7 +161,7 @@ export default function Booking() {
           room_id: room.id,
           check_in: checkIn!.toISOString().split("T")[0],
           check_out: isOvernight ? checkOut!.toISOString().split("T")[0] : checkIn!.toISOString().split("T")[0],
-          guests,
+          guests: guests.adults + guests.children,
           stays: isOvernight ? stays : `${dayDuration} Hours`,
           stay_type: stayType,
           duration: isOvernight ? null : dayDuration,
@@ -308,15 +312,7 @@ export default function Booking() {
                   </div>
                   <div>
                     <label className="typo-caption text-muted block mb-xs">Guests</label>
-                    <select
-                      value={guests}
-                      onChange={(e) => setGuests(Number(e.target.value))}
-                      className="w-full px-3 py-2 rounded-[12px] border border-hairline bg-white typo-body-sm text-ink focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary appearance-none"
-                    >
-                      {Array.from({ length: room.capacity }, (_, i) => i + 1).map((n) => (
-                        <option key={n} value={n}>{n} {n === 1 ? "Guest" : "Guests"}</option>
-                      ))}
-                    </select>
+                    <GuestSelector value={guests} onChange={setGuests} />
                   </div>
                 </div>
               ) : (
@@ -391,15 +387,7 @@ export default function Booking() {
                   )}
                   <div>
                     <label className="typo-caption text-muted block mb-xs">Guests</label>
-                    <select
-                      value={guests}
-                      onChange={(e) => setGuests(Number(e.target.value))}
-                      className="w-full px-3 py-2 rounded-[12px] border border-hairline bg-white typo-body-sm text-ink focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary appearance-none"
-                    >
-                      {Array.from({ length: room.capacity }, (_, i) => i + 1).map((n) => (
-                        <option key={n} value={n}>{n} {n === 1 ? "Guest" : "Guests"}</option>
-                      ))}
-                    </select>
+                    <GuestSelector value={guests} onChange={setGuests} />
                   </div>
                 </div>
               )}
@@ -476,7 +464,7 @@ export default function Booking() {
                     ) : (
                       <p className="typo-caption-sm text-muted">Date not selected</p>
                     )}
-                    <p className="typo-caption-sm text-muted">{guests} {guests === 1 ? "guest" : "guests"}</p>
+                    <p className="typo-caption-sm text-muted">{guests.adults} {guests.adults === 1 ? "adult" : "adults"}{guests.children > 0 ? `, ${guests.children} ${guests.children === 1 ? "child" : "children"}` : ""}</p>
                     {isOvernight && <p className="typo-caption-sm text-muted">{stays}</p>}
                   </div>
 

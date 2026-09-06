@@ -11,6 +11,7 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import DateInput from "@/components/ui/date-input"
+import GuestSelector, { type GuestCount } from "@/components/ui/guest-selector"
 import { publicRoomsApi, type PublicRoomData } from "@/services/api"
 import { getAmenityIcon, rooms as fallbackRooms, type Room } from "@/data/rooms"
 import { getCached, setCache } from "@/lib/cache"
@@ -101,7 +102,10 @@ export default function RoomDetail() {
     const v = searchParams.get("checkOut")
     return v ? new Date(v) : null
   })
-  const [guests, setGuests] = useState(() => Number(searchParams.get("guests")) || 1)
+  const [guests, setGuests] = useState<GuestCount>(() => ({
+    adults: Number(searchParams.get("adults")) || 2,
+    children: Number(searchParams.get("children")) || 0,
+  }))
   const [stays, setStays] = useState<string>(searchParams.get("stays") || "24 Hours")
   const [dayDuration, setDayDuration] = useState<number>(
     Number(searchParams.get("duration")) || 4
@@ -116,7 +120,8 @@ export default function RoomDetail() {
   useEffect(() => {
     let checkInDate = searchParams.get("checkIn")
     let checkOutDate = searchParams.get("checkOut")
-    let guestsValue = searchParams.get("guests")
+    let adultsValue = searchParams.get("adults")
+    let childrenValue = searchParams.get("children")
 
     if (!checkInDate && !checkOutDate) {
       const returnTo = searchParams.get("returnTo")
@@ -133,13 +138,17 @@ export default function RoomDetail() {
 
         checkInDate = params.get("checkIn")
         checkOutDate = params.get("checkOut")
-        guestsValue = params.get("guests")
+        adultsValue = params.get("adults")
+        childrenValue = params.get("children")
       }
     }
 
     setCheckIn(checkInDate ? new Date(checkInDate) : null)
     setCheckOut(checkOutDate ? new Date(checkOutDate) : null)
-    setGuests(guestsValue ? Number(guestsValue) : 1)
+    setGuests({
+      adults: adultsValue ? Number(adultsValue) : 2,
+      children: childrenValue ? Number(childrenValue) : 0,
+    })
   }, [searchParams])
 
   // Sync selections to URL (without re-rendering)
@@ -152,7 +161,8 @@ export default function RoomDetail() {
       params.set("duration", String(dayDuration))
       if (startTime) params.set("startTime", startTime)
     }
-    params.set("guests", String(guests))
+                          params.set("adults", String(guests.adults))
+                          params.set("children", String(guests.children))
     if (stayType === "overnight") params.set("stays", stays)
     window.history.replaceState(null, "", `?${params.toString()}`)
   }, [stayType, checkIn, checkOut, guests, stays, dayDuration, startTime])
@@ -401,17 +411,7 @@ export default function RoomDetail() {
 
                   <div>
                     <label className="typo-caption text-muted block mb-xs">Guests</label>
-                    <select
-                      value={guests}
-                      onChange={(e) => setGuests(Number(e.target.value))}
-                      className="w-full px-3 py-2 rounded-[12px] border border-hairline bg-white typo-body-sm text-ink focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary appearance-none"
-                    >
-                      {Array.from({ length: room.capacity }, (_, i) => i + 1).map((n) => (
-                        <option key={n} value={n}>
-                          {n} {n === 1 ? "Guest" : "Guests"}
-                        </option>
-                      ))}
-                    </select>
+                    <GuestSelector value={guests} onChange={setGuests} />
                   </div>
                 </div>
               )}
@@ -495,17 +495,7 @@ export default function RoomDetail() {
 
                   <div>
                     <label className="typo-caption text-muted block mb-xs">Guests</label>
-                    <select
-                      value={guests}
-                      onChange={(e) => setGuests(Number(e.target.value))}
-                      className="w-full px-3 py-2 rounded-[12px] border border-hairline bg-white typo-body-sm text-ink focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary appearance-none"
-                    >
-                      {Array.from({ length: room.capacity }, (_, i) => i + 1).map((n) => (
-                        <option key={n} value={n}>
-                          {n} {n === 1 ? "Guest" : "Guests"}
-                        </option>
-                      ))}
-                    </select>
+                    <GuestSelector value={guests} onChange={setGuests} />
                   </div>
                 </div>
               )}
@@ -532,7 +522,8 @@ export default function RoomDetail() {
                             params.set("duration", String(dayDuration))
                             params.set("startTime", startTime)
                           }
-                          params.set("guests", String(guests))
+    params.set("adults", String(guests.adults))
+    params.set("children", String(guests.children))
                           if (stayType === "overnight") params.set("stays", stays)
                           navigate(`/booking/${id}?${params.toString()}`)
                         }
