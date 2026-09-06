@@ -112,7 +112,14 @@ function extractPath(url: string): string | null {
 }
 
 export default function RoomFormSheet({ open, onClose, onSave, editRoom }: RoomFormSheetProps) {
-  const [form, setForm] = useState<RoomFormData>(editRoom ? { ...editRoom, images: editRoom.images || [] } : emptyForm())
+  const [form, setForm] = useState<RoomFormData>(() => {
+    if (editRoom) {
+      const max_adults = editRoom.max_adults || 2
+      const max_children = editRoom.max_children ?? 1
+      return { ...editRoom, max_adults, max_children, capacity: max_adults + max_children, images: editRoom.images || [] }
+    }
+    return emptyForm()
+  })
   const [errors, setErrors] = useState<Partial<Record<keyof RoomFormData, string>>>({})
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
