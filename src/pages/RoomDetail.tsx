@@ -364,7 +364,11 @@ export default function RoomDetail() {
                         selectsStart
                         startDate={checkIn}
                         endDate={checkOut}
+                        monthsShown={2}
                         minDate={new Date()}
+                        popperPlacement="bottom-start"
+                        popperProps={{ strategy: "fixed" }}
+                        calendarClassName="ava-dual-calendar border border-hairline rounded-[12px] shadow-dropdown"
                         customInput={<DateInput placeholder="Select date" />}
                         placeholderText="Select date"
                       />
@@ -377,7 +381,11 @@ export default function RoomDetail() {
                         selectsEnd
                         startDate={checkIn}
                         endDate={checkOut}
+                        monthsShown={2}
                         minDate={checkIn || new Date()}
+                        popperPlacement="bottom-start"
+                        popperProps={{ strategy: "fixed" }}
+                        calendarClassName="ava-dual-calendar border border-hairline rounded-[12px] shadow-dropdown"
                         customInput={<DateInput placeholder="Select date" />}
                         placeholderText="Select date"
                       />
@@ -511,31 +519,38 @@ export default function RoomDetail() {
               )}
 
               {/* Book Now Button */}
-              <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-                <Button
-                  className={`w-full bg-primary text-on-primary hover:bg-primary-active !rounded-[12px] ${stayType === "day" && !startTime ? "opacity-50 cursor-not-allowed" : ""}`}
-                  disabled={stayType === "day" && !startTime}
-                  onClick={() => {
-                    if (!isAuthenticated) {
-                      setShowAuthModal(true)
-                    } else {
-                      const params = new URLSearchParams()
-                      params.set("stayType", stayType)
-                      if (checkIn) params.set("checkIn", checkIn.toISOString())
-                      if (stayType === "overnight" && checkOut) params.set("checkOut", checkOut.toISOString())
-                      if (stayType === "day") {
-                        params.set("duration", String(dayDuration))
-                        params.set("startTime", startTime)
-                      }
-                      params.set("guests", String(guests))
-                      if (stayType === "overnight") params.set("stays", stays)
-                      navigate(`/booking/${id}?${params.toString()}`)
-                    }
-                  }}
-                >
-                  Book Now
-                </Button>
-              </motion.div>
+              {(() => {
+                const isMissingFields =
+                  (stayType === "overnight" && (!checkIn || !checkOut)) ||
+                  (stayType === "day" && (!checkIn || !startTime))
+                return (
+                  <motion.div whileHover={!isMissingFields ? { scale: 1.02 } : undefined} whileTap={!isMissingFields ? { scale: 0.98 } : undefined}>
+                    <Button
+                      className={`w-full bg-primary text-on-primary hover:bg-primary-active !rounded-[12px]${isMissingFields ? " opacity-50 cursor-not-allowed" : ""}`}
+                      disabled={isMissingFields}
+                      onClick={() => {
+                        if (!isAuthenticated) {
+                          setShowAuthModal(true)
+                        } else {
+                          const params = new URLSearchParams()
+                          params.set("stayType", stayType)
+                          if (checkIn) params.set("checkIn", checkIn.toISOString())
+                          if (stayType === "overnight" && checkOut) params.set("checkOut", checkOut.toISOString())
+                          if (stayType === "day") {
+                            params.set("duration", String(dayDuration))
+                            params.set("startTime", startTime)
+                          }
+                          params.set("guests", String(guests))
+                          if (stayType === "overnight") params.set("stays", stays)
+                          navigate(`/booking/${id}?${params.toString()}`)
+                        }
+                      }}
+                    >
+                      Book Now
+                    </Button>
+                  </motion.div>
+                )
+              })()}
 
               {/* Price Breakdown */}
               <div className="mt-lg pt-lg border-t border-hairline">
