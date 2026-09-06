@@ -145,7 +145,7 @@ export default function Booking() {
     setSubmitting(true)
     try {
       const apiBase = import.meta.env.VITE_API_URL || "http://localhost:5000/api"
-      const token = localStorage.getItem("access_token")
+      const token = sessionStorage.getItem("access_token")
 
       const res = await fetch(`${apiBase}/bookings`, {
         method: "POST",

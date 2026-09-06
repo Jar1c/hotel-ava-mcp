@@ -56,7 +56,7 @@ export default function BookingConfirmation() {
     }
 
     const apiBase = import.meta.env.VITE_API_URL || "http://localhost:5000/api"
-    const token = localStorage.getItem("access_token")
+    const token = sessionStorage.getItem("access_token")
     const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {}
 
     // First confirm the booking (handles PayMongo redirect)

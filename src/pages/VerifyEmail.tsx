@@ -34,8 +34,8 @@ export default function VerifyEmail() {
         if (res.ok) {
           // If backend returned tokens, auto-login
           if (data.access_token && data.refresh_token) {
-            localStorage.setItem("access_token", data.access_token)
-            localStorage.setItem("refresh_token", data.refresh_token)
+            sessionStorage.setItem("access_token", data.access_token)
+            sessionStorage.setItem("refresh_token", data.refresh_token)
             setState("redirecting")
             setTimeout(() => navigate("/"), 2500)
           } else {

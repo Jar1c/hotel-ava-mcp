@@ -12,7 +12,7 @@ async function tryRefreshToken(): Promise<boolean> {
   // If already refreshing, wait for the in-flight attempt
   if (isRefreshing && refreshPromise) return refreshPromise
 
-  const refreshToken = localStorage.getItem("refresh_token")
+  const refreshToken = sessionStorage.getItem("refresh_token")
   if (!refreshToken) return false
 
   isRefreshing = true
@@ -27,8 +27,8 @@ async function tryRefreshToken(): Promise<boolean> {
       if (!res.ok) return false
 
       const data = await res.json()
-      localStorage.setItem("access_token", data.access_token)
-      localStorage.setItem("refresh_token", data.refresh_token)
+      sessionStorage.setItem("access_token", data.access_token)
+      sessionStorage.setItem("refresh_token", data.refresh_token)
       return true
     } catch {
       return false
@@ -42,7 +42,7 @@ async function tryRefreshToken(): Promise<boolean> {
 }
 
 async function apiFetch<T>(path: string, options: RequestInit = {}, _isRetry = false): Promise<T> {
-  const token = localStorage.getItem("access_token")
+  const token = sessionStorage.getItem("access_token")
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(options.headers as Record<string, string> || {}),
@@ -103,7 +103,7 @@ export const authApi = {
   logout: () => apiFetch("/auth/logout", { method: "POST" }),
 
   uploadAvatar: async (file: File): Promise<{ avatar_url: string }> => {
-    const token = localStorage.getItem("access_token")
+    const token = sessionStorage.getItem("access_token")
     const form = new FormData()
     form.append("file", file)
 
@@ -162,7 +162,7 @@ export const publicRoomsApi = {
 
 export const uploadApi = {
   image: async (file: File): Promise<{ url: string; path: string }> => {
-    const token = localStorage.getItem("access_token")
+    const token = sessionStorage.getItem("access_token")
     const form = new FormData()
     form.append("file", file)
 
