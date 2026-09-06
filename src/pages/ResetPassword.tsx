@@ -21,26 +21,36 @@ export default function ResetPassword() {
   const [tokenValid, setTokenValid] = useState<boolean>(false)
   const [checking, setChecking] = useState(true)
 
-  useEffect(() => {
-    const handleRecovery = async () => {
-      const url = new URL(window.location.href)
-      const code = url.searchParams.get("code")
+   useEffect(() => {
+     const handleRecovery = async () => {
+       const url = new URL(window.location.href)
+       const code = url.searchParams.get("code")
+       const token = url.searchParams.get("token") ?? url.hash.match(/access_token=([^&]+)/)?.[1]
 
-      if (code) {
-        // PKCE flow — exchange the code for a session
-        const { error } = await supabase.auth.exchangeCodeForSession(code)
-        if (!error) {
-          setTokenValid(true)
-        }
-        // Clean up the URL
-        window.history.replaceState({}, "", window.location.pathname)
-      } else {
-        // Fallback: check if a session already exists
-        const { data: { session } } = await supabase.auth.getSession()
-        if (session) setTokenValid(true)
-      }
-      setChecking(false)
-    }
+       if (code) {
+         const { error } = await supabase.auth.exchangeCodeForSession(code)
+         if (!error) {
+           setTokenValid(true)
+         } else {
+           console.error("exchangeCodeForSession error:", error)
+           setError(error.message)
+         }
+         window.history.replaceState({}, "", window.location.pathname)
+       } else if (token) {
+         const { data, error } = await supabase.auth.setSession({ access_token: token, refresh_token: token })
+         if (!error && data?.session) {
+           setTokenValid(true)
+         } else {
+           console.error("setSession error:", error)
+           setError(error?.message ?? "Invalid session")
+         }
+         window.history.replaceState({}, "", window.location.pathname)
+       } else {
+         const { data: { session } } = await supabase.auth.getSession()
+         if (session) setTokenValid(true)
+       }
+       setChecking(false)
+     }
 
     handleRecovery()
 
@@ -147,27 +157,27 @@ export default function ResetPassword() {
     )
   }
 
-  if (!tokenValid) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-canvas px-4">
-        <div className="w-full max-w-[448px] text-center">
-          <div className="bg-white rounded-[16px] p-8 shadow-sm">
-            <h1 className="font-display text-xl font-bold text-error mb-2">Invalid or Expired Link</h1>
-            <p className="text-sm text-muted mb-6 leading-relaxed">
-              This password reset link is invalid or has expired. Please request a new one.
-            </p>
-            <Button
-              onClick={() => navigate("/forgot-password")}
-              className="w-full !rounded-[10px] font-medium"
-              style={{ backgroundColor: PRIMARY, color: "#FBF9F4" }}
-            >
-              Request New Link
-            </Button>
-          </div>
-        </div>
-      </div>
-    )
-  }
+   if (!tokenValid) {
+     return (
+       <div className="min-h-screen flex items-center justify-center bg-canvas px-4">
+         <div className="w-full max-w-[448px] text-center">
+           <div className="bg-white rounded-[16px] p-8 shadow-sm">
+             <h1 className="font-display text-xl font-bold text-error mb-2">Invalid or Expired Link</h1>
+             <p className="text-sm text-muted mb-6 leading-relaxed">
+               {error ?? "This password reset link is invalid or has expired. Please request a new one."}
+             </p>
+             <Button
+               onClick={() => navigate("/forgot-password")}
+               className="w-full !rounded-[10px] font-medium"
+               style={{ backgroundColor: PRIMARY, color: "#FBF9F4" }}
+             >
+               Request New Link
+             </Button>
+           </div>
+         </div>
+       </div>
+     )
+   }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-canvas px-4">
