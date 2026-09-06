@@ -45,10 +45,11 @@ export default function Booking() {
   const navigate = useNavigate()
   const { user } = useAuth()
 
-  const [room, setRoom] = useState<Room | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [submitting, setSubmitting] = useState(false)
-  const [errorDialog, setErrorDialog] = useState<{ open: boolean; title: string; message: string }>({
+   const [room, setRoom] = useState<Room | null>(null)
+   const [loading, setLoading] = useState(true)
+   const [submitting, setSubmitting] = useState(false)
+   const [submitted, setSubmitted] = useState(false)
+   const [errorDialog, setErrorDialog] = useState<{ open: boolean; title: string; message: string }>({
     open: false,
     title: "",
     message: "",
@@ -181,12 +182,14 @@ export default function Booking() {
         throw new Error(data.error || "Booking failed")
       }
 
-      if (data.checkout_url) {
-        window.location.href = data.checkout_url
-      } else {
-        setErrorDialog({ open: true, title: "Booking Confirmed", message: "Your reservation has been placed." })
-        navigate(`/booking/confirmation/${data.booking_id || "success"}`)
-      }
+       if (data.checkout_url) {
+         setSubmitted(true)
+         window.location.href = data.checkout_url
+       } else {
+         setSubmitted(true)
+         setErrorDialog({ open: true, title: "Booking Confirmed", message: "Your reservation has been placed." })
+         navigate(`/booking/confirmation/${data.booking_id || "success"}`)
+       }
     } catch (err: any) {
       setErrorDialog({ open: true, title: "Booking Failed", message: err.message || "Please try again." })
     } finally {
@@ -240,12 +243,12 @@ export default function Booking() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-lg">
           {/* LEFT: Forms */}
           <div className="lg:col-span-2 space-y-lg">
-            {/* Stay Details */}
-            <div className="bg-white border border-hairline rounded-[12px] p-lg">
-              <h2 className="typo-display-sm text-ink mb-md flex items-center gap-2">
-                <Calendar className="h-5 w-5 text-primary" />
-                Stay Details
-              </h2>
+             {/* Stay Details */}
+             <div className={`bg-white border border-hairline rounded-[12px] p-lg ${submitted ? "opacity-50 pointer-events-none" : ""}`}>
+               <h2 className="typo-display-sm text-ink mb-md flex items-center gap-2">
+                 <Calendar className="h-5 w-5 text-primary" />
+                 Stay Details
+               </h2>
 
               {/* Stay Type Toggle */}
               <div className="flex gap-2 mb-md">
