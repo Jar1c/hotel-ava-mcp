@@ -49,45 +49,82 @@ export default function BookingConfirmation() {
   const [booking, setBooking] = useState<any>(null)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    if (!id || id === "success") {
-      setLoading(false)
-      return
-    }
+   const [error, setError] = useState(false)
 
-    const apiBase = import.meta.env.VITE_API_URL || "http://localhost:5000/api"
-    const token = sessionStorage.getItem("access_token")
-    const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {}
+   useEffect(() => {
+     if (!id || id === "success") {
+       setLoading(false)
+       return
+     }
 
-    // First confirm the booking (handles PayMongo redirect)
-    fetch(`${apiBase}/bookings/confirm/${id}`, {
-      method: "POST",
-      headers: { ...authHeaders, "Content-Type": "application/json" },
-    })
-      .then(() => {
-        // Then fetch full booking details
-        return fetch(`${apiBase}/bookings/${id}`, { headers: authHeaders })
-      })
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to fetch booking")
-        return res.json()
-      })
-      .then((data) => setBooking(data))
-      .catch(() => {})
-      .finally(() => setLoading(false))
-  }, [id])
+     const apiBase = import.meta.env.VITE_API_URL || "http://localhost:5000/api"
+     const token = sessionStorage.getItem("access_token")
+     const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {}
 
-  if (loading) {
-    return (
-      <div className="px-base py-section animate-pulse">
-        <div className="max-w-[640px] mx-auto text-center">
-          <div className="w-20 h-20 bg-gray-200 rounded-full mx-auto mb-lg" />
-          <div className="h-8 bg-gray-200 rounded w-64 mx-auto mb-md" />
-          <div className="h-4 bg-gray-200 rounded w-96 mx-auto" />
-        </div>
-      </div>
-    )
-  }
+     fetch(`${apiBase}/bookings/confirm/${id}`, {
+       method: "POST",
+       headers: { ...authHeaders, "Content-Type": "application/json" },
+     })
+       .then((res) => {
+         if (!res.ok) throw new Error(`Confirm failed: ${res.status}`)
+         return res.json()
+       })
+       .then(() => {
+         return fetch(`${apiBase}/bookings/${id}`, { headers: authHeaders })
+       })
+       .then((res) => {
+         if (!res.ok) throw new Error("Failed to fetch booking")
+         return res.json()
+       })
+       .then((data) => setBooking(data))
+       .catch((err) => {
+         console.error("Booking confirmation error:", err)
+         setError(true)
+       })
+       .finally(() => setLoading(false))
+   }, [id])
+
+   if (loading) {
+     return (
+       <div className="px-base py-section animate-pulse">
+         <div className="max-w-[640px] mx-auto text-center">
+           <div className="w-20 h-20 bg-gray-200 rounded-full mx-auto mb-lg" />
+           <div className="h-8 bg-gray-200 rounded w-64 mx-auto mb-md" />
+           <div className="h-4 bg-gray-200 rounded w-96 mx-auto" />
+         </div>
+       </div>
+     )
+   }
+
+   if (error) {
+     return (
+       <div className="px-base py-section">
+         <div className="max-w-[640px] mx-auto text-center">
+           <h1 className="typo-display-xl text-ink mb-sm">Confirmation Failed</h1>
+           <p className="typo-body-lg text-muted mb-lg">
+             We couldn't confirm your booking. Please contact support or try again.
+           </p>
+           <div className="flex flex-col sm:flex-row gap-sm justify-center">
+             <Button
+               onClick={() => navigate("/")}
+               className="!rounded-[12px] px-lg"
+               style={{ backgroundColor: PRIMARY, color: "#FBF9F4" }}
+             >
+               Back to Home
+               <ArrowRight className="h-4 w-4 ml-2" />
+             </Button>
+             <Button
+               variant="outline"
+               onClick={() => navigate("/my-bookings")}
+               className="!rounded-[12px] px-lg"
+             >
+               View My Bookings
+             </Button>
+           </div>
+         </div>
+       </div>
+     )
+   }
 
   return (
     <div className="px-base py-section">
