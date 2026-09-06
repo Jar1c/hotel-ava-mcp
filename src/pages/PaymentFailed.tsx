@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react"
 import { useNavigate, useSearchParams } from "react-router"
 import { XCircle, ArrowRight, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -8,6 +9,21 @@ export default function PaymentFailed() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const bookingId = searchParams.get("booking")
+  const reportedRef = useRef(false)
+
+  useEffect(() => {
+    if (!bookingId || reportedRef.current) return
+    reportedRef.current = true
+    const apiBase = import.meta.env.VITE_API_URL || "http://localhost:5000/api"
+    const token = sessionStorage.getItem("access_token")
+    fetch(`${apiBase}/bookings/${bookingId}/payment-failed`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    }).catch(() => {})
+  }, [bookingId])
 
   return (
     <div className="px-base py-section">

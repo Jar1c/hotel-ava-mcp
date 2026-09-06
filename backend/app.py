@@ -1892,7 +1892,34 @@ def paymongo_webhook():
         event_type = payload.get("data", {}).get("attributes", {}).get("type", "")
         print(f"Webhook received: {event_type}")
 
-        if event_type == "payment.paid":
+        if event_type == "payment.failed":
+            attrs = payload["data"]["attributes"]
+            payment_data = attrs.get("data", {}).get("attributes", {})
+            description = payment_data.get("description", "")
+            booking_id = None
+            if description.startswith("Booking: "):
+                booking_id = description.replace("Booking: ", "").strip()
+            metadata = payment_data.get("metadata", {})
+            if not booking_id and metadata.get("booking_id"):
+                booking_id = metadata["booking_id"]
+
+            if booking_id:
+                booking_res = supabase.table("bookings").select("user_id, room_id, check_in, status").eq("id", booking_id).execute()
+                if booking_res.data:
+                    b = booking_res.data[0]
+                    if b["status"] != "cancelled":
+                        supabase.table("bookings").update({"status": "cancelled"}).eq("id", booking_id).execute()
+                        room_name = "your room"
+                        if b.get("room_id"):
+                            rr = supabase.table("rooms").select("name").eq("id", b["room_id"]).execute()
+                            if rr.data:
+                                room_name = rr.data[0]["name"]
+                        create_notification(b["user_id"], "payment", "Payment Failed",
+                            f"Payment for your booking of {room_name} on {b.get('check_in', '')} failed. You can retry from My Bookings.",
+                            booking_id=booking_id)
+                print(f"Booking {booking_id} payment failed via webhook")
+
+        elif event_type == "payment.paid":
             attrs = payload["data"]["attributes"]
             payment_data = attrs.get("data", {}).get("attributes", {})
 
@@ -1981,6 +2008,35 @@ def confirm_booking_after_payment(booking_id):
 
 
 # ── Health ─────────────────────────────────────────────────────────────────────
+
+
+@app.route("/api/bookings/<booking_id>/payment-failed", methods=["POST"])
+def report_payment_failed(booking_id):
+    """Called by frontend when user lands on /booking/failed — creates notification."""
+    try:
+        booking_res = supabase.table("bookings").select("user_id, room_id, check_in, status").eq("id", booking_id).execute()
+        if not booking_res.data:
+            return jsonify({"error": "Booking not found"}), 404
+
+        b = booking_res.data[0]
+        if b["status"] in ("cancelled", "confirmed"):
+            return jsonify({"booking_id": booking_id, "status": b["status"]}), 200
+
+        supabase.table("bookings").update({"status": "cancelled"}).eq("id", booking_id).execute()
+
+        room_name = "your room"
+        if b.get("room_id"):
+            rr = supabase.table("rooms").select("name").eq("id", b["room_id"]).execute()
+            if rr.data:
+                room_name = rr.data[0]["name"]
+
+        create_notification(b["user_id"], "payment", "Payment Failed",
+            f"Payment for your booking of {room_name} on {b.get('check_in', '')} failed. You can retry from My Bookings.",
+            booking_id=booking_id)
+
+        return jsonify({"booking_id": booking_id, "status": "cancelled"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/api/health", methods=["GET"])
 def health():
