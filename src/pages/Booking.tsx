@@ -292,6 +292,7 @@ export default function Booking() {
                       onChange={(date: Date | null) => setCheckOut(date)}
                       selectsEnd startDate={checkIn} endDate={checkOut}
                       minDate={checkIn ? new Date(checkIn.getTime() + 86400000) : new Date()}
+                      maxDate={checkIn ? new Date(checkIn.getTime() + 30 * 86400000) : undefined}
                       customInput={<DateInput placeholder="Select date" />}
                     />
                   </div>

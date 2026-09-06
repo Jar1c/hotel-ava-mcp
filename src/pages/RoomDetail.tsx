@@ -392,6 +392,7 @@ export default function RoomDetail() {
                         startDate={checkIn}
                         endDate={checkOut}
                         minDate={checkIn || new Date()}
+                        maxDate={checkIn ? new Date(checkIn.getTime() + 30 * 86400000) : undefined}
                         customInput={<DateInput placeholder="Select date" />}
                         placeholderText="Select date"
                       />
