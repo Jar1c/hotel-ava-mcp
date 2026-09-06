@@ -9,11 +9,12 @@ export interface GuestCount {
 interface GuestSelectorProps {
   value: GuestCount
   onChange: (value: GuestCount) => void
-  max?: number
+  maxAdults?: number
+  maxChildren?: number
   allowChildren?: boolean
 }
 
-export default function GuestSelector({ value, onChange, max = 10, allowChildren = true }: GuestSelectorProps) {
+export default function GuestSelector({ value, onChange, maxAdults = 10, maxChildren = 10, allowChildren = true }: GuestSelectorProps) {
   const [isOpen, setIsOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -27,19 +28,17 @@ export default function GuestSelector({ value, onChange, max = 10, allowChildren
     return () => document.removeEventListener("mousedown", handleClickOutside)
   }, [])
 
-  const totalGuests = value.adults + value.children
-
   const updateValue = (key: keyof GuestCount, delta: number) => {
     const newVal = { ...value }
-    const newTotal = totalGuests + delta
+    newVal[key] = newVal[key] + delta
 
-    if (key === "children" && !allowChildren && delta > 0) return
-    if (newTotal > max || newTotal < 1) return
+    if (key === "adults") {
+      newVal.adults = Math.max(1, Math.min(maxAdults, newVal.adults))
+    } else {
+      if (!allowChildren) return
+      newVal.children = Math.max(0, Math.min(maxChildren, newVal.children))
+    }
 
-    newVal[key] = Math.max(
-      key === "adults" ? 1 : 0,
-      newVal[key] + delta
-    )
     onChange(newVal)
   }
 
@@ -77,7 +76,7 @@ export default function GuestSelector({ value, onChange, max = 10, allowChildren
               <button
                 type="button"
                 onClick={() => updateValue("adults", 1)}
-                disabled={totalGuests >= max}
+                disabled={value.adults >= maxAdults}
                 className="size-8 rounded-full border border-hairline flex items-center justify-center text-ink hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
               >
                 <Plus className="h-4 w-4" />
@@ -105,7 +104,7 @@ export default function GuestSelector({ value, onChange, max = 10, allowChildren
               <button
                 type="button"
                 onClick={() => updateValue("children", 1)}
-                disabled={totalGuests >= max}
+                disabled={value.children >= maxChildren}
                 className="size-8 rounded-full border border-hairline flex items-center justify-center text-ink hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
               >
                 <Plus className="h-4 w-4" />

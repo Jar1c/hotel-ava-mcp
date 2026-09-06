@@ -5,6 +5,8 @@ export interface Room {
   description: string
   price: number
   capacity: number
+  max_adults: number
+  max_children: number
   allows_children: boolean
   amenities: string[]
   images: string[]
@@ -22,6 +24,8 @@ export const rooms: Room[] = [
     description: "Comfortable 15-20m² room with air conditioning, hot & cold shower, WiFi, cable TV, hairdryer, and personal care kit. Perfect for travelers arriving via taxi or service vehicle.",
     price: 2400,
     capacity: 2,
+    max_adults: 2,
+    max_children: 1,
     allows_children: true,
     amenities: ["Air Conditioning", "Hot & Cold Shower", "Free WiFi", "Cable TV", "Hairdryer", "Personal Care Kit"],
     images: [
@@ -41,6 +45,8 @@ export const rooms: Room[] = [
     description: "Modern 18-24m² room with private garage access, Smart TV, and upgraded amenities. Perfect for those moments when you need to detour.",
     price: 2800,
     capacity: 2,
+    max_adults: 2,
+    max_children: 1,
     allows_children: true,
     amenities: ["Air Conditioning", "Hot & Cold Shower", "Free WiFi", "Smart TV", "Hairdryer", "Personal Care Kit", "Private Garage"],
     images: [
@@ -60,6 +66,8 @@ export const rooms: Room[] = [
     description: "Spacious room with private garage, bathtub, and premium finishes. A step up in luxury with extra space for a truly relaxing stay.",
     price: 3200,
     capacity: 2,
+    max_adults: 2,
+    max_children: 0,
     allows_children: false,
     amenities: ["Air Conditioning", "Hot & Cold Shower", "Free WiFi", "Smart TV", "Hairdryer", "Personal Care Kit", "Private Garage", "Bathtub"],
     images: [
@@ -79,6 +87,8 @@ export const rooms: Room[] = [
     description: "Expansive 30-50m² suite with relaxing bathtub/jacuzzi and private garage. Designed for guests who want extra space and a touch of indulgence.",
     price: 3800,
     capacity: 4,
+    max_adults: 3,
+    max_children: 2,
     allows_children: true,
     amenities: ["Air Conditioning", "Hot & Cold Shower", "Free WiFi", "Smart TV", "Hairdryer", "Personal Care Kit", "Private Garage", "Bathtub", "Jacuzzi"],
     images: [
@@ -98,6 +108,8 @@ export const rooms: Room[] = [
     description: "Our finest accommodation featuring themed rooms, a private jacuzzi, and KTV entertainment system. The ultimate experience for celebrations and special occasions.",
     price: 4500,
     capacity: 4,
+    max_adults: 4,
+    max_children: 0,
     allows_children: false,
     amenities: ["Air Conditioning", "Hot & Cold Shower", "Free WiFi", "Smart TV", "Hairdryer", "Personal Care Kit", "Private Garage", "Jacuzzi", "KTV"],
     images: [

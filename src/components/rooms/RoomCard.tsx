@@ -98,7 +98,7 @@ export default function RoomCard({ room, filters }: RoomCardProps) {
             </h3>
             <div className="flex items-center gap-1 text-muted shrink-0 mt-0.5">
               <Users className="h-3.5 w-3.5" />
-              <span className="typo-caption-sm font-medium">{room.capacity}</span>
+              <span className="typo-caption-sm font-medium">{room.max_adults}A {room.max_children}C</span>
             </div>
           </div>
 

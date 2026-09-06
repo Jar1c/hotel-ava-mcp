@@ -14,6 +14,8 @@ export interface RoomFormData {
   type: string
   price: number
   capacity: number
+  max_adults: number
+  max_children: number
   allows_children: boolean
   amenities: string[]
   images: string[]
@@ -26,25 +28,40 @@ const MAX_IMAGES = 5
 const roomTypes = ["Standard", "Deluxe", "Executive Deluxe", "Regular Suite", "Superior Suite"]
 
 // Hotel Ava Malate room type presets
-const roomTypePresets: Record<string, { capacity: number; amenities: string[] }> = {
+const roomTypePresets: Record<string, { capacity: number; max_adults: number; max_children: number; allows_children: boolean; amenities: string[] }> = {
   "Standard": {
     capacity: 2,
+    max_adults: 2,
+    max_children: 1,
+    allows_children: true,
     amenities: ["Air Conditioning", "Free WiFi", "Cable TV", "Hot & Cold Shower", "Personal Care Kit"],
   },
   "Deluxe": {
     capacity: 2,
+    max_adults: 2,
+    max_children: 1,
+    allows_children: true,
     amenities: ["Air Conditioning", "Free WiFi", "Smart TV", "Hot & Cold Shower", "Personal Care Kit", "Hairdryer", "Private Garage"],
   },
   "Executive Deluxe": {
     capacity: 2,
+    max_adults: 2,
+    max_children: 0,
+    allows_children: false,
     amenities: ["Air Conditioning", "Free WiFi", "Smart TV", "Hot & Cold Shower", "Personal Care Kit", "Hairdryer", "Private Garage", "Bathtub"],
   },
   "Regular Suite": {
-    capacity: 2,
+    capacity: 4,
+    max_adults: 3,
+    max_children: 2,
+    allows_children: true,
     amenities: ["Air Conditioning", "Free WiFi", "Smart TV", "Hot & Cold Shower", "Personal Care Kit", "Hairdryer", "Private Garage", "Bathtub", "KTV"],
   },
   "Superior Suite": {
-    capacity: 2,
+    capacity: 4,
+    max_adults: 4,
+    max_children: 0,
+    allows_children: false,
     amenities: ["Air Conditioning", "Free WiFi", "Smart TV", "Hot & Cold Shower", "Personal Care Kit", "Hairdryer", "Private Garage", "Bathtub", "Jacuzzi", "KTV"],
   },
 }
@@ -71,13 +88,16 @@ interface RoomFormSheetProps {
 }
 
 function emptyForm(): RoomFormData {
+  const preset = roomTypePresets["Standard"]
   return {
     name: "",
     type: "Standard",
     price: 0,
-    capacity: roomTypePresets["Standard"].capacity,
-    allows_children: true,
-    amenities: [...roomTypePresets["Standard"].amenities],
+    capacity: preset.capacity,
+    max_adults: preset.max_adults,
+    max_children: preset.max_children,
+    allows_children: preset.allows_children,
+    amenities: [...preset.amenities],
     images: [],
     description: "",
     status: "available",
@@ -266,6 +286,9 @@ export default function RoomFormSheet({ open, onClose, onSave, editRoom }: RoomF
                           ...f,
                           type: newType,
                           capacity: preset?.capacity ?? f.capacity,
+                          max_adults: preset?.max_adults ?? f.max_adults,
+                          max_children: preset?.max_children ?? f.max_children,
+                          allows_children: preset?.allows_children ?? f.allows_children,
                           amenities: preset?.amenities ?? f.amenities,
                         }))
                       }}
@@ -299,10 +322,50 @@ export default function RoomFormSheet({ open, onClose, onSave, editRoom }: RoomF
                 </div>
               </div>
 
-              {/* Capacity + Status */}
-              <div className="grid grid-cols-2 gap-3">
+              {/* Guest Limits */}
+              <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-[10px] font-bold text-[#6b7280] uppercase tracking-wider mb-1">Capacity</label>
+                  <label className="block text-[10px] font-bold text-[#6b7280] uppercase tracking-wider mb-1">Max Adults</label>
+                  <div className="relative">
+                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-black">
+                      <Users className="size-3.5" />
+                    </div>
+                    <input
+                      type="number"
+                      value={form.max_adults || ""}
+                      onChange={(e) => setForm((f) => {
+                        const max_adults = Number(e.target.value)
+                        return { ...f, max_adults, capacity: max_adults + f.max_children }
+                      })}
+                      min={1}
+                      max={10}
+                      placeholder="2"
+                      className="w-full rounded-[6px] border border-[#e2e4e8] bg-white pl-9 pr-3 py-2.5 text-[13px] text-[#1a1d26] placeholder:text-[#b0b3b8] focus:outline-none focus:ring-2 focus:ring-[#82285f]/15 focus:border-[#82285f] transition-all"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-[#6b7280] uppercase tracking-wider mb-1">Max Children</label>
+                  <div className="relative">
+                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-black">
+                      <Users className="size-3.5" />
+                    </div>
+                    <input
+                      type="number"
+                      value={form.max_children || ""}
+                      onChange={(e) => setForm((f) => {
+                        const max_children = Number(e.target.value)
+                        return { ...f, max_children, capacity: f.max_adults + max_children, allows_children: max_children > 0 ? true : false }
+                      })}
+                      min={0}
+                      max={10}
+                      placeholder="1"
+                      className="w-full rounded-[6px] border border-[#e2e4e8] bg-white pl-9 pr-3 py-2.5 text-[13px] text-[#1a1d26] placeholder:text-[#b0b3b8] focus:outline-none focus:ring-2 focus:ring-[#82285f]/15 focus:border-[#82285f] transition-all"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-[#6b7280] uppercase tracking-wider mb-1">Total Capacity</label>
                   <div className="relative">
                     <div className="absolute left-3 top-1/2 -translate-y-1/2 text-black">
                       <Users className="size-3.5" />
@@ -310,31 +373,9 @@ export default function RoomFormSheet({ open, onClose, onSave, editRoom }: RoomF
                     <input
                       type="number"
                       value={form.capacity || ""}
-                      onChange={(e) => setForm((f) => ({ ...f, capacity: Number(e.target.value) }))}
-                      placeholder="2"
-                      className="w-full rounded-[6px] border border-[#e2e4e8] bg-white pl-9 pr-3 py-2.5 text-[13px] text-[#1a1d26] placeholder:text-[#b0b3b8] focus:outline-none focus:ring-2 focus:ring-[#82285f]/15 focus:border-[#82285f] transition-all"
+                      readOnly
+                      className="w-full rounded-[6px] border border-[#e2e4e8] bg-[#f5f6f8] pl-9 pr-3 py-2.5 text-[13px] text-[#6b7280] cursor-not-allowed"
                     />
-                  </div>
-                  {errors.capacity && <p className="text-[10px] text-[#A4423A] mt-1">{errors.capacity}</p>}
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-[#6b7280] uppercase tracking-wider mb-1">Status</label>
-                  <div className="relative">
-                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-black">
-                      <CircleDot className="size-3.5" />
-                    </div>
-                    <select
-                      value={form.status}
-                      onChange={(e) => setForm((f) => ({ ...f, status: e.target.value as AdminRoom["status"] }))}
-                      className="w-full rounded-[6px] border border-[#e2e4e8] bg-white pl-9 pr-9 py-2.5 text-[13px] text-[#1a1d26] focus:outline-none focus:ring-2 focus:ring-[#82285f]/15 focus:border-[#82285f] transition-all appearance-none"
-                    >
-                      <option value="available">Available</option>
-                      <option value="occupied">Occupied</option>
-                      <option value="maintenance">Maintenance</option>
-                    </select>
-                    <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-[#9ca3af]">
-                      <svg className="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
-                    </div>
                   </div>
                 </div>
               </div>
@@ -349,13 +390,35 @@ export default function RoomFormSheet({ open, onClose, onSave, editRoom }: RoomF
                   type="button"
                   role="switch"
                   aria-checked={form.allows_children}
-                  onClick={() => setForm((f) => ({ ...f, allows_children: !f.allows_children }))}
+                  onClick={() => setForm((f) => ({ ...f, allows_children: !f.allows_children, max_children: !f.allows_children ? f.max_children : 0 }))}
                   className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${form.allows_children ? "bg-[#82285f]" : "bg-[#d1d5db]"}`}
                 >
                   <span
                     className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${form.allows_children ? "translate-x-4" : "translate-x-0"}`}
                   />
                 </button>
+              </div>
+
+              {/* Status */}
+              <div>
+                <label className="block text-[10px] font-bold text-[#6b7280] uppercase tracking-wider mb-1">Status</label>
+                <div className="relative">
+                  <div className="absolute left-3 top-1/2 -translate-y-1/2 text-black">
+                    <CircleDot className="size-3.5" />
+                  </div>
+                  <select
+                    value={form.status}
+                    onChange={(e) => setForm((f) => ({ ...f, status: e.target.value as AdminRoom["status"] }))}
+                    className="w-full rounded-[6px] border border-[#e2e4e8] bg-white pl-9 pr-9 py-2.5 text-[13px] text-[#1a1d26] focus:outline-none focus:ring-2 focus:ring-[#82285f]/15 focus:border-[#82285f] transition-all appearance-none"
+                  >
+                    <option value="available">Available</option>
+                    <option value="occupied">Occupied</option>
+                    <option value="maintenance">Maintenance</option>
+                  </select>
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-[#9ca3af]">
+                    <svg className="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
+                  </div>
+                </div>
               </div>
 
               {/* Description */}

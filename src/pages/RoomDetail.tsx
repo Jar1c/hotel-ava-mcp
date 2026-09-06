@@ -177,6 +177,8 @@ export default function RoomDetail() {
         description: cached.description,
         price: cached.price,
         capacity: cached.capacity,
+        max_adults: cached.max_adults,
+        max_children: cached.max_children,
         allows_children: cached.allows_children,
         amenities: cached.amenities,
         images: cached.images.length > 0 ? cached.images : fallbackRooms[0].images,
@@ -193,6 +195,8 @@ export default function RoomDetail() {
           description: data.description,
           price: data.price,
           capacity: data.capacity,
+          max_adults: data.max_adults,
+          max_children: data.max_children,
           allows_children: data.allows_children,
           amenities: data.amenities,
           images: data.images.length > 0 ? data.images : fallbackRooms[0].images,
@@ -302,7 +306,7 @@ export default function RoomDetail() {
               <div className="flex items-center gap-4 mb-lg text-muted">
                 <div className="flex items-center gap-1">
                   <Users className="h-4 w-4" />
-                  <span className="typo-body-sm">Up to {room.capacity} guests</span>
+                  <span className="typo-body-sm">Up to {room.max_adults} Adults, {room.max_children} Children</span>
                 </div>
               </div>
 
@@ -404,7 +408,7 @@ export default function RoomDetail() {
                   <div>
                     <label className="typo-caption text-muted block mb-xs">Guests</label>
                     <div className="px-3 py-2 rounded-[12px] border border-hairline bg-white">
-                      <GuestSelector value={guests} onChange={setGuests} max={room.capacity} allowChildren={room.allows_children} />
+                      <GuestSelector value={guests} onChange={setGuests} maxAdults={room.max_adults} maxChildren={room.max_children} allowChildren={room.allows_children} />
                     </div>
                   </div>
                 </div>
@@ -490,7 +494,7 @@ export default function RoomDetail() {
                   <div>
                     <label className="typo-caption text-muted block mb-xs">Guests</label>
                     <div className="px-3 py-2 rounded-[12px] border border-hairline bg-white">
-                      <GuestSelector value={guests} onChange={setGuests} max={room.capacity} allowChildren={room.allows_children} />
+                      <GuestSelector value={guests} onChange={setGuests} maxAdults={room.max_adults} maxChildren={room.max_children} allowChildren={room.allows_children} />
                     </div>
                   </div>
                 </div>

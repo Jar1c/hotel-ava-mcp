@@ -110,7 +110,8 @@ export default function Booking() {
       setRoom({
         id: cached.id, name: cached.name, type: cached.type,
         description: cached.description, price: cached.price,
-        capacity: cached.capacity, allows_children: cached.allows_children,
+        capacity: cached.capacity, max_adults: cached.max_adults,
+        max_children: cached.max_children, allows_children: cached.allows_children,
         amenities: cached.amenities,
         images: cached.images.length > 0 ? cached.images : fallbackRooms[0].images,
       })
@@ -121,7 +122,8 @@ export default function Booking() {
         const r: Room = {
           id: data.id, name: data.name, type: data.type,
           description: data.description, price: data.price,
-          capacity: data.capacity, allows_children: data.allows_children,
+          capacity: data.capacity, max_adults: data.max_adults,
+          max_children: data.max_children, allows_children: data.allows_children,
           amenities: data.amenities,
           images: data.images.length > 0 ? data.images : fallbackRooms[0].images,
         }
@@ -301,7 +303,7 @@ export default function Booking() {
                   <div>
                     <label className="typo-caption text-muted block mb-xs">Guests</label>
                     <div className="px-3 py-2 rounded-[12px] border border-hairline bg-white">
-                      <GuestSelector value={guests} onChange={setGuests} max={room.capacity} allowChildren={room.allows_children} />
+                      <GuestSelector value={guests} onChange={setGuests} maxAdults={room.max_adults} maxChildren={room.max_children} allowChildren={room.allows_children} />
                     </div>
                   </div>
                 </div>
@@ -378,7 +380,7 @@ export default function Booking() {
                   <div>
                     <label className="typo-caption text-muted block mb-xs">Guests</label>
                     <div className="px-3 py-2 rounded-[12px] border border-hairline bg-white">
-                      <GuestSelector value={guests} onChange={setGuests} max={room.capacity} allowChildren={room.allows_children} />
+                      <GuestSelector value={guests} onChange={setGuests} maxAdults={room.max_adults} maxChildren={room.max_children} allowChildren={room.allows_children} />
                     </div>
                   </div>
                 </div>
