@@ -149,6 +149,7 @@ export interface PublicRoomData {
   description: string
   price: number
   capacity: number
+  allows_children: boolean
   amenities: string[]
   images: string[]
 }
@@ -194,6 +195,7 @@ export interface RoomData {
   type: string
   price: number
   capacity: number
+  allows_children: boolean
   amenities: string[]
   images: string[]
   description: string

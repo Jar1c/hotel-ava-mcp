@@ -96,7 +96,12 @@ export default function AdminRoomTable({ rooms, onEdit, onDelete, highlightId }:
                     </span>
                   </td>
                   <td className="px-5 py-3 text-right font-semibold text-[#1a1d26]">₱{room.price.toLocaleString()}</td>
-                  <td className="px-5 py-3 text-center text-[#6b7280]">{room.capacity} {room.capacity > 2 ? "guests" : "guest"}</td>
+                  <td className="px-5 py-3 text-center text-[#6b7280]">
+                    {room.capacity} {room.capacity > 2 ? "guests" : "guest"}
+                    {!room.allows_children && (
+                      <span className="ml-1 text-[9px] text-[#A4423A] font-medium" title="No children allowed">No kids</span>
+                    )}
+                  </td>
                   <td className="px-5 py-3">
                     <span className={cn("inline-flex items-center gap-1.5 text-[11px] font-medium", status.textColor)}>
                       <span className={cn("size-1.5 rounded-full", status.dotColor)} />

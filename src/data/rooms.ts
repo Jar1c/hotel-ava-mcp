@@ -5,6 +5,7 @@ export interface Room {
   description: string
   price: number
   capacity: number
+  allows_children: boolean
   amenities: string[]
   images: string[]
   rating?: number
@@ -21,6 +22,7 @@ export const rooms: Room[] = [
     description: "Comfortable 15-20m² room with air conditioning, hot & cold shower, WiFi, cable TV, hairdryer, and personal care kit. Perfect for travelers arriving via taxi or service vehicle.",
     price: 2400,
     capacity: 2,
+    allows_children: true,
     amenities: ["Air Conditioning", "Hot & Cold Shower", "Free WiFi", "Cable TV", "Hairdryer", "Personal Care Kit"],
     images: [
       "https://hotel-ava.com/wp-content/uploads/2025/04/HACU-WEBSITE-RS-RM-79.jpg",
@@ -39,6 +41,7 @@ export const rooms: Room[] = [
     description: "Modern 18-24m² room with private garage access, Smart TV, and upgraded amenities. Perfect for those moments when you need to detour.",
     price: 2800,
     capacity: 2,
+    allows_children: true,
     amenities: ["Air Conditioning", "Hot & Cold Shower", "Free WiFi", "Smart TV", "Hairdryer", "Personal Care Kit", "Private Garage"],
     images: [
       "https://hotel-ava.com/wp-content/uploads/2025/07/HAGP-RM-4.png",
@@ -57,6 +60,7 @@ export const rooms: Room[] = [
     description: "Spacious room with private garage, bathtub, and premium finishes. A step up in luxury with extra space for a truly relaxing stay.",
     price: 3200,
     capacity: 2,
+    allows_children: false,
     amenities: ["Air Conditioning", "Hot & Cold Shower", "Free WiFi", "Smart TV", "Hairdryer", "Personal Care Kit", "Private Garage", "Bathtub"],
     images: [
       "https://hotel-ava.com/wp-content/uploads/2025/04/HAGP-ES-RM4.png",
@@ -75,6 +79,7 @@ export const rooms: Room[] = [
     description: "Expansive 30-50m² suite with relaxing bathtub/jacuzzi and private garage. Designed for guests who want extra space and a touch of indulgence.",
     price: 3800,
     capacity: 4,
+    allows_children: true,
     amenities: ["Air Conditioning", "Hot & Cold Shower", "Free WiFi", "Smart TV", "Hairdryer", "Personal Care Kit", "Private Garage", "Bathtub", "Jacuzzi"],
     images: [
       "https://hotel-ava.com/wp-content/uploads/2025/04/HAMA-ES-WEBSITE-PHOTO-RM123.png",
@@ -93,6 +98,7 @@ export const rooms: Room[] = [
     description: "Our finest accommodation featuring themed rooms, a private jacuzzi, and KTV entertainment system. The ultimate experience for celebrations and special occasions.",
     price: 4500,
     capacity: 4,
+    allows_children: false,
     amenities: ["Air Conditioning", "Hot & Cold Shower", "Free WiFi", "Smart TV", "Hairdryer", "Personal Care Kit", "Private Garage", "Jacuzzi", "KTV"],
     images: [
       "https://hotel-ava.com/wp-content/uploads/2022/10/Hotel-Ava_gallery-page_room128-asgard.png",

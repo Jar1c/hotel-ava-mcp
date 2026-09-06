@@ -14,6 +14,7 @@ export interface RoomFormData {
   type: string
   price: number
   capacity: number
+  allows_children: boolean
   amenities: string[]
   images: string[]
   description: string
@@ -75,6 +76,7 @@ function emptyForm(): RoomFormData {
     type: "Standard",
     price: 0,
     capacity: roomTypePresets["Standard"].capacity,
+    allows_children: true,
     amenities: [...roomTypePresets["Standard"].amenities],
     images: [],
     description: "",
@@ -335,6 +337,25 @@ export default function RoomFormSheet({ open, onClose, onSave, editRoom }: RoomF
                     </div>
                   </div>
                 </div>
+              </div>
+
+              {/* Children Policy */}
+              <div className="flex items-center justify-between rounded-[6px] border border-[#e2e4e8] bg-[#f9fafb] px-3 py-2.5">
+                <div>
+                  <p className="text-[13px] font-medium text-[#1a1d26]">Allow Children</p>
+                  <p className="text-[11px] text-[#6b7280]">Allow guests to bring children (age 0-17) to this room</p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={form.allows_children}
+                  onClick={() => setForm((f) => ({ ...f, allows_children: !f.allows_children }))}
+                  className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${form.allows_children ? "bg-[#82285f]" : "bg-[#d1d5db]"}`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${form.allows_children ? "translate-x-4" : "translate-x-0"}`}
+                  />
+                </button>
               </div>
 
               {/* Description */}

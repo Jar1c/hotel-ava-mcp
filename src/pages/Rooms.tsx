@@ -56,6 +56,7 @@ function mapApiRoom(r: PublicRoomData): Room {
     description: r.description,
     price: r.price,
     capacity: r.capacity,
+    allows_children: r.allows_children,
     amenities: r.amenities,
     images: r.images,
   }

@@ -110,7 +110,8 @@ export default function Booking() {
       setRoom({
         id: cached.id, name: cached.name, type: cached.type,
         description: cached.description, price: cached.price,
-        capacity: cached.capacity, amenities: cached.amenities,
+        capacity: cached.capacity, allows_children: cached.allows_children,
+        amenities: cached.amenities,
         images: cached.images.length > 0 ? cached.images : fallbackRooms[0].images,
       })
       setLoading(false)
@@ -120,7 +121,8 @@ export default function Booking() {
         const r: Room = {
           id: data.id, name: data.name, type: data.type,
           description: data.description, price: data.price,
-          capacity: data.capacity, amenities: data.amenities,
+          capacity: data.capacity, allows_children: data.allows_children,
+          amenities: data.amenities,
           images: data.images.length > 0 ? data.images : fallbackRooms[0].images,
         }
         setRoom(r)
@@ -299,7 +301,7 @@ export default function Booking() {
                   <div>
                     <label className="typo-caption text-muted block mb-xs">Guests</label>
                     <div className="px-3 py-2 rounded-[12px] border border-hairline bg-white">
-                      <GuestSelector value={guests} onChange={setGuests} />
+                      <GuestSelector value={guests} onChange={setGuests} max={room.capacity} allowChildren={room.allows_children} />
                     </div>
                   </div>
                 </div>
@@ -376,7 +378,7 @@ export default function Booking() {
                   <div>
                     <label className="typo-caption text-muted block mb-xs">Guests</label>
                     <div className="px-3 py-2 rounded-[12px] border border-hairline bg-white">
-                      <GuestSelector value={guests} onChange={setGuests} />
+                      <GuestSelector value={guests} onChange={setGuests} max={room.capacity} allowChildren={room.allows_children} />
                     </div>
                   </div>
                 </div>

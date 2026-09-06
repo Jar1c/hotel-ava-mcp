@@ -9,9 +9,11 @@ export interface GuestCount {
 interface GuestSelectorProps {
   value: GuestCount
   onChange: (value: GuestCount) => void
+  max?: number
+  allowChildren?: boolean
 }
 
-export default function GuestSelector({ value, onChange }: GuestSelectorProps) {
+export default function GuestSelector({ value, onChange, max = 10, allowChildren = true }: GuestSelectorProps) {
   const [isOpen, setIsOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -25,11 +27,18 @@ export default function GuestSelector({ value, onChange }: GuestSelectorProps) {
     return () => document.removeEventListener("mousedown", handleClickOutside)
   }, [])
 
+  const totalGuests = value.adults + value.children
+
   const updateValue = (key: keyof GuestCount, delta: number) => {
     const newVal = { ...value }
+    const newTotal = totalGuests + delta
+
+    if (key === "children" && !allowChildren && delta > 0) return
+    if (newTotal > max || newTotal < 1) return
+
     newVal[key] = Math.max(
       key === "adults" ? 1 : 0,
-      Math.min(10, newVal[key] + delta)
+      newVal[key] + delta
     )
     onChange(newVal)
   }
@@ -68,7 +77,8 @@ export default function GuestSelector({ value, onChange }: GuestSelectorProps) {
               <button
                 type="button"
                 onClick={() => updateValue("adults", 1)}
-                className="size-8 rounded-full border border-hairline flex items-center justify-center text-ink hover:bg-gray-50 transition-colors"
+                disabled={totalGuests >= max}
+                className="size-8 rounded-full border border-hairline flex items-center justify-center text-ink hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
               >
                 <Plus className="h-4 w-4" />
               </button>
@@ -76,6 +86,7 @@ export default function GuestSelector({ value, onChange }: GuestSelectorProps) {
           </div>
 
           {/* Children */}
+          {allowChildren && (
           <div className="flex items-center justify-between py-3">
             <div>
               <p className="typo-body-sm text-ink font-medium">Children</p>
@@ -94,12 +105,14 @@ export default function GuestSelector({ value, onChange }: GuestSelectorProps) {
               <button
                 type="button"
                 onClick={() => updateValue("children", 1)}
-                className="size-8 rounded-full border border-hairline flex items-center justify-center text-ink hover:bg-gray-50 transition-colors"
+                disabled={totalGuests >= max}
+                className="size-8 rounded-full border border-hairline flex items-center justify-center text-ink hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
               >
                 <Plus className="h-4 w-4" />
               </button>
             </div>
           </div>
+          )}
         </div>
       )}
     </div>
