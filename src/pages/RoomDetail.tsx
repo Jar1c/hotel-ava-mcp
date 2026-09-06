@@ -364,11 +364,7 @@ export default function RoomDetail() {
                         selectsStart
                         startDate={checkIn}
                         endDate={checkOut}
-                        monthsShown={2}
                         minDate={new Date()}
-                        popperPlacement="bottom-start"
-                        popperProps={{ strategy: "fixed" }}
-                        calendarClassName="ava-dual-calendar border border-hairline rounded-[12px] shadow-dropdown"
                         customInput={<DateInput placeholder="Select date" />}
                         placeholderText="Select date"
                       />
@@ -381,11 +377,7 @@ export default function RoomDetail() {
                         selectsEnd
                         startDate={checkIn}
                         endDate={checkOut}
-                        monthsShown={2}
                         minDate={checkIn || new Date()}
-                        popperPlacement="bottom-start"
-                        popperProps={{ strategy: "fixed" }}
-                        calendarClassName="ava-dual-calendar border border-hairline rounded-[12px] shadow-dropdown"
                         customInput={<DateInput placeholder="Select date" />}
                         placeholderText="Select date"
                       />
