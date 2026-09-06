@@ -19,7 +19,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   const { isAuthenticated } = useAuth()
   const [notifications, setNotifications] = useState<NotificationData[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const fetchNotifications = useCallback(async () => {
@@ -87,17 +87,21 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     if (!isAuthenticated) {
       setNotifications([])
       setUnreadCount(0)
+      setLoading(false)
       if (pollRef.current) clearInterval(pollRef.current)
       return
     }
 
-    // Fetch both in parallel on mount
-    Promise.all([fetchUnreadCount(), fetchNotifications()]).catch(() => {})
+    // Small delay then fetch — avoids Vercel cold-start race with auth token
+    const timer = setTimeout(() => {
+      Promise.all([fetchUnreadCount(), fetchNotifications()]).catch(() => {})
+    }, 300)
 
     // Poll unread count every 10s
     pollRef.current = setInterval(fetchUnreadCount, 10000)
 
     return () => {
+      clearTimeout(timer)
       if (pollRef.current) clearInterval(pollRef.current)
     }
   }, [isAuthenticated, fetchUnreadCount, fetchNotifications])

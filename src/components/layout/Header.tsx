@@ -159,8 +159,25 @@ export default function Header() {
                   {/* Notification list */}
                   <div className="max-h-80 overflow-y-auto overscroll-contain">
                     {notifications.length === 0 && loading ? (
-                      <div className="py-8 text-center text-sm text-muted">
-                        Loading...
+                      <div className="divide-y divide-gray-50">
+                        {[1, 2, 3].map((i) => (
+                          <div key={i} className="flex items-start gap-3 px-4 py-3">
+                            <div className="shrink-0 w-9 h-9 rounded-full bg-gray-200 relative overflow-hidden">
+                              <div className="absolute inset-0 -translate-x-full animate-[shimmer_1.5s_infinite] bg-gradient-to-r from-transparent via-white/60 to-transparent" />
+                            </div>
+                            <div className="flex-1 space-y-2">
+                              <div className="h-3.5 w-24 rounded bg-gray-200 relative overflow-hidden">
+                                <div className="absolute inset-0 -translate-x-full animate-[shimmer_1.5s_infinite] bg-gradient-to-r from-transparent via-white/60 to-transparent" />
+                              </div>
+                              <div className="h-3 w-48 rounded bg-gray-200 relative overflow-hidden">
+                                <div className="absolute inset-0 -translate-x-full animate-[shimmer_1.5s_infinite] bg-gradient-to-r from-transparent via-white/60 to-transparent" style={{ animationDelay: "0.15s" }} />
+                              </div>
+                              <div className="h-2.5 w-16 rounded bg-gray-100 relative overflow-hidden">
+                                <div className="absolute inset-0 -translate-x-full animate-[shimmer_1.5s_infinite] bg-gradient-to-r from-transparent via-white/60 to-transparent" style={{ animationDelay: "0.3s" }} />
+                              </div>
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     ) : notifications.length === 0 ? (
                       <div className="py-8 text-center text-sm text-muted">
