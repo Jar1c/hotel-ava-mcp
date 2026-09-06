@@ -62,8 +62,10 @@ export default function Login() {
        if (newAttempts >= MAX_ATTEMPTS) {
          setCooldown(COOLDOWN_SECONDS)
          setError(`Too many attempts. Please wait ${COOLDOWN_SECONDS}s before trying again.`)
-       } else {
+       } else if (newAttempts >= MAX_ATTEMPTS - 2) {
          setError(`Invalid credentials. ${MAX_ATTEMPTS - newAttempts} attempt(s) left.`)
+       } else {
+         setError("Invalid credentials.")
        }
      } finally {
        setSubmitting(false)
