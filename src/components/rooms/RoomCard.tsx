@@ -1,12 +1,16 @@
 import { Link } from "react-router"
 import { Star, Users, Wifi, Wind, Wine, ConciergeBell, Building2, BedDouble, TreePine, Coffee, Tv, Monitor, Waves, Fence, Bath, CookingPot, Sofa, UtensilsCrossed, Mountain, Sunrise, Shirt, Sunset, UserCheck, Eye, Lock, Baby, Sparkles, Music, Droplets } from "lucide-react"
 import type { Room } from "@/data/rooms"
-import type { FilterState } from "@/components/rooms/SearchFilters"
 import ImageWithPlaceholder from "@/components/ui/ImageWithPlaceholder"
+
+interface RoomFilters {
+  checkIn?: string
+  checkOut?: string
+}
 
 interface RoomCardProps {
   room: Room
-  filters?: FilterState
+  filters?: RoomFilters
 }
 
 const amenityIcons: Record<string, React.ReactNode> = {
@@ -60,8 +64,6 @@ export default function RoomCard({ room, filters }: RoomCardProps) {
     const params = new URLSearchParams()
     if (filters?.checkIn) params.set("checkIn", filters.checkIn)
     if (filters?.checkOut) params.set("checkOut", filters.checkOut)
-    const totalGuests = filters?.guests ? filters.guests.adults + filters.guests.children : 0
-    if (totalGuests > 0) params.set("guests", String(totalGuests))
     const qs = params.toString()
     return `/rooms/${room.id}${qs ? `?${qs}` : ""}`
   })()

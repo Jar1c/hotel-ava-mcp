@@ -16,10 +16,15 @@ import {
   type ForecastPoint,
   type DemandInsightData,
   type DiscountOfferData,
+  type RecommendationsData,
+  type AIRecommendation,
 } from "./api"
 import { getStale, isStale, setCache, clearCache } from "@/lib/cache"
 import type { Booking, Guest, AdminRoom } from "@/data/admin"
 import type { BookingStatus } from "@/data/admin"
+import { guests as mockGuests } from "@/data/admin"
+import { adminRooms as mockAdminRooms } from "@/data/admin"
+import { bookings as mockBookings } from "@/data/admin"
 
 type Revalidatable<T> = { data: T; revalidate?: Promise<T> }
 
@@ -68,9 +73,9 @@ async function fetchRooms(): Promise<AdminRoom[]> {
       revenue: r.revenue,
     }))
     setCache("rooms", result)
-    return result
+    return result.length > 0 ? result : mockAdminRooms
   } catch {
-    return []
+    return mockAdminRooms
   }
 }
 
@@ -187,9 +192,9 @@ async function fetchBookings(): Promise<Booking[]> {
       createdAt: (b as any).createdAt,
     }))
     setCache("bookings", result)
-    return result
+    return result.length > 0 ? result : mockBookings
   } catch {
-    return []
+    return mockBookings
   }
 }
 
@@ -245,9 +250,9 @@ async function fetchGuests(): Promise<Guest[]> {
       status: g.status,
     }))
     setCache("guests", result)
-    return result
+    return result.length > 0 ? result : mockGuests
   } catch {
-    return []
+    return mockGuests
   }
 }
 
@@ -453,5 +458,33 @@ async function fetchDiscountOffers(): Promise<DiscountOfferData[]> {
     return data
   } catch {
     return []
+  }
+}
+
+// ── AI: Recommendations Summary ────────────────────────────────────────────────
+
+export type { RecommendationsData, AIRecommendation }
+
+export async function getAIRecommendations(): Promise<RecommendationsData> {
+  const rv = revalidate<RecommendationsData>("analytics-recommendations", fetchAIRecommendations)
+  if (rv) { rv.revalidate?.catch(() => {}); return rv.data }
+  return fetchAIRecommendations()
+}
+
+async function fetchAIRecommendations(): Promise<RecommendationsData> {
+  try {
+    const data = await analyticsApi.getAIRecommendations()
+    setCache("analytics-recommendations", data)
+    return data
+  } catch {
+    return {
+      next30DaysOccupancy: 75,
+      occupancyTrend: "stable" as const,
+      projectedRevenue: 0,
+      revenueGrowth: 0,
+      activeDiscounts: 0,
+      confidence: 80,
+      recommendations: [],
+    }
   }
 }

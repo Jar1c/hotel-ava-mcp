@@ -48,9 +48,7 @@ export default function Booking() {
    const [room, setRoom] = useState<Room | null>(null)
    const [loading, setLoading] = useState(true)
    const [submitting, setSubmitting] = useState(false)
-   const [submitted, setSubmitted] = useState(() => {
-     try { return sessionStorage.getItem("booking_submitted") === "true" } catch { return false }
-   })
+   const [submitted, setSubmitted] = useState(false)
    const [errorDialog, setErrorDialog] = useState<{ open: boolean; title: string; message: string }>({
     open: false,
     title: "",
@@ -97,11 +95,7 @@ export default function Booking() {
     })
   }, [dayDuration, checkIn])
 
-   // Persist submitted state across page reloads
-   useEffect(() => {
-     if (submitted) sessionStorage.setItem("booking_submitted", "true")
-     else sessionStorage.removeItem("booking_submitted")
-   }, [submitted])
+
 
    // Reset startTime if it's no longer available (e.g. date changed to today and hour passed)
    useEffect(() => {
@@ -123,6 +117,7 @@ export default function Booking() {
         max_children: cached.max_children, allows_children: cached.allows_children,
         amenities: cached.amenities,
         images: cached.images.length > 0 ? cached.images : fallbackRooms[0].images,
+        bookedDates: fallbackRooms.find(fr => fr.id === cached.id)?.bookedDates || [],
       })
       setLoading(false)
     }
@@ -135,6 +130,7 @@ export default function Booking() {
           max_children: data.max_children, allows_children: data.allows_children,
           amenities: data.amenities,
           images: data.images.length > 0 ? data.images : fallbackRooms[0].images,
+          bookedDates: fallbackRooms.find(fr => fr.id === data.id)?.bookedDates || [],
         }
         setRoom(r)
         setCache(`room_${id}`, data)
@@ -142,6 +138,11 @@ export default function Booking() {
       .catch(() => { if (!cached) setRoom(fallbackRooms.find(r => r.id === id) || null) })
       .finally(() => setLoading(false))
   }, [id])
+
+  const excludeDates = useMemo(() => {
+    if (!room || !room.bookedDates) return []
+    return room.bookedDates.map(d => new Date(d + "T00:00:00"))
+  }, [room])
 
   const isOvernight = stayType === "overnight"
   const hasDate = checkIn !== null
@@ -191,13 +192,13 @@ export default function Booking() {
       }
 
        if (data.checkout_url) {
-         setSubmitted(true)
-         window.location.href = data.checkout_url
-       } else {
-         setSubmitted(true)
-         setErrorDialog({ open: true, title: "Booking Confirmed", message: "Your reservation has been placed." })
-         navigate(`/booking/confirmation/${data.booking_id || "success"}`)
-       }
+          setSubmitted(true)
+          window.location.href = data.checkout_url
+        } else {
+          setSubmitted(true)
+          setErrorDialog({ open: true, title: "Booking Confirmed", message: "Your reservation has been placed." })
+          navigate(`/booking/confirmation/${data.booking_id || "success"}`)
+        }
     } catch (err: any) {
       setErrorDialog({ open: true, title: "Booking Failed", message: err.message || "Please try again." })
     } finally {
@@ -297,6 +298,7 @@ export default function Booking() {
                       }}
                       selectsStart startDate={checkIn} endDate={checkOut}
                       minDate={new Date()}
+                      excludeDates={excludeDates}
                       customInput={<DateInput placeholder="Select date" />}
                     />
                   </div>
@@ -308,6 +310,7 @@ export default function Booking() {
                       selectsEnd startDate={checkIn} endDate={checkOut}
                       minDate={checkIn ? new Date(checkIn.getTime() + 86400000) : new Date()}
                       maxDate={checkIn ? new Date(checkIn.getTime() + 30 * 86400000) : undefined}
+                      excludeDates={excludeDates}
                       customInput={<DateInput placeholder="Select date" />}
                     />
                   </div>
@@ -327,6 +330,7 @@ export default function Booking() {
                       selected={checkIn}
                       onChange={(date: Date | null) => setCheckIn(date)}
                       minDate={new Date()}
+                      excludeDates={excludeDates}
                       customInput={<DateInput placeholder="Select date" />}
                     />
                   </div>
@@ -414,10 +418,10 @@ export default function Booking() {
             </div>
           </div>
 
-          {/* RIGHT: Booking Summary (sticky) */}
-          <div className="lg:col-span-1">
-            <div className="sticky top-24">
-              <div className="bg-white border border-hairline rounded-[12px] overflow-hidden">
+           {/* RIGHT: Booking Summary (sticky) */}
+           <div className="lg:col-span-1">
+             <div className="sticky top-24">
+               <div className={`bg-white border border-hairline rounded-[12px] overflow-hidden ${submitted ? "opacity-50 pointer-events-none" : ""}`}>
                 <div className="h-44 overflow-hidden">
                   <img
                     src={room.images[0] || "https://images.unsplash.com/photo-1631049307264-da0ec9d70304?w=600&h=400&fit=crop"}
@@ -487,10 +491,10 @@ export default function Booking() {
               </div>
 
               {/* CTA — always show Pay button */}
-              <Button
-                onClick={handleSubmit}
-                disabled={!canSubmit}
-                className={`w-full mt-md py-3 font-semibold !rounded-[12px] ${!canSubmit ? "opacity-50 cursor-not-allowed" : ""}`}
+               <Button
+                 onClick={handleSubmit}
+                 disabled={!canSubmit || submitted}
+                 className={`w-full mt-md py-3 font-semibold !rounded-[12px] ${(!canSubmit || submitted) ? "opacity-50 cursor-not-allowed" : ""}`}
                 style={{ backgroundColor: PRIMARY, color: "#FBF9F4" }}
               >
                 {submitting ? (

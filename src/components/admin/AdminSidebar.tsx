@@ -1,5 +1,5 @@
 import { NavLink } from "react-router"
-import { LayoutDashboard, Calendar, DoorOpen, Users, CalendarDays, BarChart3, LogOut, Settings } from "lucide-react"
+import { LayoutDashboard, Calendar, DoorOpen, Users, CalendarDays, BarChart3, LogOut, Settings, Brain } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/contexts/AuthContext"
 import { useNavigate } from "react-router"
@@ -13,6 +13,7 @@ const mainItems = [
 ]
 
 const otherItems = [
+  { label: "AI Insights", path: "/admin/ai-insights", icon: Brain },
   { label: "Analytics", path: "/admin/analytics", icon: BarChart3 },
   { label: "Settings", path: "/admin/settings", icon: Settings },
 ]

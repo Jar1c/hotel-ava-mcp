@@ -5,3 +5,8 @@ python-dotenv==1.1.0
 gunicorn==23.0.0
 pyjwt==2.10.1
 requests==2.32.3
+scikit-learn==1.5.2
+statsmodels==0.14.4
+pandas==2.2.3
+numpy==1.26.4
+joblib==1.4.2

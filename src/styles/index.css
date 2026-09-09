@@ -581,7 +581,9 @@ input[type="number"] {
 }
 .ava-dual-calendar {
   padding: 24px 28px 20px !important;
-  width: 700px !important;
+  width: auto !important;
+  min-width: 320px !important;
+  max-width: 360px !important;
   z-index: 9999 !important;
   font-family: var(--font-body) !important;
   overflow: visible !important;
@@ -591,17 +593,11 @@ input[type="number"] {
    Hotel Ava — Dual Date Picker Calendar
    ═══════════════════════════════════════════ */
 
-/* Layout: two months side by side */
+/* Layout: single month */
 .ava-dual-calendar .react-datepicker__month-container {
-  width: 50% !important;
-  float: left !important;
+  width: 100% !important;
   box-sizing: border-box;
-  padding: 0 12px;
-}
-.ava-dual-calendar .react-datepicker__month-container:first-child { padding-right: 24px; }
-.ava-dual-calendar .react-datepicker__month-container:last-child  {
-  padding-left: 24px;
-  border-left: 1px solid var(--color-hairline-soft);
+  padding: 0;
 }
 
 /* Header */
@@ -782,14 +778,7 @@ input[type="number"] {
   display: none !important;
 }
 
-/* Clear float so footer stretches full width */
-.ava-dual-calendar::after {
-  content: "" !important;
-  display: table !important;
-  clear: both !important;
-}
 .ava-dual-calendar .react-datepicker__children-container {
-  clear: both !important;
   width: 100% !important;
   box-sizing: border-box !important;
   padding: 0 !important;

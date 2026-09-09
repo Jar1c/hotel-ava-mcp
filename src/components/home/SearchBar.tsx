@@ -1,4 +1,4 @@
-import { useState, useRef } from "react"
+import { useState } from "react"
 import { useNavigate } from "react-router"
 import { motion } from "motion/react"
 import DatePicker from "react-datepicker"
@@ -14,21 +14,10 @@ export default function SearchBar() {
   const [checkOut, setCheckOut] = useState<Date | null>(null)
   const [guests, setGuests] = useState<GuestCount>({ adults: 2, children: 0 })
   const [budget, setBudget] = useState<string>("")
-  const [calendarOpen, setCalendarOpen] = useState(false)
-  const datePickerRef = useRef<DatePicker>(null)
+  const [checkInOpen, setCheckInOpen] = useState(false)
+  const [checkOutOpen, setCheckOutOpen] = useState(false)
 
   const canSearch = checkIn && checkOut
-
-  const handleDateChange = (dates: [Date | null, Date | null] | null) => {
-    if (!dates) return
-    const [start, end] = dates
-    setCheckIn(start)
-    if (start && end) {
-      setCheckOut(end)
-    } else {
-      setCheckOut(null)
-    }
-  }
 
   const handleSearch = () => {
     if (!canSearch) return
@@ -50,31 +39,6 @@ export default function SearchBar() {
     setCheckOut(null)
   }
 
-  const calendarFooter = (
-    <div className="flex items-center justify-between px-2 pt-3 border-t border-hairline-soft mt-3">
-      <button
-        type="button"
-        onClick={(e) => {
-          e.preventDefault()
-          handleReset()
-        }}
-        className="typo-body-sm text-muted hover:text-ink transition-colors cursor-pointer"
-      >
-        Reset
-      </button>
-      <button
-        type="button"
-        onClick={(e) => {
-          e.preventDefault()
-          setCalendarOpen(false)
-        }}
-        className="typo-button-sm bg-ink text-on-primary rounded-full px-6 py-2 hover:bg-primary-active transition-colors cursor-pointer"
-      >
-        Done
-      </button>
-    </div>
-  )
-
   return (
     <div className="w-full bg-white rounded-[16px] shadow-card-hover border border-hairline">
       <div className="flex flex-col md:flex-row md:items-center">
@@ -85,7 +49,7 @@ export default function SearchBar() {
           </label>
           <button
             type="button"
-            onClick={() => setCalendarOpen(true)}
+            onClick={() => setCheckInOpen(true)}
             className="w-full flex items-center gap-2 text-left bg-transparent border-none p-0 cursor-pointer"
           >
             <Calendar className="h-4 w-4 text-muted shrink-0" />
@@ -94,23 +58,45 @@ export default function SearchBar() {
 
           <div className="absolute left-0 bottom-0 h-0 w-0">
             <DatePicker
-              ref={datePickerRef}
               selected={checkIn}
-              onChange={handleDateChange}
-              startDate={checkIn}
-              endDate={checkOut}
-              selectsRange
-              monthsShown={2}
+              onChange={(date: Date | null) => {
+                setCheckIn(date)
+                if (date && checkOut && checkOut <= date) {
+                  setCheckOut(null)
+                }
+              }}
+              monthsShown={1}
               minDate={new Date()}
-              open={calendarOpen}
-              onCalendarOpen={() => setCalendarOpen(true)}
-              onClickOutside={() => setCalendarOpen(false)}
+              open={checkInOpen}
+              onCalendarOpen={() => setCheckInOpen(true)}
+              onClickOutside={() => setCheckInOpen(false)}
               popperPlacement="bottom-start"
               popperProps={{ strategy: "fixed" }}
               calendarClassName="ava-dual-calendar border border-hairline rounded-[12px] shadow-dropdown"
               customInput={<span className="inline-block w-0 h-0 overflow-hidden" />}
             >
-              {calendarFooter}
+              <div className="flex items-center justify-between px-2 pt-3 border-t border-hairline-soft mt-3">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault()
+                    handleReset()
+                  }}
+                  className="typo-body-sm text-muted hover:text-ink transition-colors cursor-pointer"
+                >
+                  Reset
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault()
+                    setCheckInOpen(false)
+                  }}
+                  className="typo-button-sm bg-ink text-on-primary rounded-full px-6 py-2 hover:bg-primary-active transition-colors cursor-pointer"
+                >
+                  Done
+                </button>
+              </div>
             </DatePicker>
           </div>
         </div>
@@ -122,7 +108,7 @@ export default function SearchBar() {
           </label>
           <button
             type="button"
-            onClick={() => setCalendarOpen(true)}
+            onClick={() => setCheckOutOpen(true)}
             className="w-full flex items-center gap-2 text-left bg-transparent border-none p-0 cursor-pointer"
           >
             <Calendar className="h-4 w-4 text-muted shrink-0" />
@@ -130,6 +116,37 @@ export default function SearchBar() {
               {checkOut ? format(checkOut, "MM/dd/yy") : "mm/dd/yy"}
             </span>
           </button>
+
+          <div className="absolute left-0 bottom-0 h-0 w-0">
+            <DatePicker
+              selected={checkOut}
+              onChange={(date: Date | null) => {
+                setCheckOut(date)
+              }}
+              monthsShown={1}
+              minDate={checkIn || new Date()}
+              open={checkOutOpen}
+              onCalendarOpen={() => setCheckOutOpen(true)}
+              onClickOutside={() => setCheckOutOpen(false)}
+              popperPlacement="bottom-start"
+              popperProps={{ strategy: "fixed" }}
+              calendarClassName="ava-dual-calendar border border-hairline rounded-[12px] shadow-dropdown"
+              customInput={<span className="inline-block w-0 h-0 overflow-hidden" />}
+            >
+              <div className="flex items-center justify-end px-2 pt-3 border-t border-hairline-soft mt-3">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault()
+                    setCheckOutOpen(false)
+                  }}
+                  className="typo-button-sm bg-ink text-on-primary rounded-full px-6 py-2 hover:bg-primary-active transition-colors cursor-pointer"
+                >
+                  Done
+                </button>
+              </div>
+            </DatePicker>
+          </div>
         </div>
 
         {/* Guests */}

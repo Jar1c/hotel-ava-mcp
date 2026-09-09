@@ -29,6 +29,7 @@ const AdminRooms = lazy(() => import("./pages/admin/Rooms"))
 const Guests = lazy(() => import("./pages/admin/Guests"))
 const Calendar = lazy(() => import("./pages/admin/Calendar"))
 const Analytics = lazy(() => import("./pages/admin/Analytics"))
+const AIInsights = lazy(() => import("./pages/admin/AIInsights"))
 const AdminSettings = lazy(() => import("./pages/admin/Settings"))
 
 function PageLoader() {
@@ -80,6 +81,7 @@ export default function App() {
                 <Route path="guests" element={<Guests />} />
                 <Route path="calendar" element={<Calendar />} />
                 <Route path="analytics" element={<Analytics />} />
+                <Route path="ai-insights" element={<AIInsights />} />
                 <Route path="settings" element={<AdminSettings />} />
               </Route>
             </Route>

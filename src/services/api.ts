@@ -393,6 +393,7 @@ export interface DemandInsightData {
   confidence: number
   projectedImpact: string
   applied: boolean
+  method: string
 }
 
 export interface DiscountOfferData {
@@ -406,6 +407,27 @@ export interface DiscountOfferData {
   projectedBookings: number
   projectedRevenue: number
   status: "active" | "scheduled" | "expired"
+  method: string
+  confidence: number
+}
+
+export interface AIRecommendation {
+  id: string
+  title: string
+  description: string
+  priority: "high" | "medium" | "low"
+  action: string
+}
+
+export interface RecommendationsData {
+  next30DaysOccupancy: number
+  occupancyTrend: "up" | "down" | "stable"
+  projectedRevenue: number
+  revenueGrowth: number
+  activeDiscounts: number
+  bestDiscountPeriod?: string
+  confidence: number
+  recommendations: AIRecommendation[]
 }
 
 export const analyticsApi = {
@@ -416,6 +438,7 @@ export const analyticsApi = {
   getRevenueForecast: () => apiFetch<ForecastPoint[]>("/analytics/forecast/revenue"),
   getDemandInsights: () => apiFetch<DemandInsightData[]>("/analytics/demand-insights"),
   getDiscountOffers: () => apiFetch<DiscountOfferData[]>("/analytics/discount-offers"),
+  getAIRecommendations: () => apiFetch<RecommendationsData>("/analytics/ai-recommendations"),
 }
 
 // ── Notifications ──────────────────────────────────────────────────────────────
