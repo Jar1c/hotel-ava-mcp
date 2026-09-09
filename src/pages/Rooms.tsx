@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react"
+import { useSearchParams } from "react-router"
 import { motion } from "motion/react"
 import { publicRoomsApi, type PublicRoomData } from "@/services/api"
 import { type Room } from "@/data/rooms"
@@ -64,8 +65,18 @@ function RoomCardSkeleton() {
 }
 
 export default function Rooms() {
+  const [searchParams] = useSearchParams()
   const [roomsData, setRoomsData] = useState<Room[]>([])
   const [loading, setLoading] = useState(true)
+
+  const filters = {
+    stayType: searchParams.get("stayType") || undefined,
+    checkIn: searchParams.get("checkIn") || undefined,
+    checkOut: searchParams.get("checkOut") || undefined,
+    startTime: searchParams.get("startTime") || undefined,
+    adults: Number(searchParams.get("adults")) || undefined,
+    children: Number(searchParams.get("children")) || undefined,
+  }
 
   useEffect(() => {
     const cached = getCached<PublicRoomData[]>("public_rooms")
@@ -125,7 +136,7 @@ export default function Rooms() {
           >
             {roomsData.map((room, index) => (
               <motion.div key={room.id} variants={cardItem} custom={index}>
-                <RoomCard room={room} />
+                <RoomCard room={room} filters={filters} />
               </motion.div>
             ))}
           </motion.div>

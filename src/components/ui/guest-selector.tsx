@@ -33,7 +33,7 @@ export default function GuestSelector({ value, onChange, maxAdults = 10, maxChil
     newVal[key] = newVal[key] + delta
 
     if (key === "adults") {
-      newVal.adults = Math.max(1, Math.min(maxAdults, newVal.adults))
+      newVal.adults = Math.max(0, Math.min(maxAdults, newVal.adults))
     } else {
       if (!allowChildren) return
       newVal.children = Math.max(0, Math.min(maxChildren, newVal.children))
@@ -42,7 +42,9 @@ export default function GuestSelector({ value, onChange, maxAdults = 10, maxChil
     onChange(newVal)
   }
 
-  const summary = `${value.adults} ${value.adults === 1 ? "Adult" : "Adults"}${value.children > 0 ? `, ${value.children} Child${value.children > 1 ? "ren" : ""}` : ""}`
+  const summary = value.adults === 0
+    ? "Select guests"
+    : `${value.adults} ${value.adults === 1 ? "Adult" : "Adults"}${value.children > 0 ? `, ${value.children} Child${value.children > 1 ? "ren" : ""}` : ""}`
 
   return (
     <div ref={ref} className="relative">
@@ -52,7 +54,7 @@ export default function GuestSelector({ value, onChange, maxAdults = 10, maxChil
         className="w-full flex items-center gap-2 text-left bg-transparent border-none p-0 cursor-pointer"
       >
         <Users className="h-4 w-4 text-muted shrink-0" />
-        <span className="typo-body-sm text-ink whitespace-nowrap">{summary}</span>
+        <span className={`typo-body-sm whitespace-nowrap ${value.adults === 0 ? "text-muted" : "text-ink"}`}>{summary}</span>
       </button>
 
       {isOpen && (
@@ -67,7 +69,7 @@ export default function GuestSelector({ value, onChange, maxAdults = 10, maxChil
               <button
                 type="button"
                 onClick={() => updateValue("adults", -1)}
-                disabled={value.adults <= 1}
+                disabled={value.adults <= 0}
                 className="size-8 rounded-full border border-hairline flex items-center justify-center text-ink hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
               >
                 <Minus className="h-4 w-4" />

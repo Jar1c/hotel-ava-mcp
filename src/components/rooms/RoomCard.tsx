@@ -4,8 +4,12 @@ import type { Room } from "@/data/rooms"
 import ImageWithPlaceholder from "@/components/ui/ImageWithPlaceholder"
 
 interface RoomFilters {
+  stayType?: string
   checkIn?: string
   checkOut?: string
+  startTime?: string
+  adults?: number
+  children?: number
 }
 
 interface RoomCardProps {
@@ -62,8 +66,12 @@ const amenityIcons: Record<string, React.ReactNode> = {
 export default function RoomCard({ room, filters }: RoomCardProps) {
   const detailUrl = (() => {
     const params = new URLSearchParams()
+    if (filters?.stayType) params.set("stayType", filters.stayType)
     if (filters?.checkIn) params.set("checkIn", filters.checkIn)
     if (filters?.checkOut) params.set("checkOut", filters.checkOut)
+    if (filters?.startTime) params.set("startTime", filters.startTime)
+    if (filters?.adults && filters.adults > 0) params.set("adults", String(filters.adults))
+    if (filters?.children && filters.children > 0) params.set("children", String(filters.children))
     const qs = params.toString()
     return `/rooms/${room.id}${qs ? `?${qs}` : ""}`
   })()
