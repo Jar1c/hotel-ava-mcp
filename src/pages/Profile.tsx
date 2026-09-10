@@ -1,7 +1,6 @@
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { Navigate } from "react-router"
-import { User, Lock, Camera, Pencil, Check, X, Trash2, AlertTriangle } from "lucide-react"
-import { Button } from "@/components/ui/button"
+import { User, Camera, Pencil, Check, X, Trash2 } from "lucide-react"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { Avatar, AvatarFallback, AvatarImage, HotelLogoIcon } from "@/components/ui/avatar"
 import { useAuth } from "@/contexts/AuthContext"
@@ -14,7 +13,7 @@ const MUTED = "#7A7A70"
 const HAIRLINE = "#D5DADF"
 const SURFACE_SOFT = "#F4F6F8"
 
-type Section = "personal" | "password"
+type Section = "personal"
 
 const inputClass = "w-full rounded-[6px] border px-4 py-2.5 typo-body-sm text-ink placeholder:text-muted-soft bg-white focus:outline-none transition-all duration-150"
 const cardClass = "bg-white rounded-[12px] p-6 md:p-8 transition-shadow duration-200"
@@ -55,31 +54,10 @@ export default function Profile() {
   const [isEditing, setIsEditing] = useState(false)
   const [editName, setEditName] = useState(user?.name || "")
 
-  // Password fields
-  const [currentPassword, setCurrentPassword] = useState("")
-  const [newPassword, setNewPassword] = useState("")
-  const [confirmPassword, setConfirmPassword] = useState("")
-  const [passwordError, setPasswordError] = useState("")
-  const [passwordSuccess, setPasswordSuccess] = useState("")
-  const [pwLoading, setPwLoading] = useState(false)
-
-  // Real-time password validation
-  const [currentMatchesNew, setCurrentMatchesNew] = useState(false)
-  const [confirmMatches, setConfirmMatches] = useState(false)
-
   const [avatarSrc, setAvatarSrc] = useState<string | undefined>(user?.avatar)
   const [avatarLoading, setAvatarLoading] = useState(false)
 
   if (!isAuthenticated) return <Navigate to="/login" replace />
-
-  // Real-time checks
-  useEffect(() => {
-    setCurrentMatchesNew(currentPassword.length > 0 && currentPassword === newPassword)
-  }, [currentPassword, newPassword])
-
-  useEffect(() => {
-    setConfirmMatches(confirmPassword.length > 0 && confirmPassword === newPassword)
-  }, [confirmPassword, newPassword])
 
   const handleSaveProfile = async () => {
     try {
@@ -114,52 +92,8 @@ export default function Profile() {
     updateUser({ avatar: undefined })
   }
 
-  const handlePasswordChange = async () => {
-    setPasswordError("")
-    setPasswordSuccess("")
-
-    if (!currentPassword || !newPassword || !confirmPassword) {
-      setPasswordError("Please fill in all password fields.")
-      return
-    }
-    if (currentPassword === newPassword) {
-      setPasswordError("New password must be different from current password.")
-      return
-    }
-    if (newPassword.length < 8) {
-      setPasswordError("New password must be at least 8 characters.")
-      return
-    }
-    if (!/[A-Z]/.test(newPassword)) {
-      setPasswordError("New password must contain an uppercase letter.")
-      return
-    }
-    if (!/[0-9]/.test(newPassword)) {
-      setPasswordError("New password must contain a number.")
-      return
-    }
-    if (newPassword !== confirmPassword) {
-      setPasswordError("New passwords do not match.")
-      return
-    }
-
-    setPwLoading(true)
-    try {
-      await authApi.changePassword({ new_password: newPassword })
-      setPasswordSuccess("Password updated successfully!")
-      setCurrentPassword("")
-      setNewPassword("")
-      setConfirmPassword("")
-    } catch (err) {
-      setPasswordError(err instanceof Error ? err.message : "Failed to update password.")
-    } finally {
-      setPwLoading(false)
-    }
-  }
-
   const sections: { id: Section; label: string; icon: React.ReactNode }[] = [
     { id: "personal", label: "Personal Information", icon: <User className="size-4" /> },
-    { id: "password", label: "Change Password", icon: <Lock className="size-4" /> },
   ]
 
   return (
@@ -323,106 +257,6 @@ export default function Profile() {
                       Email cannot be changed.
                     </p>
                   </div>
-                </div>
-              </div>
-            )}
-
-            {/* Change Password */}
-            {activeSection === "password" && (
-              <div className={cardClass}>
-                <h2 className="font-display text-xl font-semibold mb-5" style={{ color: INK }}>
-                  Change Password
-                </h2>
-                <div className="space-y-4">
-                  {/* Current Password */}
-                  <div>
-                    <label className="typo-caption block mb-1.5" style={{ color: MUTED }}>
-                      Current Password
-                    </label>
-                    <input
-                      type="password"
-                      value={currentPassword}
-                      onChange={(e) => setCurrentPassword(e.target.value)}
-                      className={inputClass}
-                      style={{ borderColor: HAIRLINE }}
-                      placeholder="Enter current password"
-                    />
-                    {currentMatchesNew && (
-                      <p className="flex items-center gap-1.5 text-[12px] mt-1.5" style={{ color: "#D4A843" }}>
-                        <AlertTriangle className="size-3.5" />
-                        New password is the same as current password
-                      </p>
-                    )}
-                  </div>
-
-                  {/* New Password */}
-                  <div>
-                    <label className="typo-caption block mb-1.5" style={{ color: MUTED }}>
-                      New Password
-                    </label>
-                    <input
-                      type="password"
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                      className={inputClass}
-                      style={{ borderColor: HAIRLINE }}
-                      placeholder="Min. 8 characters"
-                    />
-                    {newPassword && (
-                      <div className="flex gap-3 text-[11px] mt-1.5" style={{ color: MUTED }}>
-                        <span className={newPassword.length >= 8 ? "text-[#3D6B4F]" : ""}>8+ chars</span>
-                        <span className={/[A-Z]/.test(newPassword) ? "text-[#3D6B4F]" : ""}>Uppercase</span>
-                        <span className={/[0-9]/.test(newPassword) ? "text-[#3D6B4F]" : ""}>Number</span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Confirm Password */}
-                  <div>
-                    <label className="typo-caption block mb-1.5" style={{ color: MUTED }}>
-                      Confirm New Password
-                    </label>
-                    <input
-                      type="password"
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
-                      className={inputClass}
-                      style={{ borderColor: HAIRLINE }}
-                      placeholder="Re-enter new password"
-                    />
-                    {confirmPassword && (
-                      confirmMatches ? (
-                        <p className="flex items-center gap-1.5 text-[12px] mt-1.5" style={{ color: "#3D6B4F" }}>
-                          <Check className="size-3.5" />
-                          Passwords match
-                        </p>
-                      ) : (
-                        <p className="flex items-center gap-1.5 text-[12px] mt-1.5" style={{ color: "#A4423A" }}>
-                          <X className="size-3.5" />
-                          Passwords do not match
-                        </p>
-                      )
-                    )}
-                  </div>
-
-                  {passwordError && (
-                    <p className="typo-body-sm" style={{ color: "#A4423A" }}>
-                      {passwordError}
-                    </p>
-                  )}
-                  {passwordSuccess && (
-                    <p className="typo-body-sm" style={{ color: "#3D6B4F" }}>
-                      {passwordSuccess}
-                    </p>
-                  )}
-                  <Button
-                    onClick={handlePasswordChange}
-                    disabled={pwLoading}
-                    className="!rounded-[6px] font-semibold transition-all duration-200 hover:opacity-90 active:scale-[0.985] disabled:opacity-50"
-                    style={{ backgroundColor: PRIMARY, color: "#FBF9F4" }}
-                  >
-                    {pwLoading ? "Updating..." : "Update Password"}
-                  </Button>
                 </div>
               </div>
             )}

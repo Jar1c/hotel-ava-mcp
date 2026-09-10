@@ -14,7 +14,8 @@ import LoadingDots from "@/components/LoadingDots"
 
 const PRIMARY = "#82285f"
 
-const DAY_USE_DURATIONS = [4, 6, 8, 12] as const
+const DAY_USE_DURATIONS = [3, 6, 8, 12] as const
+const CLOSING_HOUR = 22 // 10 PM
 
 function generateStartTimes(maxHour: number = 20): string[] {
   const times: string[] = []
@@ -26,16 +27,21 @@ function generateStartTimes(maxHour: number = 20): string[] {
   return times
 }
 
-function addHoursToTime(timeStr: string, hours: number): string {
+function parseTimeToHour(timeStr: string): number {
   const match = timeStr.match(/(\d+):00\s*(AM|PM)/i)
-  if (!match) return ""
+  if (!match) return 0
   let h = parseInt(match[1])
   const period = match[2].toUpperCase()
   if (period === "PM" && h !== 12) h += 12
   if (period === "AM" && h === 12) h = 0
-  h = (h + hours) % 24
-  const endPeriod = h >= 12 ? "PM" : "AM"
-  const endH12 = h > 12 ? h - 12 : h === 0 ? 12 : h
+  return h
+}
+
+function addHoursToTime(timeStr: string, hours: number): string {
+  const h = parseTimeToHour(timeStr)
+  const endH = (h + hours) % 24
+  const endPeriod = endH >= 12 ? "PM" : "AM"
+  const endH12 = endH > 12 ? endH - 12 : endH === 0 ? 12 : endH
   return `${endH12}:00 ${endPeriod}`
 }
 
@@ -69,14 +75,15 @@ export default function Booking() {
     (searchParams.get("stayType") as "overnight" | "day") || "overnight"
   )
   const [dayDuration, setDayDuration] = useState<number>(
-    Number(searchParams.get("duration")) || 4
+    Number(searchParams.get("duration")) || 3
   )
   const [startTime, setStartTime] = useState<string>(
     searchParams.get("startTime") || ""
   )
+  const overnightStartTime = searchParams.get("overnightStartTime") || ""
 
   const startTimes = useMemo(() => {
-    const maxStart = 24 - dayDuration
+    const maxStart = Math.min(24 - dayDuration, CLOSING_HOUR)
     const allTimes = generateStartTimes(maxStart)
     if (!checkIn) return allTimes
     const now = new Date()
@@ -85,12 +92,7 @@ export default function Booking() {
     if (!isToday) return allTimes
     const currentHour = now.getHours()
     return allTimes.filter((t) => {
-      const match = t.match(/(\d+):00\s*(AM|PM)/i)
-      if (!match) return true
-      let h = parseInt(match[1])
-      const period = match[2].toUpperCase()
-      if (period === "PM" && h !== 12) h += 12
-      if (period === "AM" && h === 12) h = 0
+      const h = parseTimeToHour(t)
       return h > currentHour
     })
   }, [dayDuration, checkIn])
@@ -104,7 +106,24 @@ export default function Booking() {
      }
    }, [startTimes])
 
+  // Reset checkOut if it's now invalid (same date as checkIn or earlier)
+  useEffect(() => {
+    if (stayType !== "overnight" || !checkIn || !checkOut) return
+    const minCheckOut = new Date(checkIn.getTime() + 86400000)
+    const checkOutStr = checkOut.toISOString().split("T")[0]
+    const minCheckOutStr = minCheckOut.toISOString().split("T")[0]
+    if (checkOutStr <= minCheckOutStr) {
+      setCheckOut(null)
+    }
+  }, [checkIn, stayType])
+
   const endTime = useMemo(() => addHoursToTime(startTime, dayDuration), [startTime, dayDuration])
+
+  // For overnight: end time is same time on check-out date
+  const overnightEndTime = useMemo(() => {
+    if (!overnightStartTime) return ""
+    return overnightStartTime // Same time on checkout day
+  }, [overnightStartTime])
 
   useEffect(() => {
     if (!id) return
@@ -155,12 +174,26 @@ export default function Booking() {
   const taxes = Math.round(subtotal * 0.12)
   const total = subtotal + taxes
 
-  const canSubmit = hasDate && validNights && !submitting && (isOvernight || !!startTime)
+  const canSubmit = hasDate && validNights && !submitting && ((isOvernight && !!overnightStartTime) || (!isOvernight && !!startTime))
 
   const handleSubmit = async () => {
     if (!canSubmit || !room || !user) return
     setSubmitting(true)
     try {
+      // Check availability first
+      const availRes = await publicRoomsApi.checkAvailability({
+        room_id: room.id,
+        check_in: checkIn!.toISOString().split("T")[0],
+        check_out: isOvernight && checkOut ? checkOut.toISOString().split("T")[0] : undefined,
+        stay_type: stayType,
+        start_time: isOvernight ? overnightStartTime : startTime,
+        duration: !isOvernight ? dayDuration : undefined,
+      })
+
+      if (!availRes.available) {
+        throw new Error("This room is no longer available for the selected dates. Please go back and choose different dates.")
+      }
+
       const apiBase = import.meta.env.VITE_API_URL || "http://localhost:5000/api"
       const token = sessionStorage.getItem("access_token")
 
@@ -178,7 +211,7 @@ export default function Booking() {
           stays: isOvernight ? `${nights} Night${nights > 1 ? "s" : ""}` : `${dayDuration} Hours`,
           stay_type: stayType,
           duration: isOvernight ? null : dayDuration,
-          start_time: isOvernight ? null : startTime,
+          start_time: isOvernight ? overnightStartTime : startTime,
           full_name: user.name,
           email: user.email,
           total_price: total,
@@ -402,9 +435,19 @@ export default function Booking() {
               )}
 
               {isOvernight && validNights && (
-                <p className="typo-caption text-muted mt-md">
-                  {nights} {nights === 1 ? "night" : "nights"} stay
-                </p>
+                <div className="mt-md space-y-1">
+                  <p className="typo-caption text-muted">
+                    {nights} {nights === 1 ? "night" : "nights"} stay
+                  </p>
+                  {overnightStartTime && (
+                    <div className="bg-primary/5 border border-primary/10 rounded-[10px] px-3 py-2 flex items-center gap-2">
+                      <Clock className="h-4 w-4 text-primary" />
+                      <span className="text-sm text-ink font-medium">
+                        {overnightStartTime} – {overnightEndTime}
+                      </span>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
 

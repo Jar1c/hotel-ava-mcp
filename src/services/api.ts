@@ -159,6 +159,24 @@ export interface PublicRoomData {
 export const publicRoomsApi = {
   getAll: () => apiFetch<PublicRoomData[]>("/rooms/public"),
   getById: (id: string) => apiFetch<PublicRoomData>(`/rooms/public/${id}`),
+  checkAvailability: (payload: {
+    room_id: string
+    check_in: string
+    check_out?: string
+    stay_type?: string
+    start_time?: string
+    duration?: number
+  }) =>
+    apiFetch<{
+      available: boolean
+      room_id: string
+      check_in: string
+      check_out: string
+      stay_type: string
+    }>("/rooms/check-availability", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
 }
 
 // ── Upload ────────────────────────────────────────────────────────────────────

@@ -68,15 +68,21 @@ export default function Rooms() {
   const [searchParams] = useSearchParams()
   const [roomsData, setRoomsData] = useState<Room[]>([])
   const [loading, setLoading] = useState(true)
+  const [availabilityMap, setAvailabilityMap] = useState<Record<string, boolean>>({})
 
   const filters = {
     stayType: searchParams.get("stayType") || undefined,
     checkIn: searchParams.get("checkIn") || undefined,
     checkOut: searchParams.get("checkOut") || undefined,
     startTime: searchParams.get("startTime") || undefined,
+    duration: searchParams.get("duration") || undefined,
     adults: Number(searchParams.get("adults")) || undefined,
     children: Number(searchParams.get("children")) || undefined,
   }
+
+  const hasDateFilter = filters.checkIn && (
+    filters.stayType === "overnight" ? filters.checkOut : filters.startTime
+  )
 
   useEffect(() => {
     const cached = getCached<PublicRoomData[]>("public_rooms")
@@ -96,6 +102,45 @@ export default function Rooms() {
       .finally(() => setLoading(false))
   }, [])
 
+  // Check availability for all rooms when date filters are present
+  useEffect(() => {
+    if (!hasDateFilter || roomsData.length === 0) {
+      setAvailabilityMap({})
+      return
+    }
+
+    const checkAll = async () => {
+      const results: Record<string, boolean> = {}
+      await Promise.all(
+        roomsData.map(async (room) => {
+          try {
+            const res = await publicRoomsApi.checkAvailability({
+              room_id: room.id,
+              check_in: new Date(filters.checkIn!).toISOString().split("T")[0],
+              check_out: filters.stayType === "overnight" && filters.checkOut
+                ? new Date(filters.checkOut).toISOString().split("T")[0]
+                : undefined,
+              stay_type: filters.stayType || "overnight",
+              start_time: filters.stayType === "day" ? filters.startTime : undefined,
+              duration: filters.stayType === "day" && filters.duration ? Number(filters.duration) : undefined,
+            })
+            results[room.id] = res.available
+          } catch {
+            results[room.id] = true // Show room if check fails
+          }
+        })
+      )
+      setAvailabilityMap(results)
+    }
+
+    checkAll()
+  }, [roomsData, hasDateFilter, filters.checkIn, filters.checkOut, filters.stayType, filters.startTime, filters.duration])
+
+  // Filter rooms by availability
+  const filteredRooms = hasDateFilter
+    ? roomsData.filter((room) => availabilityMap[room.id] !== false)
+    : roomsData
+
   return (
     <div className="px-base py-section">
       <div className="max-w-container mx-auto">
@@ -114,7 +159,9 @@ export default function Rooms() {
 
         <div className="mb-md">
           <p className="typo-caption-sm text-muted">
-            {loading ? "Loading..." : `${roomsData.length} ${roomsData.length === 1 ? "room" : "rooms"} available`}
+            {loading ? "Loading..." : hasDateFilter
+              ? `${filteredRooms.length} ${filteredRooms.length === 1 ? "room" : "rooms"} available for selected dates`
+              : `${roomsData.length} ${roomsData.length === 1 ? "room" : "rooms"} available`}
           </p>
         </div>
 
@@ -126,15 +173,15 @@ export default function Rooms() {
               <RoomCardSkeleton key={i} />
             ))}
           </div>
-        ) : roomsData.length > 0 ? (
+        ) : filteredRooms.length > 0 ? (
           <motion.div
             className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-lg"
             variants={cardContainer}
             initial="hidden"
             animate="visible"
-            key={roomsData.length}
+            key={filteredRooms.length}
           >
-            {roomsData.map((room, index) => (
+            {filteredRooms.map((room, index) => (
               <motion.div key={room.id} variants={cardItem} custom={index}>
                 <RoomCard room={room} filters={filters} />
               </motion.div>
@@ -147,8 +194,10 @@ export default function Rooms() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.3, ease: [0.22, 1, 0.36, 1] as const }}
           >
-            <p className="typo-body-lg text-muted">No rooms available right now.</p>
-            <p className="typo-body-sm text-muted mt-sm">Please check back later.</p>
+            <p className="typo-body-lg text-muted">
+              {hasDateFilter ? "No rooms available for the selected dates." : "No rooms available right now."}
+            </p>
+            <p className="typo-body-sm text-muted mt-sm">Please check back later or try different dates.</p>
           </motion.div>
         )}
       </div>

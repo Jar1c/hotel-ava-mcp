@@ -56,8 +56,14 @@ export default function SearchBar() {
     setDayUseTime("")
     if (isDayUse) {
       setCheckOut(date)
-    } else if (date && checkOut && checkOut <= date) {
-      setCheckOut(null)
+    } else if (date && checkOut) {
+      // Reset check-out if it's now same date or earlier
+      const minCheckOut = new Date(date.getTime() + 86400000)
+      const checkOutStr = checkOut.toISOString().split("T")[0]
+      const minCheckOutStr = minCheckOut.toISOString().split("T")[0]
+      if (checkOutStr <= minCheckOutStr) {
+        setCheckOut(null)
+      }
     }
   }
 
@@ -193,7 +199,7 @@ export default function SearchBar() {
                 selected={checkOut}
                 onChange={(date: Date | null) => setCheckOut(date)}
                 monthsShown={1}
-                minDate={checkIn || new Date()}
+                minDate={checkIn ? new Date(checkIn.getTime() + 86400000) : new Date()}
                 open={checkOutOpen}
                 onCalendarOpen={() => setCheckOutOpen(true)}
                 onClickOutside={() => setCheckOutOpen(false)}

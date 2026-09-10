@@ -8,6 +8,7 @@ interface RoomFilters {
   checkIn?: string
   checkOut?: string
   startTime?: string
+  duration?: string
   adults?: number
   children?: number
 }
@@ -70,6 +71,7 @@ export default function RoomCard({ room, filters }: RoomCardProps) {
     if (filters?.checkIn) params.set("checkIn", filters.checkIn)
     if (filters?.checkOut) params.set("checkOut", filters.checkOut)
     if (filters?.startTime) params.set("startTime", filters.startTime)
+    if (filters?.duration) params.set("duration", filters.duration)
     if (filters?.adults && filters.adults > 0) params.set("adults", String(filters.adults))
     if (filters?.children && filters.children > 0) params.set("children", String(filters.children))
     const qs = params.toString()

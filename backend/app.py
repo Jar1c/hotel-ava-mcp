@@ -908,6 +908,50 @@ def create_paymongo_checkout(booking_id, amount, email, description):
 
 # ── Bookings (user-facing) ──────────────────────────────────────────────────────
 
+@app.route("/api/rooms/check-availability", methods=["POST"])
+def check_room_availability():
+    """Check if a room is available for given dates/times."""
+    data = request.get_json()
+    room_id = data.get("room_id")
+    check_in = data.get("check_in")
+    check_out = data.get("check_out")
+    stay_type = data.get("stay_type", "overnight")
+    start_time = data.get("start_time")
+    duration = data.get("duration")
+
+    if not room_id or not check_in:
+        return jsonify({"error": "room_id and check_in are required"}), 400
+
+    try:
+        # For day-use, set check_out to next day
+        if stay_type == "day":
+            from datetime import datetime, timedelta
+            check_in_date = datetime.strptime(check_in, "%Y-%m-%d")
+            check_out = (check_in_date + timedelta(days=1)).strftime("%Y-%m-%d")
+
+        # Check for overlapping bookings
+        if stay_type == "overnight":
+            overlap_res = supabase.table("bookings").select("id, check_in, check_out").eq("room_id", room_id).eq("status", "confirmed").or_(
+                f"and(check_in.lte.{check_out},check_out.gte.{check_in})"
+            ).execute()
+        else:
+            # Day-use: check same date overlaps
+            overlap_res = supabase.table("bookings").select("id, check_in, start_time, duration").eq("room_id", room_id).eq("status", "confirmed").eq("check_in", check_in).eq("stay_type", "day").execute()
+
+        available = not (overlap_res.data and len(overlap_res.data) > 0)
+
+        return jsonify({
+            "available": available,
+            "room_id": room_id,
+            "check_in": check_in,
+            "check_out": check_out,
+            "stay_type": stay_type,
+        })
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/bookings", methods=["POST"])
 def create_booking():
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
@@ -983,6 +1027,8 @@ def create_booking():
         }
         if stay_type == "day":
             booking_insert["duration"] = duration
+            booking_insert["start_time"] = start_time
+        elif stay_type == "overnight" and start_time:
             booking_insert["start_time"] = start_time
 
         booking_res = supabase.table("bookings").insert(booking_insert).execute()
