@@ -40,8 +40,13 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     try {
       const { count } = await notificationsApi.getUnreadCount()
       setUnreadCount(count)
-    } catch {
-      // silently fail
+    } catch (err: any) {
+      // Stop polling on auth failure
+      const isAuthError = err?.message?.includes("401") || err?.message?.includes("Unauthorized")
+      if (isAuthError && pollRef.current) {
+        clearInterval(pollRef.current)
+        pollRef.current = null
+      }
     }
   }, [isAuthenticated])
 

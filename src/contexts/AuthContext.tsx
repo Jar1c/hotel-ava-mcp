@@ -33,7 +33,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return cached ? JSON.parse(cached) : null
     } catch { return null }
   })
-  const [loading, setLoading] = useState(() => !sessionStorage.getItem("access_token"))
+  const [loading, setLoading] = useState(() => {
+    const hasToken = !!sessionStorage.getItem("access_token")
+    const hasCachedUser = !!localStorage.getItem("auth_user")
+    // Token but no cached user → need to verify before showing anything
+    return hasToken && !hasCachedUser
+  })
   const verifyRef = useRef(0)
 
   useEffect(() => {

@@ -105,8 +105,7 @@ export default function Profile() {
             <div className="text-center md:text-left mb-6">
               <div className="flex justify-center md:justify-start">
                 <DropdownMenu modal={false}>
-                  <DropdownMenuTrigger>
-                    <button className="relative group cursor-pointer">
+                  <DropdownMenuTrigger className="relative group cursor-pointer">
                       <Avatar className="size-20 md:size-24 !rounded-[6px]">
                         {avatarSrc && <AvatarImage src={avatarSrc} />}
                         <AvatarFallback className="bg-transparent">
@@ -120,7 +119,6 @@ export default function Profile() {
                           <Camera className="size-6 text-white opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
                         )}
                       </div>
-                    </button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent className="w-56 !rounded-[14px]" align="start" sticky={true}>
                     <div className="px-3 py-2 text-sm font-medium text-ink">
