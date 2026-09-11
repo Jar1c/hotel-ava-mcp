@@ -21,7 +21,7 @@ interface AuthContextValue {
   register: (email: string, password: string, name: string) => Promise<void>
   logout: () => Promise<void>
   setRole: (role: UserRole) => void
-  updateUser: (fields: Partial<Pick<User, "name" | "avatar">>) => void
+  updateUser: (fields: Partial<Pick<User, "name" | "avatar" | "name_changed_at">>) => void
   loading: boolean
 }
 

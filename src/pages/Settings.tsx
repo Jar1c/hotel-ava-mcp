@@ -87,7 +87,7 @@ export default function Settings() {
 
         <div className="flex gap-lg">
           {/* Sidebar */}
-          <nav className="w-48 shrink-0">
+              <nav className="w-48 shrink-0">
             <div className="bg-white border border-hairline rounded-[12px] p-2 dark:bg-surface-soft dark:border-hairline">
               {TABS.map((tab) => {
                 const Icon = tab.icon
@@ -99,7 +99,7 @@ export default function Settings() {
                     className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-[8px] text-sm font-medium transition-all ${
                       active
                         ? "bg-primary/10 text-primary"
-                        : "text-muted hover:text-ink hover:bg-gray-50"
+                        : "text-muted hover:text-ink hover:bg-gray-50 dark:hover:bg-surface"
                     }`}
                   >
                     <Icon className="h-4 w-4" />
@@ -115,59 +115,67 @@ export default function Settings() {
             {/* Appearance Tab */}
             {activeTab === "appearance" && (
               <div className="bg-white border border-hairline rounded-[12px] p-md dark:bg-surface-soft dark:border-hairline">
-                <h2 className="typo-title-sm text-ink mb-md">Appearance</h2>
+                <h2 className="typo-title-sm text-ink mb-lg">Appearance</h2>
 
                 {/* Mode Toggle */}
-                <div className="flex gap-2 mb-md">
-                  {MODE_OPTIONS.map((opt) => {
-                    const Icon = opt.icon
-                    const active = mode === opt.key
-                    return (
-                      <button
-                        key={opt.key}
-                        onClick={() => setMode(opt.key)}
-                        className={`flex items-center gap-2 px-4 py-2.5 rounded-[10px] text-sm font-medium transition-all border ${
-                          active
-                            ? "bg-ink text-on-primary border-ink"
-                            : "bg-transparent text-muted border-hairline hover:border-ink/30 hover:text-ink"
-                        }`}
-                      >
-                        <Icon className="h-4 w-4" />
-                        {opt.label}
-                      </button>
-                    )
-                  })}
+                <div className="mb-lg">
+                  <p className="text-xs font-medium text-muted mb-3 uppercase tracking-wider">Theme</p>
+                  <div className="flex gap-3">
+                    {MODE_OPTIONS.map((opt) => {
+                      const Icon = opt.icon
+                      const active = mode === opt.key
+                      return (
+                        <button
+                          key={opt.key}
+                          onClick={() => setMode(opt.key)}
+                          className={`flex-1 flex flex-col items-center gap-2 px-4 py-4 rounded-[12px] text-sm font-medium transition-all border ${
+                            active
+                              ? "bg-ink text-on-primary border-ink shadow-md"
+                              : "bg-canvas text-muted border-hairline hover:border-ink/30 hover:text-ink dark:bg-surface"
+                          }`}
+                        >
+                          <Icon className="h-5 w-5" />
+                          {opt.label}
+                        </button>
+                      )
+                    })}
+                  </div>
                 </div>
 
                 {/* Color Presets */}
-                <p className="text-xs text-muted mb-3">Color Scheme</p>
-                <div className="grid grid-cols-3 gap-3">
-                  {COLOR_PRESETS.map((preset) => {
-                    const active = colorPreset === preset.key
-                    return (
-                      <button
-                        key={preset.key}
-                        onClick={() => setColorPreset(preset.key)}
-                        className={`flex items-center gap-3 p-3 rounded-[10px] border transition-all ${
-                          active
-                            ? "border-ink ring-2 ring-ink/10"
-                            : "border-hairline hover:border-ink/30"
-                        }`}
-                      >
-                        <div className="flex shrink-0">
-                          <div
-                            className="w-6 h-6 rounded-full border border-black/10"
-                            style={{ backgroundColor: preset.primary }}
-                          />
-                          <div
-                            className="w-6 h-6 rounded-full border border-black/10 -ml-2"
-                            style={{ backgroundColor: preset.secondary }}
-                          />
-                        </div>
-                        <span className="text-xs font-medium text-ink">{preset.label}</span>
-                      </button>
-                    )
-                  })}
+                <div>
+                  <p className="text-xs font-medium text-muted mb-3 uppercase tracking-wider">Color Scheme</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    {COLOR_PRESETS.map((preset) => {
+                      const active = colorPreset === preset.key
+                      return (
+                        <button
+                          key={preset.key}
+                          onClick={() => setColorPreset(preset.key)}
+                          className={`flex items-center gap-3 p-3.5 rounded-[12px] border transition-all ${
+                            active
+                              ? "border-primary ring-2 ring-primary/20 bg-primary/5"
+                              : "border-hairline hover:border-ink/30 bg-canvas dark:bg-surface"
+                          }`}
+                        >
+                          <div className="flex shrink-0 relative">
+                            <div
+                              className="w-8 h-8 rounded-full border-2 border-white shadow-sm"
+                              style={{ backgroundColor: preset.primary }}
+                            />
+                            <div
+                              className="w-8 h-8 rounded-full border-2 border-white shadow-sm -ml-3"
+                              style={{ backgroundColor: preset.secondary }}
+                            />
+                          </div>
+                          <span className="text-sm font-medium text-ink">{preset.label}</span>
+                          {active && (
+                            <span className="ml-auto w-2 h-2 rounded-full bg-primary" />
+                          )}
+                        </button>
+                      )
+                    })}
+                  </div>
                 </div>
               </div>
             )}
@@ -189,7 +197,7 @@ export default function Settings() {
                         type={showCurrent ? "text" : "password"}
                         value={currentPassword}
                         onChange={(e) => setCurrentPassword(e.target.value)}
-                        className="w-full px-3 py-2 border border-hairline rounded-[8px] text-sm bg-canvas focus:outline-none focus:border-primary/50 transition-colors dark:bg-surface-soft"
+                        className="w-full px-3 py-2 border border-hairline rounded-[8px] text-sm bg-canvas focus:outline-none focus:border-primary/50 transition-colors dark:bg-surface"
                         placeholder="Enter current password"
                       />
                       <button
@@ -210,7 +218,7 @@ export default function Settings() {
                         type={showNew ? "text" : "password"}
                         value={newPassword}
                         onChange={(e) => setNewPassword(e.target.value)}
-                        className="w-full px-3 py-2 border border-hairline rounded-[8px] text-sm bg-canvas focus:outline-none focus:border-primary/50 transition-colors dark:bg-surface-soft"
+                        className="w-full px-3 py-2 border border-hairline rounded-[8px] text-sm bg-canvas focus:outline-none focus:border-primary/50 transition-colors dark:bg-surface"
                         placeholder="Enter new password"
                       />
                       <button
@@ -247,7 +255,7 @@ export default function Settings() {
                       type="password"
                       value={confirmPassword}
                       onChange={(e) => setConfirmPassword(e.target.value)}
-                      className="w-full px-3 py-2 border border-hairline rounded-[8px] text-sm bg-canvas focus:outline-none focus:border-primary/50 transition-colors dark:bg-surface-soft"
+                      className="w-full px-3 py-2 border border-hairline rounded-[8px] text-sm bg-canvas focus:outline-none focus:border-primary/50 transition-colors dark:bg-surface"
                       placeholder="Confirm new password"
                     />
                   </div>
