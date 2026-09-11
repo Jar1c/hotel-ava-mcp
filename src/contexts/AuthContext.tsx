@@ -38,7 +38,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const token = sessionStorage.getItem("access_token")
-    if (!token) return
+    if (!token) {
+      setLoading(false)
+      return
+    }
 
     const callId = ++verifyRef.current
 
