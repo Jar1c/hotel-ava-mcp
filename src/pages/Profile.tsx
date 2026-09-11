@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Navigate } from "react-router"
 import { User, Camera, Pencil, Check, X, Trash2, Palette } from "lucide-react"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
@@ -59,6 +59,10 @@ export default function Profile() {
   const [avatarLoading, setAvatarLoading] = useState(false)
   const [showAvatarPicker, setShowAvatarPicker] = useState(false)
   const [selectedStyle, setSelectedStyle] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (user?.avatar) setAvatarSrc(user.avatar)
+  }, [user?.avatar])
 
   if (!isAuthenticated) return <Navigate to="/login" replace />
 
