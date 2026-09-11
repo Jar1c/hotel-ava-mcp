@@ -288,7 +288,8 @@ export default function Profile() {
       {showAvatarPicker && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 animate-fade-in" onClick={() => setShowAvatarPicker(false)}>
           <div
-            className="bg-white rounded-[16px] shadow-lg p-6 animate-scale-in w-full max-w-lg max-h-[80vh] overflow-hidden flex flex-col"
+            className="bg-white rounded-[16px] shadow-lg p-6 animate-scale-in max-h-[80vh] overflow-hidden flex flex-col"
+            style={{ width: "min(90vw, 520px)" }}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-4">
@@ -302,7 +303,7 @@ export default function Profile() {
             </p>
 
             {/* Style grid */}
-            <div className="grid grid-cols-4 sm:grid-cols-5 gap-3 overflow-y-auto flex-1 p-1">
+            <div className="grid grid-cols-4 gap-3 overflow-y-auto flex-1 p-1" style={{ maxHeight: "60vh" }}>
               {DICEBEAR_STYLES.map((style) => (
                 <button
                   key={style.id}
