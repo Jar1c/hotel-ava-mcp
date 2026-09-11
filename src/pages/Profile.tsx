@@ -1,11 +1,12 @@
 import { useState } from "react"
 import { Navigate } from "react-router"
-import { User, Camera, Pencil, Check, X, Trash2 } from "lucide-react"
+import { User, Camera, Pencil, Check, X, Trash2, Palette } from "lucide-react"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
-import { Avatar, AvatarFallback, AvatarImage, HotelLogoIcon } from "@/components/ui/avatar"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { useAuth } from "@/contexts/AuthContext"
 import { authApi } from "@/services/api"
 import LoadingDots from "@/components/LoadingDots"
+import { DICEBEAR_STYLES, getDiceBearUrl } from "@/lib/dicebear"
 
 const PRIMARY = "#82285f"
 const INK = "#2A2A28"
@@ -56,6 +57,8 @@ export default function Profile() {
 
   const [avatarSrc, setAvatarSrc] = useState<string | undefined>(user?.avatar)
   const [avatarLoading, setAvatarLoading] = useState(false)
+  const [showAvatarPicker, setShowAvatarPicker] = useState(false)
+  const [selectedStyle, setSelectedStyle] = useState<string | null>(null)
 
   if (!isAuthenticated) return <Navigate to="/login" replace />
 
@@ -92,6 +95,18 @@ export default function Profile() {
     updateUser({ avatar: undefined })
   }
 
+  const handleSelectDiceBear = async (style: string) => {
+    const url = getDiceBearUrl(style, user?.email || "user")
+    setAvatarSrc(url)
+    setSelectedStyle(style)
+    try {
+      await authApi.updateProfile({ avatar_url: url })
+      updateUser({ avatar: url })
+    } catch {
+      // keep current avatar
+    }
+  }
+
   const sections: { id: Section; label: string; icon: React.ReactNode }[] = [
     { id: "personal", label: "Personal Information", icon: <User className="size-4" /> },
   ]
@@ -109,7 +124,7 @@ export default function Profile() {
                       <Avatar className="size-20 md:size-24 !rounded-[6px]">
                         {avatarSrc && <AvatarImage src={avatarSrc} />}
                         <AvatarFallback className="bg-transparent">
-                          <HotelLogoIcon />
+                          <img src={getDiceBearUrl("adventurer", user?.email || "user", 96)} alt="avatar" className="size-full rounded-[6px]" />
                         </AvatarFallback>
                       </Avatar>
                       <div className="absolute inset-0 rounded-[6px] flex items-center justify-center bg-black/0 group-hover:bg-black/30 transition-all duration-200">
@@ -124,6 +139,13 @@ export default function Profile() {
                     <div className="px-3 py-2 text-sm font-medium text-ink">
                       Profile Picture
                     </div>
+                    <DropdownMenuItem
+                      onClick={() => setShowAvatarPicker(true)}
+                      className="cursor-pointer"
+                    >
+                      <Palette className="size-4 mr-2" />
+                      Choose Avatar
+                    </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={() => {
                         const input = document.createElement("input")
@@ -261,6 +283,51 @@ export default function Profile() {
           </main>
         </div>
       </div>
+
+      {/* DiceBear Avatar Picker Modal */}
+      {showAvatarPicker && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 animate-fade-in" onClick={() => setShowAvatarPicker(false)}>
+          <div
+            className="bg-white rounded-[16px] shadow-lg p-6 animate-scale-in w-full max-w-lg max-h-[80vh] overflow-hidden flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-display text-lg font-semibold" style={{ color: INK }}>Choose Your Avatar</h3>
+              <button onClick={() => setShowAvatarPicker(false)} className="p-1 hover:bg-gray-100 rounded-full cursor-pointer">
+                <X className="size-5" style={{ color: MUTED }} />
+              </button>
+            </div>
+            <p className="typo-body-sm mb-4" style={{ color: MUTED }}>
+              Pick a style that represents you. Your avatar is generated from your email.
+            </p>
+
+            {/* Style grid */}
+            <div className="grid grid-cols-4 sm:grid-cols-5 gap-3 overflow-y-auto flex-1 p-1">
+              {DICEBEAR_STYLES.map((style) => (
+                <button
+                  key={style.id}
+                  onClick={() => handleSelectDiceBear(style.id)}
+                  className={`flex flex-col items-center gap-1.5 p-2 rounded-[10px] border-2 transition-all cursor-pointer hover:scale-105 ${
+                    selectedStyle === style.id || (avatarSrc && avatarSrc.includes(`/${style.id}/`))
+                      ? "border-primary bg-primary/5"
+                      : "border-transparent hover:border-gray-200"
+                  }`}
+                >
+                  <img
+                    src={getDiceBearUrl(style.id, user?.email || "user", 80)}
+                    alt={style.name}
+                    className="size-14 rounded-full bg-surface-soft"
+                    loading="lazy"
+                  />
+                  <span className="typo-caption-xs text-center leading-tight" style={{ color: MUTED }}>
+                    {style.name}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

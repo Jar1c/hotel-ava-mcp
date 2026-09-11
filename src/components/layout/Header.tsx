@@ -2,7 +2,7 @@ import { NavLink, Link, useLocation, useNavigate } from "react-router"
 import { useState, useCallback } from "react"
 import { User, LogOut, Settings, CalendarDays, ChevronDown, Bell, CheckCheck, Tag, Clock } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Avatar, AvatarFallback, AvatarImage, HotelLogoIcon } from "@/components/ui/avatar"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -15,6 +15,7 @@ import { useNotifications } from "@/contexts/NotificationContext"
 import { publicNavItems, guestNavItems } from "@/data/navigation"
 import hotelAvaLogo from "@/assets/images/Hotel Ava logo.png"
 import { formatDistanceToNow } from "date-fns"
+import { getDiceBearUrl } from "@/lib/dicebear"
 
 const notifTypeStyles: Record<string, { bg: string; icon: React.ReactNode }> = {
   booking: { bg: "bg-gray-100", icon: <CalendarDays className="size-4 text-ink" /> },
@@ -228,7 +229,7 @@ export default function Header() {
                 <Avatar className="size-9">
                   {user?.avatar && <AvatarImage src={user.avatar} />}
                   <AvatarFallback className="bg-[#e8e2d3]">
-                    <HotelLogoIcon />
+                    <img src={getDiceBearUrl("adventurer", user?.email || "user", 36)} alt="avatar" className="size-full rounded-full" />
                   </AvatarFallback>
                 </Avatar>
                 <div className="flex flex-col items-start">

@@ -203,6 +203,15 @@ def register():
     if len(password) < 6:
         return jsonify({"error": "Password must be at least 6 characters"}), 400
 
+    # Generate random DiceBear avatar for new user
+    dicebear_styles = [
+        "adventurer", "avataaars", "big-smile", "lorelei", "micah",
+        "notionists", "personas", "bottts", "fun-emoji", "pixel-art"
+    ]
+    import random
+    selected_style = random.choice(dicebear_styles)
+    avatar_url = f"https://api.dicebear.com/10.x/{selected_style}/svg?seed={email}"
+
     try:
         res = supabase.auth.sign_up({"email": email, "password": password, "options": {"data": {"name": name}}})
         # Create user profile row so require_admin / login can read role
@@ -211,10 +220,11 @@ def register():
                 "id": res.user.id,
                 "name": name,
                 "role": "guest",
+                "avatar_url": avatar_url,
             }).execute()
         except Exception:
             pass  # row may already exist or table missing — non-fatal
-        return jsonify({"user": {"id": res.user.id, "email": res.user.email, "name": name, "role": "guest"}}), 201
+        return jsonify({"user": {"id": res.user.id, "email": res.user.email, "name": name, "role": "guest", "avatar_url": avatar_url}}), 201
     except Exception as e:
         return jsonify({"error": str(e)}), 400
 
