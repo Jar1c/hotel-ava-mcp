@@ -227,7 +227,7 @@ export default function Header() {
             <DropdownMenu modal={false}>
               <DropdownMenuTrigger className="flex items-center gap-2.5 rounded-full bg-[#f0f1f3] pl-1 pr-3 py-1 cursor-pointer hover:bg-[#e2e4e8] transition-all duration-200">
                 <Avatar className="size-9">
-                  {user?.avatar && <AvatarImage src={user.avatar} />}
+                  <AvatarImage src={user?.avatar || getDiceBearUrl("adventurer", user?.email || "user", 36)} />
                   <AvatarFallback className="bg-[#e8e2d3]">
                     <img src={getDiceBearUrl("adventurer", user?.email || "user", 36)} alt="avatar" className="size-full rounded-full" />
                   </AvatarFallback>
