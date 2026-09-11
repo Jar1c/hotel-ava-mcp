@@ -66,10 +66,22 @@ export default function Profile() {
 
   if (!isAuthenticated) return <Navigate to="/login" replace />
 
+  const getNameCooldown = () => {
+    if (!user?.name_changed_at) return null
+    const lastChanged = new Date(user.name_changed_at)
+    const now = new Date()
+    const daysSince = Math.floor((now.getTime() - lastChanged.getTime()) / (1000 * 60 * 60 * 24))
+    if (daysSince >= 7) return null
+    const daysRemaining = 7 - daysSince
+    return { daysRemaining, nextAvailable: new Date(lastChanged.getTime() + 7 * 24 * 60 * 60 * 1000) }
+  }
+
+  const nameCooldown = getNameCooldown()
+
   const handleSaveProfile = async () => {
     try {
       await authApi.updateProfile({ name: editName })
-      updateUser({ name: editName })
+      updateUser({ name: editName, name_changed_at: new Date().toISOString() })
       setIsEditing(false)
     } catch {
       // keep current state
@@ -252,6 +264,12 @@ export default function Profile() {
                     <label className="typo-caption block mb-1.5" style={{ color: MUTED }}>
                       Name
                     </label>
+                    {isEditing && nameCooldown && (
+                      <div className="mb-3 p-3 rounded-[8px] text-sm flex items-start gap-2" style={{ backgroundColor: "#FFF3CD", color: "#856404" }}>
+                        <svg className="size-4 mt-0.5 shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
+                        <span>You can change your name again in <strong>{nameCooldown.daysRemaining} day(s)</strong> (after {nameCooldown.nextAvailable.toLocaleDateString()}).</span>
+                      </div>
+                    )}
                     {isEditing ? (
                       <input
                         type="text"

@@ -268,6 +268,7 @@ def login():
                 "name": profile_data.get("name", user.email.split("@")[0]),
                 "role": profile_data.get("role", "guest"),
                 "avatar_url": profile_data.get("avatar_url", ""),
+                "name_changed_at": profile_data.get("name_changed_at", ""),
             }
         }), 200
     except Exception as e:
@@ -342,6 +343,7 @@ def get_profile():
         "avatar_url": p.get("avatar_url", ""),
         "phone": p.get("phone", ""),
         "created_at": p.get("created_at", ""),
+        "name_changed_at": p.get("name_changed_at", ""),
     }), 200
 
 
@@ -356,8 +358,21 @@ def update_profile():
     try:
         data = request.get_json()
         updates = {}
+
         if "name" in data:
+            # 7-day cooldown check
+            user_record_check = supabase.table("users").select("name_changed_at").eq("id", user_id).single().execute()
+            name_changed_at = (user_record_check.data or {}).get("name_changed_at")
+            if name_changed_at:
+                from datetime import datetime, timezone, timedelta
+                last_changed = datetime.fromisoformat(name_changed_at.replace("Z", "+00:00"))
+                now = datetime.now(timezone.utc)
+                days_remaining = 7 - (now - last_changed).days
+                if days_remaining > 0:
+                    return jsonify({"error": f"You can change your name again in {days_remaining} day(s).", "days_remaining": days_remaining, "retry_after": last_changed.isoformat()}), 429
             updates["name"] = data["name"]
+            updates["name_changed_at"] = datetime.now(timezone.utc).isoformat()
+
         if "avatar_url" in data:
             updates["avatar_url"] = data["avatar_url"]
         if "phone" in data:
@@ -377,6 +392,7 @@ def update_profile():
             "role": p.get("role", "guest"),
             "avatar_url": p.get("avatar_url", ""),
             "phone": p.get("phone", ""),
+            "name_changed_at": p.get("name_changed_at", ""),
         }), 200
     except Exception:
         return jsonify({"error": "Unauthorized"}), 401

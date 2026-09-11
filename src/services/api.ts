@@ -80,6 +80,7 @@ export interface AuthUser {
   name: string
   role: string
   avatar_url?: string
+  name_changed_at?: string
 }
 
 export interface LoginResponse {

@@ -9,6 +9,7 @@ export interface User {
   email: string
   role: UserRole
   avatar?: string
+  name_changed_at?: string
 }
 
 interface AuthContextValue {
@@ -60,6 +61,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           name: profile.name,
           role: (profile.role || "guest") as UserRole,
           avatar: profile.avatar_url || "",
+          name_changed_at: profile.name_changed_at || "",
         }
         setUser(userObj)
         localStorage.setItem("auth_user", JSON.stringify(userObj))
@@ -103,6 +105,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       name: res.user.name,
       role: (res.user.role || "guest") as UserRole,
       avatar: res.user.avatar_url || "",
+      name_changed_at: res.user.name_changed_at || "",
     }
     setUser(userObj)
     localStorage.setItem("auth_user", JSON.stringify(userObj))
@@ -149,7 +152,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   )
 
   const updateUser = useCallback(
-    (fields: Partial<Pick<User, "name" | "avatar">>) => {
+    (fields: Partial<Pick<User, "name" | "avatar" | "name_changed_at">>) => {
       if (!user) return
       setUser({ ...user, ...fields })
     },
