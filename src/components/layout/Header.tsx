@@ -18,10 +18,10 @@ import { formatDistanceToNow } from "date-fns"
 import { getDiceBearUrl } from "@/lib/dicebear"
 
 const notifTypeStyles: Record<string, { bg: string; icon: React.ReactNode }> = {
-  booking: { bg: "bg-gray-100", icon: <CalendarDays className="size-4 text-ink" /> },
-  promo: { bg: "bg-gray-100", icon: <Tag className="size-4 text-ink" /> },
-  reminder: { bg: "bg-gray-100", icon: <Clock className="size-4 text-ink" /> },
-  system: { bg: "bg-gray-100", icon: <Settings className="size-4 text-ink" /> },
+  booking: { bg: "bg-gray-100 dark:bg-surface-strong", icon: <CalendarDays className="size-4 text-ink" /> },
+  promo: { bg: "bg-gray-100 dark:bg-surface-strong", icon: <Tag className="size-4 text-ink" /> },
+  reminder: { bg: "bg-gray-100 dark:bg-surface-strong", icon: <Clock className="size-4 text-ink" /> },
+  system: { bg: "bg-gray-100 dark:bg-surface-strong", icon: <Settings className="size-4 text-ink" /> },
 }
 
 export default function Header() {
@@ -89,10 +89,10 @@ export default function Header() {
   }
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-hairline bg-white">
+    <header className="sticky top-0 z-50 w-full border-b border-hairline bg-white dark:bg-surface-soft dark:border-hairline/50">
       <div className="flex h-16 md:h-[72px] w-full items-center px-5 md:px-8 gap-lg">
         <Link to="/" className="flex items-center gap-2.5 mr-lg md:mr-xl flex-shrink-0">
-          <img src={hotelAvaLogo} alt="Hotel Ava" className="h-10 md:h-12 w-auto mix-blend-multiply" />
+          <img src={hotelAvaLogo} alt="Hotel Ava" className="h-10 md:h-12 w-auto mix-blend-multiply dark:mix-blend-normal" />
           <span className="font-display font-bold text-lg text-ink hidden sm:block">Hotel Ava</span>
         </Link>
 
@@ -137,7 +137,7 @@ export default function Header() {
             <>
               {/* Notification bell */}
               <DropdownMenu open={dropdownOpen} onOpenChange={handleDropdownOpenChange}>
-                <DropdownMenuTrigger className="relative flex size-9 items-center justify-center rounded-full bg-[#f0f1f3] text-[#6b7280] hover:bg-[#e2e4e8] transition-all duration-200 cursor-pointer">
+                <DropdownMenuTrigger className="relative flex size-9 items-center justify-center rounded-full bg-[#f0f1f3] dark:bg-surface-strong hover:bg-[#e2e4e8] dark:hover:bg-surface-strong text-[#6b7280] dark:text-muted transition-all duration-200 cursor-pointer">
                   <Bell className="size-[18px]" />
                   {unreadCount > 0 && (
                     <span className="absolute -top-0.5 -right-0.5 flex items-center justify-center size-4 rounded-full bg-[#A4423A] text-white text-[10px] font-bold">
@@ -145,10 +145,10 @@ export default function Header() {
                     </span>
                   )}
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" sideOffset={8} positionMethod="fixed" className="w-80 !rounded-[12px] p-0 overflow-hidden">
+                <DropdownMenuContent align="end" sideOffset={8} positionMethod="fixed" className="w-80 !rounded-[12px] p-0 overflow-hidden dark:bg-surface-soft dark:border-hairline/50">
                   {/* Header */}
-                  <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-                    <span className="text-sm font-semibold text-ink">Notifications</span>
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-hairline/50">
+                    <span className="text-sm font-semibold text-ink dark:text-ink-dark">Notifications</span>
                     {unreadCount > 0 && (
                       <button onClick={() => markAllRead()} className="text-xs text-primary hover:text-primary-active cursor-pointer flex items-center gap-1">
                         <CheckCheck className="size-3.5" />
@@ -189,7 +189,7 @@ export default function Header() {
                         <div
                           key={notif.id}
                           onClick={() => handleNotifClick(notif)}
-                          className={`flex items-start gap-3 px-4 py-3 hover:bg-gray-50 transition-colors cursor-pointer border-b border-gray-50 last:border-b-0 ${!notif.read ? "bg-primary/5" : ""}`}
+                          className={`flex items-start gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-surface-strong transition-colors cursor-pointer border-b border-gray-50 dark:border-hairline/50 last:border-b-0 ${!notif.read ? "bg-primary/5" : ""}`}
                         >
                           {/* Type icon */}
                           <div className={`shrink-0 w-9 h-9 rounded-full flex items-center justify-center ${notifTypeStyles[notif.type]?.bg || "bg-gray-100"}`}>
@@ -213,7 +213,7 @@ export default function Header() {
                   </div>
 
                   {/* Footer */}
-                  <div className="border-t border-gray-100 px-4 py-2.5">
+                  <div className="border-t border-gray-100 dark:border-hairline/50 px-4 py-2.5">
                     <button
                       onClick={() => { setDropdownOpen(false); navigate("/my-bookings") }}
                       className="w-full text-center text-xs text-primary hover:text-primary-active font-medium cursor-pointer"
@@ -225,7 +225,7 @@ export default function Header() {
               </DropdownMenu>
 
             <DropdownMenu modal={false}>
-              <DropdownMenuTrigger className="flex items-center gap-2.5 rounded-full bg-[#f0f1f3] pl-1 pr-3 py-1 cursor-pointer hover:bg-[#e2e4e8] transition-all duration-200">
+              <DropdownMenuTrigger className="flex items-center gap-2.5 rounded-full bg-[#f0f1f3] dark:bg-surface-strong pl-1 pr-3 py-1 cursor-pointer hover:bg-[#e2e4e8] dark:hover:bg-surface-strong transition-all duration-200">
                 <Avatar className="size-9">
                   <AvatarImage src={user?.avatar || getDiceBearUrl("adventurer", user?.email || "user", 36)} />
                   <AvatarFallback className="bg-[#e8e2d3]">
@@ -240,7 +240,7 @@ export default function Header() {
                   <span className="text-[11px] text-muted leading-tight">{user?.email || ""}</span>
                 </div>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="center" className="w-60 !rounded-[6px]" positionMethod="fixed" style={{ transform: "translateX(-70px)" }}>
+              <DropdownMenuContent align="center" className="w-60 !rounded-[6px] dark:bg-surface-soft dark:border-hairline/50" positionMethod="fixed" style={{ transform: "translateX(-70px)" }}>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => navigate("/profile")} className="flex items-center gap-2.5 cursor-pointer">
                   <User className="size-4 text-muted" />
@@ -270,7 +270,7 @@ export default function Header() {
       {showLogoutConfirm && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 animate-fade-in" onClick={() => !isLoggingOut && setShowLogoutConfirm(false)}>
           <div
-            className="bg-white rounded-[16px] shadow-lg p-8 text-center animate-scale-in relative overflow-visible"
+            className="bg-white dark:bg-surface-soft rounded-[16px] shadow-lg p-8 text-center animate-scale-in relative overflow-visible"
             style={{ width: "100%", maxWidth: "360px" }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -278,7 +278,7 @@ export default function Header() {
             <button
               type="button"
               onClick={() => !isLoggingOut && setShowLogoutConfirm(false)}
-              className="absolute top-3 right-3 w-8 h-8 flex items-center justify-center rounded-full text-muted hover:text-ink hover:bg-gray-100 transition-colors cursor-pointer z-10"
+              className="absolute top-3 right-3 w-8 h-8 flex items-center justify-center rounded-full text-muted hover:text-ink hover:bg-gray-100 dark:hover:bg-surface transition-colors cursor-pointer z-10"
             >
               <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="18" y1="6" x2="6" y2="18" />
@@ -293,7 +293,7 @@ export default function Header() {
               <Button
                 onClick={() => setShowLogoutConfirm(false)}
                 disabled={isLoggingOut}
-                className="flex-1 py-2.5 text-sm font-medium !rounded-[8px] bg-gray-100 text-ink hover:bg-gray-200 cursor-pointer"
+                className="flex-1 py-2.5 text-sm font-medium !rounded-[8px] bg-gray-100 dark:bg-surface-strong text-ink hover:bg-gray-200 dark:hover:bg-surface-strong cursor-pointer"
               >
                 Cancel
               </Button>
