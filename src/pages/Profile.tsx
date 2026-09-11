@@ -53,7 +53,10 @@ export default function Profile() {
 
   const [activeSection, setActiveSection] = useState<Section>("personal")
   const [isEditing, setIsEditing] = useState(false)
-  const [editName, setEditName] = useState(user?.name || "")
+  const [editFirstName, setEditFirstName] = useState("")
+  const [editLastName, setEditLastName] = useState("")
+  const [firstNameError, setFirstNameError] = useState("")
+  const [lastNameError, setLastNameError] = useState("")
 
   const [avatarSrc, setAvatarSrc] = useState<string | undefined>(user?.avatar)
   const [avatarLoading, setAvatarLoading] = useState(false)
@@ -63,6 +66,24 @@ export default function Profile() {
   useEffect(() => {
     if (user?.avatar) setAvatarSrc(user.avatar)
   }, [user?.avatar])
+
+  const formatName = (value: string, onError: (msg: string) => void) => {
+    const hasInvalid = /[^a-zA-Z\s]/.test(value)
+    if (hasInvalid) {
+      onError("Letters and spaces only — no numbers or special characters")
+    } else {
+      onError("")
+    }
+    if (!value) return value
+    return value.charAt(0).toUpperCase() + value.slice(1)
+  }
+
+  const parseNameParts = (fullName: string) => {
+    const parts = (fullName || "").trim().split(/\s+/)
+    const first = parts[0] || ""
+    const last = parts.slice(1).join(" ")
+    return { first, last }
+  }
 
   if (!isAuthenticated) return <Navigate to="/login" replace />
 
@@ -77,11 +98,14 @@ export default function Profile() {
   }
 
   const nameCooldown = getNameCooldown()
+  const hasNameErrors = firstNameError !== "" || lastNameError !== ""
 
   const handleSaveProfile = async () => {
+    if (hasNameErrors) return
+    const fullName = `${editFirstName.trim()} ${editLastName.trim()}`
     try {
-      await authApi.updateProfile({ name: editName })
-      updateUser({ name: editName, name_changed_at: new Date().toISOString() })
+      await authApi.updateProfile({ name: fullName })
+      updateUser({ name: fullName, name_changed_at: new Date().toISOString() })
       setIsEditing(false)
     } catch {
       // keep current state
@@ -89,7 +113,11 @@ export default function Profile() {
   }
 
   const handleCancelEdit = () => {
-    setEditName(user?.name || "")
+    const { first, last } = parseNameParts(user?.name || "")
+    setEditFirstName(first)
+    setEditLastName(last)
+    setFirstNameError("")
+    setLastNameError("")
     setIsEditing(false)
   }
 
@@ -231,7 +259,14 @@ export default function Profile() {
                   </h2>
                   {!isEditing ? (
                     <button
-                      onClick={() => setIsEditing(true)}
+                      onClick={() => {
+                        const { first, last } = parseNameParts(user?.name || "")
+                        setEditFirstName(first)
+                        setEditLastName(last)
+                        setFirstNameError("")
+                        setLastNameError("")
+                        setIsEditing(true)
+                      }}
                       className="flex items-center gap-1.5 typo-body-sm font-medium hover:underline cursor-pointer transition-colors"
                       style={{ color: PRIMARY }}
                     >
@@ -242,7 +277,8 @@ export default function Profile() {
                     <div className="flex items-center gap-2">
                       <button
                         onClick={handleSaveProfile}
-                        className="flex items-center gap-1.5 typo-body-sm font-medium cursor-pointer transition-colors"
+                        disabled={hasNameErrors || !editFirstName.trim() || !editLastName.trim()}
+                        className="flex items-center gap-1.5 typo-body-sm font-medium cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                         style={{ color: "#3D6B4F" }}
                       >
                         <Check className="size-3.5" />
@@ -271,14 +307,38 @@ export default function Profile() {
                       </div>
                     )}
                     {isEditing ? (
-                      <input
-                        type="text"
-                        value={editName}
-                        onChange={(e) => setEditName(e.target.value)}
-                        className={inputClass}
-                        style={{ borderColor: HAIRLINE }}
-                        placeholder="Your name"
-                      />
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-xs font-medium block mb-1.5" style={{ color: MUTED }}>First Name</label>
+                          <input
+                            type="text"
+                            value={editFirstName}
+                            onChange={(e) => setEditFirstName(formatName(e.target.value, setFirstNameError))}
+                            className={inputClass}
+                            style={{ borderColor: HAIRLINE }}
+                            placeholder="First name"
+                            maxLength={50}
+                          />
+                          {firstNameError && (
+                            <p className="text-xs mt-1.5" style={{ color: "#A4423A" }}>{firstNameError}</p>
+                          )}
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium block mb-1.5" style={{ color: MUTED }}>Last Name</label>
+                          <input
+                            type="text"
+                            value={editLastName}
+                            onChange={(e) => setEditLastName(formatName(e.target.value, setLastNameError))}
+                            className={inputClass}
+                            style={{ borderColor: HAIRLINE }}
+                            placeholder="Last name"
+                            maxLength={50}
+                          />
+                          {lastNameError && (
+                            <p className="text-xs mt-1.5" style={{ color: "#A4423A" }}>{lastNameError}</p>
+                          )}
+                        </div>
+                      </div>
                     ) : (
                       <p className="typo-body-md" style={{ color: INK }}>
                         {user?.name || "\u2014"}
