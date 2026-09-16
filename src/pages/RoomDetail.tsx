@@ -7,7 +7,7 @@ import {
   Wifi, Wind, Wine, ConciergeBell, Building2, BedDouble,
   TreePine, Coffee, Sunrise, Bath, UserCheck, Sofa,
   Baby, Waves, Fence, Droplets, Monitor, Armchair,
-  Shirt, Fish, Sunset, UtensilsCrossed, Tv, Sparkles, Music, Clock
+  Shirt, Fish, Sunset, UtensilsCrossed, Tv, Sparkles, Music, Clock, Tag
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import DateInput from "@/components/ui/date-input"
@@ -17,6 +17,9 @@ import { getAmenityIcon, rooms as fallbackRooms, type Room } from "@/data/rooms"
 import { getCached, setCache } from "@/lib/cache"
 import PhotoGallery from "@/components/rooms/PhotoGallery"
 import { useAuth } from "@/contexts/AuthContext"
+import { getRoomDiscount } from "@/lib/discountEngine"
+import { useDiscountApproval } from "@/hooks/useDiscountApproval"
+import { useDiscountRooms } from "@/hooks/useDiscountRooms"
 
 const lucideIconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   Wifi, Wind, Wine, ConciergeBell, Building2, BedDouble,
@@ -97,6 +100,7 @@ export default function RoomDetail() {
   const [searchParams] = useSearchParams()
   const [room, setRoom] = useState<Room | null>(null)
   const [loading, setLoading] = useState(true)
+  const { rooms: discountRooms } = useDiscountRooms()
   const [stayType, setStayType] = useState<"overnight" | "day">(
     (searchParams.get("stayType") as "overnight" | "day") || "overnight"
   )
@@ -126,6 +130,7 @@ export default function RoomDetail() {
   const [checkingAvailability, setCheckingAvailability] = useState(false)
   const { isAuthenticated } = useAuth()
   const navigate = useNavigate()
+  const { isApproved } = useDiscountApproval()
 
   useEffect(() => {
     let checkInDate = searchParams.get("checkIn")
@@ -337,7 +342,14 @@ export default function RoomDetail() {
   const dayUsePrice = stayType === "day" ? Math.round(room.price * (dayDuration / 24)) : 0
   const overnightTotal = stayType === "overnight" ? room.price * nights : 0
   const subtotal = stayType === "day" ? dayUsePrice : overnightTotal
-  const totalPrice = subtotal + Math.round(subtotal * 0.12)
+  const discount = getRoomDiscount(discountRooms, room.id)
+  const showDiscount = discount && isApproved(discount.eventRoomTypeKey) ? discount : null
+  const effectivePrice = showDiscount ? showDiscount.discountedPrice : room.price
+  const dayUseDiscounted = stayType === "day" ? Math.round(effectivePrice * (dayDuration / 24)) : 0
+  const overnightDiscounted = stayType === "overnight" ? effectivePrice * nights : 0
+  const discountedSubtotal = stayType === "day" ? dayUseDiscounted : overnightDiscounted
+  const displaySubtotal = showDiscount ? discountedSubtotal : subtotal
+  const totalPrice = displaySubtotal + Math.round(displaySubtotal * 0.12)
 
   return (
     <div className="px-base py-section">
@@ -408,10 +420,27 @@ export default function RoomDetail() {
             <div className="sticky top-24 bg-canvas border border-hairline rounded-[12px] p-lg">
               {/* Price Display */}
               <div className="mb-lg">
-                <div className="flex items-baseline gap-1">
-                  <span className="typo-display-lg text-secondary">&#x20B1;{room.price.toLocaleString()}</span>
-                  <span className="typo-body-sm text-muted">/ night</span>
-                </div>
+                {showDiscount ? (
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="typo-display-lg text-[#A4423A]">&#x20B1;{showDiscount.discountedPrice.toLocaleString()}</span>
+                      <span className="typo-body-sm text-muted">/ night</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="typo-body-sm text-muted line-through">&#x20B1;{room.price.toLocaleString()}</span>
+                      <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-[4px] bg-[#A4423A]/10 text-[#A4423A]">
+                        <Tag className="h-3 w-3" />
+                        {showDiscount.discountPercent}% OFF
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted">{showDiscount.reason}</p>
+                  </div>
+                ) : (
+                  <div className="flex items-baseline gap-1">
+                    <span className="typo-display-lg text-secondary">&#x20B1;{room.price.toLocaleString()}</span>
+                    <span className="typo-body-sm text-muted">/ night</span>
+                  </div>
+                )}
               </div>
 
               {/* Stay Type Toggle */}
@@ -645,15 +674,23 @@ export default function RoomDetail() {
 
               {/* Price Breakdown */}
               <div className="mt-lg pt-lg border-t border-hairline">
+                {showDiscount && (
+                  <div className="flex justify-between mb-sm">
+                    <span className="typo-body-sm text-muted">
+                      {showDiscount.reason} ({showDiscount.discountPercent}% off)
+                    </span>
+                    <span className="typo-body-sm text-[#A4423A] font-medium">Saved ₱{(subtotal - displaySubtotal).toLocaleString()}</span>
+                  </div>
+                )}
                 <div className="flex justify-between mb-sm">
                   <span className="typo-body-sm text-muted">
-                    {stayType === "day" ? `Day Use (${dayDuration}h)` : `₱${room.price.toLocaleString()} × ${nights} night${nights > 1 ? "s" : ""}`}
+                    {stayType === "day" ? `Day Use (${dayDuration}h)` : `${stayType === "overnight" ? `₱${effectivePrice.toLocaleString()} × ${nights} night${nights > 1 ? "s" : ""}` : `Day Use (${dayDuration}h)`}`}
                   </span>
-                  <span className="typo-body-sm text-ink">&#x20B1;{subtotal.toLocaleString()}</span>
+                  <span className="typo-body-sm text-ink">&#x20B1;{displaySubtotal.toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between mb-sm">
                   <span className="typo-body-sm text-muted">Taxes & fees</span>
-                  <span className="typo-body-sm text-ink">&#x20B1;{Math.round(subtotal * 0.12).toLocaleString()}</span>
+                  <span className="typo-body-sm text-ink">&#x20B1;{Math.round(displaySubtotal * 0.12).toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between font-medium pt-sm border-t border-hairline">
                   <span className="typo-body-md text-ink">Total</span>
