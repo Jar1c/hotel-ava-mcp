@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { TrendingUp, Calendar, Star, AlertTriangle, ChevronDown, Brain, BarChart3, Tag } from "lucide-react"
 import DemandForecastChart from "@/components/admin/DemandForecastChart"
 import RevenueForecast from "@/components/admin/RevenueForecast"
@@ -15,6 +15,7 @@ import {
   getRevenueForecast,
   getDemandInsights,
   getDiscountOffers,
+  getRooms,
   type SeasonalData,
   type RoomPerformanceData,
   type Insight,
@@ -22,6 +23,8 @@ import {
   type DemandInsightData,
   type DiscountOfferData,
 } from "@/services/adminService"
+import type { AdminRoom } from "@/data/admin"
+import type { DiscountRoom } from "@/lib/discountEngine"
 
 const insightIcons = [
   <Calendar key="cal" className="w-4 h-4" />,
@@ -49,10 +52,11 @@ export default function Analytics() {
   const [revForecast, setRevForecast] = useState<ForecastPoint[]>([])
   const [demandInsights, setDemandInsights] = useState<DemandInsightData[]>([])
   const [discountOffers, setDiscountOffers] = useState<DiscountOfferData[]>([])
+  const [adminRooms, setAdminRooms] = useState<AdminRoom[]>([])
 
   useEffect(() => {
     async function load() {
-      const [s, r, i, o, rv, di, do_] = await Promise.all([
+      const [s, r, i, o, rv, di, do_, rooms] = await Promise.all([
         getSeasonalData(),
         getRoomPerformance(),
         getInsights(),
@@ -60,6 +64,7 @@ export default function Analytics() {
         getRevenueForecast(),
         getDemandInsights(),
         getDiscountOffers(),
+        getRooms(),
       ])
       setSeasonalData(s)
       setRoomPerformance(r)
@@ -68,12 +73,18 @@ export default function Analytics() {
       setRevForecast(rv)
       setDemandInsights(di)
       setDiscountOffers(do_)
+      setAdminRooms(rooms)
       setLoading(false)
     }
     load()
   }, [])
 
   const visibleInsights = showInsights ? demandInsights : demandInsights.slice(0, 2)
+
+  const discountRooms: DiscountRoom[] = useMemo(
+    () => adminRooms.map((r) => ({ id: r.id, name: r.name, type: r.type, price: r.price })),
+    [adminRooms]
+  )
 
   return (
     <div className="space-y-6">
@@ -159,7 +170,7 @@ export default function Analytics() {
       </div>
 
       {/* Row 3: Discount Offers Table */}
-      <DiscountOffers offers={discountOffers} loading={loading} />
+      <DiscountOffers offers={discountOffers} rooms={discountRooms} loading={loading} />
 
       {/* Row 4: Seasonal + Room Performance */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
