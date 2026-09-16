@@ -2242,5 +2242,112 @@ def health():
     return jsonify({"status": "ok"}), 200
 
 
+# ── Discount Approvals ─────────────────────────────────────────────────────────
+# File is the source of truth. Supabase is a secondary sync.
+import json as _json
+_approved_discounts_file = os.path.join(os.path.dirname(__file__), ".approved_discounts.json")
+_supabase_discounts_table_ok: bool | None = None  # None = untested, True/False = tested
+
+
+def _load_approved_cache() -> set[str]:
+    """Load approved keys from disk."""
+    if os.path.exists(_approved_discounts_file):
+        with open(_approved_discounts_file, "r") as f:
+            return set(_json.load(f))
+    return set()
+
+
+def _save_approved_cache(keys: set[str]) -> None:
+    """Persist approved keys to disk."""
+    with open(_approved_discounts_file, "w") as f:
+        _json.dump(sorted(keys), f)
+
+
+def _discounts_table_exists() -> bool:
+    """Probe once whether approved_discounts table exists in Supabase."""
+    global _supabase_discounts_table_ok
+    if _supabase_discounts_table_ok is not None:
+        return _supabase_discounts_table_ok
+    try:
+        supabase.table("approved_discounts").select("event_room_type_key").limit(1).execute()
+        _supabase_discounts_table_ok = True
+        print("[discounts] Supabase approved_discounts table OK — using DB persistence")
+    except Exception as e:
+        _supabase_discounts_table_ok = False
+        print(f"[discounts] approved_discounts table not found — using file fallback ({e})")
+    return _supabase_discounts_table_ok
+
+
+@app.route("/api/discounts/approved", methods=["GET"])
+def get_approved_discounts():
+    """Get all approved discount event-room-type keys.
+    Merges file (source of truth) + Supabase table so data is never lost."""
+    keys = set(_load_approved_cache())  # Always read file first
+
+    if _discounts_table_exists():
+        try:
+            result = supabase.table("approved_discounts").select("event_room_type_key").execute()
+            for row in result.data:
+                keys.add(row["event_room_type_key"])
+        except Exception as e:
+            print(f"get_approved_discounts error: {e}")
+
+    return jsonify({"approved": sorted(keys)}), 200
+
+
+@app.route("/api/discounts/approve", methods=["POST"])
+def approve_discount():
+    """Approve a discount by event-room-type key."""
+    data = request.get_json()
+    key = data.get("event_room_type_key")
+    if not key:
+        return jsonify({"error": "event_room_type_key required"}), 400
+
+    # Always save to file (source of truth)
+    keys = _load_approved_cache()
+    keys.add(key)
+    _save_approved_cache(keys)
+
+    # Also try Supabase (best effort)
+    if _discounts_table_exists():
+        try:
+            try:
+                supabase.table("approved_discounts").delete().eq("event_room_type_key", key).execute()
+            except Exception:
+                pass
+            supabase.table("approved_discounts").insert(
+                {"event_room_type_key": key}
+            ).execute()
+        except Exception as e:
+            print(f"approve_discount Supabase sync error (file saved): {e}")
+
+    return jsonify({"ok": True}), 200
+
+
+@app.route("/api/discounts/dismiss", methods=["POST"])
+def dismiss_discount():
+    """Dismiss (remove) an approved discount."""
+    data = request.get_json()
+    key = data.get("event_room_type_key")
+    if not key:
+        return jsonify({"error": "event_room_type_key required"}), 400
+
+    # Always remove from file (source of truth)
+    keys = _load_approved_cache()
+    keys.discard(key)
+    _save_approved_cache(keys)
+
+    # Also try Supabase (best effort)
+    if _discounts_table_exists():
+        try:
+            supabase.table("approved_discounts").delete().eq(
+                "event_room_type_key", key
+            ).execute()
+        except Exception as e:
+            print(f"dismiss_discount Supabase sync error (file saved): {e}")
+
+    return jsonify({"ok": True}), 200
+
+
 if __name__ == "__main__":
     app.run(debug=True, port=5000)

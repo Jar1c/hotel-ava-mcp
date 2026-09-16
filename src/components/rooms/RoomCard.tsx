@@ -1,7 +1,8 @@
 import { Link } from "react-router"
-import { Star, Users, Wifi, Wind, Wine, ConciergeBell, Building2, BedDouble, TreePine, Coffee, Tv, Monitor, Waves, Fence, Bath, CookingPot, Sofa, UtensilsCrossed, Mountain, Sunrise, Shirt, Sunset, UserCheck, Eye, Lock, Baby, Sparkles, Music, Droplets } from "lucide-react"
+import { Star, Users, Wifi, Wind, Wine, ConciergeBell, Building2, BedDouble, TreePine, Coffee, Tv, Monitor, Waves, Fence, Bath, CookingPot, Sofa, UtensilsCrossed, Mountain, Sunrise, Shirt, Sunset, UserCheck, Eye, Lock, Baby, Sparkles, Music, Droplets, Tag } from "lucide-react"
 import type { Room } from "@/data/rooms"
 import ImageWithPlaceholder from "@/components/ui/ImageWithPlaceholder"
+import { getRoomDiscount, type DiscountRoom } from "@/lib/discountEngine"
 
 interface RoomFilters {
   stayType?: string
@@ -16,6 +17,8 @@ interface RoomFilters {
 interface RoomCardProps {
   room: Room
   filters?: RoomFilters
+  discountRooms?: DiscountRoom[]
+  isApproved?: (eventRoomTypeKey: string) => boolean
 }
 
 const amenityIcons: Record<string, React.ReactNode> = {
@@ -64,7 +67,10 @@ const amenityIcons: Record<string, React.ReactNode> = {
   "Cable TV": <Tv className="h-3 w-3" />,
 }
 
-export default function RoomCard({ room, filters }: RoomCardProps) {
+export default function RoomCard({ room, filters, discountRooms, isApproved }: RoomCardProps) {
+  const discount = getRoomDiscount(discountRooms || [], room.id)
+  const showDiscount = discount && isApproved && isApproved(discount.eventRoomTypeKey) ? discount : null
+
   const detailUrl = (() => {
     const params = new URLSearchParams()
     if (filters?.stayType) params.set("stayType", filters.stayType)
@@ -90,6 +96,12 @@ export default function RoomCard({ room, filters }: RoomCardProps) {
           {room.featured && (
             <span className="absolute top-3 left-3 bg-secondary/80 backdrop-blur-sm text-on-primary typo-badge uppercase px-2 py-0.5 rounded-[4px] tracking-wide">
               Featured
+            </span>
+          )}
+          {showDiscount && (
+            <span className="absolute top-3 left-3 bg-[#A4423A] backdrop-blur-sm text-white typo-badge uppercase px-2 py-0.5 rounded-[4px] tracking-wide flex items-center gap-1">
+              <Tag className="h-3 w-3" />
+              {showDiscount.discountPercent}% OFF
             </span>
           )}
           {room.rating != null && (
@@ -146,7 +158,14 @@ export default function RoomCard({ room, filters }: RoomCardProps) {
           </div>
 
           <div className="flex items-baseline gap-1">
-            <span className="text-secondary font-bold typo-display-sm">&#x20B1;{room.price.toLocaleString()}</span>
+            {showDiscount ? (
+              <>
+                <span className="text-[#A4423A] font-bold typo-display-sm">&#x20B1;{showDiscount.discountedPrice.toLocaleString()}</span>
+                <span className="typo-caption-sm text-muted line-through">&#x20B1;{room.price.toLocaleString()}</span>
+              </>
+            ) : (
+              <span className="text-secondary font-bold typo-display-sm">&#x20B1;{room.price.toLocaleString()}</span>
+            )}
             <span className="typo-caption-sm text-muted">/ night</span>
           </div>
         </div>

@@ -1,10 +1,12 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { useSearchParams } from "react-router"
 import { motion } from "motion/react"
 import { publicRoomsApi, type PublicRoomData } from "@/services/api"
 import { type Room } from "@/data/rooms"
 import { setCache, getCached } from "@/lib/cache"
 import RoomCard from "@/components/rooms/RoomCard"
+import type { DiscountRoom } from "@/lib/discountEngine"
+import { useDiscountApproval } from "@/hooks/useDiscountApproval"
 
 const fadeUp = {
   hidden: { opacity: 0, y: 30 },
@@ -69,6 +71,7 @@ export default function Rooms() {
   const [roomsData, setRoomsData] = useState<Room[]>([])
   const [loading, setLoading] = useState(true)
   const [availabilityMap, setAvailabilityMap] = useState<Record<string, boolean>>({})
+  const { isApproved } = useDiscountApproval()
 
   const filters = {
     stayType: searchParams.get("stayType") || undefined,
@@ -141,6 +144,11 @@ export default function Rooms() {
     ? roomsData.filter((room) => availabilityMap[room.id] !== false)
     : roomsData
 
+  const discountRooms: DiscountRoom[] = useMemo(
+    () => roomsData.map((r) => ({ id: r.id, name: r.name, type: r.type, price: r.price })),
+    [roomsData]
+  )
+
   return (
     <div className="px-base py-section">
       <div className="max-w-container mx-auto">
@@ -183,7 +191,7 @@ export default function Rooms() {
           >
             {filteredRooms.map((room, index) => (
               <motion.div key={room.id} variants={cardItem} custom={index}>
-                <RoomCard room={room} filters={filters} />
+                <RoomCard room={room} filters={filters} discountRooms={discountRooms} isApproved={isApproved} />
               </motion.div>
             ))}
           </motion.div>
