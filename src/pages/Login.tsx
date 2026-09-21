@@ -191,11 +191,54 @@ export default function Login() {
           {/* Google SSO */}
           <button
             type="button"
+            disabled={submitting}
             onClick={async () => {
-              await login("user@gmail.com", "mock-password")
-              navigate("/")
+              setSubmitting(true)
+              setError(null)
+              try {
+                const { supabase } = await import("@/lib/supabase")
+                const { data, error } = await supabase.auth.signInWithOAuth({
+                  provider: "google",
+                  options: {
+                    redirectTo: `${window.location.origin}/`,
+                    skipBrowserRedirect: true, // Get URL instead of redirect
+                  },
+                })
+
+                if (error) {
+                  setError(error.message)
+                  setSubmitting(false)
+                  return
+                }
+
+                if (data?.url) {
+                  // Try popup first
+                  const popup = window.open(
+                    data.url,
+                    "google-auth",
+                    "width=500,height=600,left=200,top=100,popup=true"
+                  )
+
+                  // If popup blocked, fall back to redirect
+                  if (!popup || popup.closed || typeof popup.closed === "undefined") {
+                    window.location.href = data.url
+                    return
+                  }
+
+                  // Watch for popup to close
+                  const checkPopup = setInterval(() => {
+                    if (popup.closed) {
+                      clearInterval(checkPopup)
+                      setSubmitting(false)
+                    }
+                  }, 500)
+                }
+              } catch (err: unknown) {
+                setError(err instanceof Error ? err.message : "Google sign-in failed. Please try again.")
+                setSubmitting(false)
+              }
             }}
-            className="w-full flex items-center justify-center gap-3 px-4 py-2.5 rounded-[10px] border border-hairline bg-white hover:bg-surface-soft transition-colors"
+            className="w-full flex items-center justify-center gap-3 px-4 py-2.5 rounded-[10px] border border-hairline bg-white hover:bg-surface-soft transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
               <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
