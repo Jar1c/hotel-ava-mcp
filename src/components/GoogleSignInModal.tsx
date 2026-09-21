@@ -1,5 +1,6 @@
 import { useState } from "react"
-import { X, Loader2 } from "lucide-react"
+import { useNavigate } from "react-router"
+import { X, Loader2, Mail } from "lucide-react"
 
 const PRIMARY = "#82285f"
 
@@ -10,6 +11,7 @@ interface GoogleSignInModalProps {
 
 export default function GoogleSignInModal({ open, onClose }: GoogleSignInModalProps) {
   const [loading, setLoading] = useState(false)
+  const navigate = useNavigate()
 
   if (!open) return null
 
@@ -108,6 +110,26 @@ export default function GoogleSignInModal({ open, onClose }: GoogleSignInModalPr
             </svg>
           )}
           <span className="text-sm text-ink/80">{loading ? "Opening Google..." : "Continue with Google"}</span>
+        </button>
+
+        {/* Divider */}
+        <div className="flex items-center gap-3 my-4">
+          <div className="flex-1 h-px bg-hairline" />
+          <span className="text-[11px] text-muted uppercase tracking-wider font-medium">or</span>
+          <div className="flex-1 h-px bg-hairline" />
+        </div>
+
+        {/* Sign in with Email */}
+        <button
+          type="button"
+          onClick={() => {
+            onClose()
+            navigate("/login")
+          }}
+          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-[10px] border border-hairline bg-white hover:bg-surface-soft transition-colors cursor-pointer text-sm text-ink/80"
+        >
+          <Mail className="w-4 h-4" />
+          Sign in with Email
         </button>
 
         <p className="text-[11px] text-muted/60 mt-5 leading-relaxed">
