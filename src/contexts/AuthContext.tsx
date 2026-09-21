@@ -151,21 +151,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         sessionStorage.setItem("access_token", session.access_token)
         sessionStorage.setItem("refresh_token", session.refresh_token || "")
 
-        if (event === "SIGNED_IN") {
-          // Fresh Google redirect: JWT has correct name/avatar from OAuth provider
+        // Check if we have a cached user with a valid name (not just email prefix)
+        const cached = localStorage.getItem("auth_user")
+        let cachedUser: User | null = null
+        try { cachedUser = cached ? JSON.parse(cached) : null } catch { /* ignore */ }
+        const hasValidCachedName = cachedUser?.name && !cachedUser.name.includes("@")
+
+        if (hasValidCachedName) {
+          // Already have a good cached user (reload or new tab) — use it
+          setUser(cachedUser!)
+          setLoading(false)
+          if (event === "INITIAL_SESSION") {
+            verifySession()
+          }
+        } else {
+          // Fresh sign-in or no valid cache — use JWT for instant data
           const payload = decodeJwt(session.access_token)
           if (payload) {
             const instantUser = userFromJwt(payload)
             setUser(instantUser)
             localStorage.setItem("auth_user", JSON.stringify(instantUser))
-          }
-          setLoading(false)
-        } else {
-          // INITIAL_SESSION (page reload): use cached user, let verifySession sync
-          // Don't use JWT — it doesn't have the full name, only email prefix
-          const cached = localStorage.getItem("auth_user")
-          if (cached) {
-            try { setUser(JSON.parse(cached)) } catch { /* ignore */ }
           }
           setLoading(false)
           verifySession()
