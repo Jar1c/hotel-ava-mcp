@@ -15,7 +15,6 @@ import { useNotifications } from "@/contexts/NotificationContext"
 import { publicNavItems, guestNavItems } from "@/data/navigation"
 import hotelAvaLogo from "@/assets/images/Hotel Ava logo.png"
 import { formatDistanceToNow } from "date-fns"
-import { getDiceBearUrl } from "@/lib/dicebear"
 import GoogleSignInModal from "@/components/GoogleSignInModal"
 
 const notifTypeStyles: Record<string, { bg: string; icon: React.ReactNode }> = {
@@ -231,9 +230,11 @@ export default function Header() {
             <DropdownMenu modal={false}>
               <DropdownMenuTrigger className="flex items-center gap-2.5 rounded-full bg-[#f0f1f3] dark:bg-surface-strong pl-1 pr-3 py-1 cursor-pointer hover:bg-[#e2e4e8] dark:hover:bg-surface-strong transition-all duration-200">
                 <Avatar className="size-9">
-                  <AvatarImage src={user?.avatar || getDiceBearUrl("adventurer", user?.email || "user", 36)} />
-                  <AvatarFallback className="bg-[#e8e2d3]">
-                    <img src={getDiceBearUrl("adventurer", user?.email || "user", 36)} alt="avatar" className="size-full rounded-full" />
+                  <AvatarImage src={user?.avatar || undefined} />
+                  <AvatarFallback className="bg-gray-200">
+                    <svg className="size-full text-gray-400" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+                    </svg>
                   </AvatarFallback>
                 </Avatar>
                 <div className="flex flex-col items-start">

@@ -65,9 +65,6 @@ export default function Profile() {
   const [showAvatarPicker, setShowAvatarPicker] = useState(false)
   const [selectedStyle, setSelectedStyle] = useState<string | null>(null)
 
-  // Always derive display avatar from user data (mirrors Header logic exactly)
-  const displayAvatar = avatarSrc || user?.avatar || getDiceBearUrl("adventurer", user?.email || "user", 128)
-
   // Google profile picture from Supabase metadata
   const [googleAvatar, setGoogleAvatar] = useState<string | null>(null)
   useEffect(() => {
@@ -83,6 +80,10 @@ export default function Profile() {
     )
     return () => { cancelled = true }
   }, [])
+
+  // Always derive display avatar from user data (mirrors Header logic exactly)
+  // Priority: temporary override > user.avatar (from DB) > googleAvatar (from Supabase) > DiceBear fallback
+  const displayAvatar = avatarSrc || user?.avatar || googleAvatar || getDiceBearUrl("adventurer", user?.email || "user", 128)
 
   // Clear temporary override when user data changes (e.g., after save/reload)
   useEffect(() => {
@@ -157,25 +158,13 @@ export default function Profile() {
   }
 
   const handleRemoveAvatar = async () => {
-    // Revert to Google profile picture (stored in JWT or DiceBear fallback)
-    let googleAvatar = ""
-    try {
-      const token = sessionStorage.getItem("access_token")
-      if (token) {
-        const payload = JSON.parse(atob(token.split(".")[1]))
-        googleAvatar = payload.avatar_url || payload.picture || ""
-      }
-    } catch { /* ignore */ }
+    // Default placeholder avatar (like Facebook's empty profile)
+    const defaultAvatar = ""
 
-    // Fallback to DiceBear if no Google avatar
-    if (!googleAvatar) {
-      googleAvatar = `https://api.dicebear.com/10.x/adventurer/svg?seed=${user?.email || "user"}`
-    }
-
-    setAvatarSrc(googleAvatar)
+    setAvatarSrc(defaultAvatar)
     try {
-      await authApi.updateProfile({ avatar_url: googleAvatar })
-      updateUser({ avatar: googleAvatar })
+      await authApi.updateProfile({ avatar_url: defaultAvatar })
+      updateUser({ avatar: defaultAvatar })
     } catch {
       // keep current
     }
@@ -226,9 +215,11 @@ export default function Profile() {
                 <DropdownMenu modal={false}>
                   <DropdownMenuTrigger className="relative group cursor-pointer">
                       <Avatar className="size-20 md:size-24 !rounded-[6px]">
-                        <AvatarImage src={displayAvatar} />
-                        <AvatarFallback className="bg-transparent">
-                          <img src={getDiceBearUrl("adventurer", user?.email || "user", 96)} alt="avatar" className="size-full rounded-[6px]" />
+                        <AvatarImage src={displayAvatar || undefined} />
+                        <AvatarFallback className="bg-gray-200">
+                          <svg className="size-full text-gray-400" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+                          </svg>
                         </AvatarFallback>
                       </Avatar>
                       <div className="absolute inset-0 rounded-[6px] flex items-center justify-center bg-black/0 group-hover:bg-black/30 transition-all duration-200">
