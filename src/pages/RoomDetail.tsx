@@ -7,7 +7,7 @@ import {
   Wifi, Wind, Wine, ConciergeBell, Building2, BedDouble,
   TreePine, Coffee, Sunrise, Bath, UserCheck, Sofa,
   Baby, Waves, Fence, Droplets, Monitor, Armchair,
-  Shirt, Fish, Sunset, UtensilsCrossed, Tv, Sparkles, Music, Clock, Tag
+  Shirt, Fish, Sunset, UtensilsCrossed, Tv, Sparkles, Music, Clock, Tag, Mail
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import DateInput from "@/components/ui/date-input"
@@ -749,7 +749,7 @@ export default function RoomDetail() {
             </div>
 
             <h2 className="text-lg font-semibold text-ink mb-2">Sign in to book</h2>
-            <p className="text-sm text-muted mb-6">Continue with your Google account to make a reservation.</p>
+            <p className="text-sm text-muted mb-6">You need to be signed in to make a reservation.</p>
 
             <button
               type="button"
@@ -772,6 +772,34 @@ export default function RoomDetail() {
               </svg>
               <span className="text-sm text-ink/80">Continue with Google</span>
             </button>
+
+            {/* Divider */}
+            <div className="flex items-center gap-3 my-4">
+              <div className="flex-1 h-px bg-hairline" />
+              <span className="text-[11px] text-muted uppercase tracking-wider font-medium">or</span>
+              <div className="flex-1 h-px bg-hairline" />
+            </div>
+
+            {/* Sign in with Email */}
+            <button
+              type="button"
+              onClick={() => {
+                setShowAuthModal(false)
+                const returnToUrl = `/rooms/${id}?${window.location.search}`
+                navigate(`/login?returnTo=${encodeURIComponent(returnToUrl)}`)
+              }}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-[10px] border border-hairline bg-white hover:bg-surface-soft transition-colors cursor-pointer text-sm text-ink/80"
+            >
+              <Mail className="w-4 h-4" />
+              Sign in with Email
+            </button>
+
+            <p className="text-[11px] text-muted/60 mt-5 leading-relaxed">
+              By signing in, you agree to our{" "}
+              <span className="font-medium" style={{ color: "#82285f" }}>Terms of Service</span>
+              {" "}and{" "}
+              <span className="font-medium" style={{ color: "#82285f" }}>Privacy Policy</span>
+            </p>
           </div>
         </div>
       )}
