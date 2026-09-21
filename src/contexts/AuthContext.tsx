@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from "react"
 import { authApi } from "@/services/api"
+import { supabase } from "@/lib/supabase"
 
 export type UserRole = "public" | "guest" | "admin"
 
@@ -27,6 +28,28 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 
+/** Decode JWT payload (no verification — used for instant UI only) */
+function decodeJwt(token: string): Record<string, any> | null {
+  try {
+    return JSON.parse(atob(token.split(".")[1]))
+  } catch {
+    return null
+  }
+}
+
+/** Build a User object from a Supabase JWT payload */
+function userFromJwt(payload: Record<string, any>): User {
+  const email = payload.email || ""
+  return {
+    id: payload.sub || "",
+    email,
+    name: payload.name || payload.full_name || email.split("@")[0] || "Guest",
+    role: "guest",
+    avatar: payload.avatar_url || payload.picture || "",
+    name_changed_at: "",
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(() => {
     try {
@@ -34,60 +57,149 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return cached ? JSON.parse(cached) : null
     } catch { return null }
   })
-  const [loading, setLoading] = useState(() => {
-    const hasToken = !!sessionStorage.getItem("access_token")
-    const hasCachedUser = !!localStorage.getItem("auth_user")
-    // Token but no cached user → need to verify before showing anything
-    return hasToken && !hasCachedUser
-  })
+  const [loading, setLoading] = useState(true)
   const verifyRef = useRef(0)
 
-  useEffect(() => {
-    const token = sessionStorage.getItem("access_token")
-    if (!token) {
-      setLoading(false)
-      return
+  // Sync Supabase session → sessionStorage (for Flask backend)
+  const syncSupabaseSession = useCallback(async (): Promise<string | null> => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session?.access_token) {
+        sessionStorage.setItem("access_token", session.access_token)
+        sessionStorage.setItem("refresh_token", session.refresh_token || "")
+        return session.access_token
+      }
+    } catch {
+      // ignore
     }
-
-    const callId = ++verifyRef.current
-
-    // Background verify — don't block UI, show cached data immediately
-    authApi.getProfile()
-      .then((profile) => {
-        if (callId !== verifyRef.current) return // stale call — ignore
-        const userObj: User = {
-          id: profile.id,
-          email: profile.email,
-          name: profile.name,
-          role: (profile.role || "guest") as UserRole,
-          avatar: profile.avatar_url || "",
-          name_changed_at: profile.name_changed_at || "",
-        }
-        setUser(userObj)
-        localStorage.setItem("auth_user", JSON.stringify(userObj))
-      })
-      .catch((err) => {
-        if (callId !== verifyRef.current) return // stale call — ignore
-        // Only clear tokens on 401 (actual auth failure)
-        // Network errors, timeouts, race conditions should NOT log the user out
-        const is401 = err?.message?.includes("401") || err?.message?.includes("Unauthorized")
-        if (is401) {
-          sessionStorage.removeItem("access_token")
-          sessionStorage.removeItem("refresh_token")
-          localStorage.removeItem("auth_user")
-          setUser(null)
-        }
-        // Non-401 errors: keep cached data, user stays logged in
-      })
-      .finally(() => {
-        if (callId !== verifyRef.current) return
-        setLoading(false)
-      })
+    return sessionStorage.getItem("access_token")
   }, [])
 
-  // Cross-tab auth sync: detect when another tab logs in/out
-  // REMOVED: storage event listener was syncing auth across tabs
-  // Instead, we use sessionStorage for tokens so each tab has its own session
+  /**
+   * Fetch profile from backend, but MERGE with Google OAuth metadata
+   * so that Google name/avatar are never lost.
+   */
+  const verifySession = useCallback(async () => {
+    const callId = ++verifyRef.current
+    try {
+      const profile = await authApi.getProfile()
+      if (callId !== verifyRef.current) return
+
+      // Get Google metadata from Supabase (always available for OAuth users)
+      let googleName = ""
+      let googleAvatar = ""
+      try {
+        const { data: { user: sbUser } } = await supabase.auth.getUser()
+        if (sbUser?.app_metadata?.providers?.includes("google")) {
+          const meta = sbUser.user_metadata || {}
+          googleName = meta.full_name || meta.name || ""
+          googleAvatar = meta.picture || meta.avatar_url || ""
+        }
+      } catch { /* ignore */ }
+
+      // For Google users: only use Google avatar as DEFAULT (when DB is empty).
+      // If user has manually selected an avatar, respect their choice.
+      const isGoogleUser = !!googleAvatar
+      const name = isGoogleUser && googleName ? googleName : (profile.name || "")
+      const avatar = (profile.avatar_url || "") || (isGoogleUser ? googleAvatar : "")
+      console.log("[auth] verifySession:", { isGoogleUser, name, avatar: avatar?.substring(0, 60), dbAvatar: profile.avatar_url?.substring(0, 60) })
+
+      // Only persist Google data to DB if DB is empty (first-time setup)
+      if (isGoogleUser) {
+        const updates: Record<string, string> = {}
+        if (!profile.avatar_url && googleAvatar) updates.avatar_url = googleAvatar
+        if (!profile.name && googleName) updates.name = googleName
+        if (Object.keys(updates).length > 0) {
+          authApi.updateProfile(updates).catch(() => {})
+        }
+      }
+
+      const userObj: User = {
+        id: profile.id,
+        email: profile.email,
+        name,
+        role: (profile.role || "guest") as UserRole,
+        avatar,
+        name_changed_at: profile.name_changed_at || "",
+      }
+      setUser(userObj)
+      localStorage.setItem("auth_user", JSON.stringify(userObj))
+    } catch (err: any) {
+      if (callId !== verifyRef.current) return
+      const is401 = err?.message?.includes("401") || err?.message?.includes("Unauthorized")
+      if (is401) {
+        sessionStorage.removeItem("access_token")
+        sessionStorage.removeItem("refresh_token")
+        localStorage.removeItem("auth_user")
+        setUser(null)
+      }
+    } finally {
+      if (callId !== verifyRef.current) return
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    let mounted = true
+
+    // Listen for Supabase auth state changes (covers Google OAuth redirect)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (!mounted) return
+
+      if ((event === "SIGNED_IN" || event === "INITIAL_SESSION") && session?.access_token) {
+        // Copy token to sessionStorage for Flask backend
+        sessionStorage.setItem("access_token", session.access_token)
+        sessionStorage.setItem("refresh_token", session.refresh_token || "")
+
+        if (event === "SIGNED_IN") {
+          // Fresh Google redirect: JWT has correct name/avatar from OAuth provider
+          const payload = decodeJwt(session.access_token)
+          if (payload) {
+            const instantUser = userFromJwt(payload)
+            setUser(instantUser)
+            localStorage.setItem("auth_user", JSON.stringify(instantUser))
+          }
+          setLoading(false)
+        } else {
+          // INITIAL_SESSION (page reload): use cached user, let verifySession sync
+          // Don't use JWT — it doesn't have the full name, only email prefix
+          const cached = localStorage.getItem("auth_user")
+          if (cached) {
+            try { setUser(JSON.parse(cached)) } catch { /* ignore */ }
+          }
+          setLoading(false)
+          verifySession()
+        }
+      } else if (event === "SIGNED_OUT") {
+        sessionStorage.removeItem("access_token")
+        sessionStorage.removeItem("refresh_token")
+        localStorage.removeItem("auth_user")
+        setUser(null)
+        setLoading(false)
+      }
+    })
+
+    // On mount: check existing session
+    syncSupabaseSession().then(() => {
+      if (!mounted) return
+      const token = sessionStorage.getItem("access_token")
+      if (token) {
+        if (user) {
+          // Have cached user — show immediately, no loading spinner
+          setLoading(false)
+        }
+        // Fetch backend profile to sync role (but Google name/avatar are preserved)
+        verifySession()
+      } else {
+        setLoading(false)
+      }
+    })
+
+    return () => {
+      mounted = false
+      subscription.unsubscribe()
+    }
+  }, [syncSupabaseSession, verifySession])
 
   const role: UserRole = user?.role ?? "public"
   const isAuthenticated = user !== null
@@ -131,6 +243,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(async () => {
     try {
       await authApi.logout()
+    } catch {
+      // ignore
+    }
+    // Clear Supabase session (prevents auto-login on reload)
+    try {
+      await supabase.auth.signOut()
     } catch {
       // ignore
     }
