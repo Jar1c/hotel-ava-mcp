@@ -99,8 +99,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       // For Google users: only use Google avatar as DEFAULT (when DB is empty).
       // If user has manually selected an avatar, respect their choice.
+      // For name: DB name is ALWAYS official (email/password registration wins).
       const isGoogleUser = !!googleAvatar
-      const name = isGoogleUser && googleName ? googleName : (profile.name || "")
+      const name = profile.name || googleName || ""
       const avatar = (profile.avatar_url || "") || (isGoogleUser ? googleAvatar : "")
       console.log("[auth] verifySession:", { isGoogleUser, name, avatar: avatar?.substring(0, 60), dbAvatar: profile.avatar_url?.substring(0, 60) })
 
