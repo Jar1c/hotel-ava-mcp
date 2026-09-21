@@ -3,9 +3,6 @@ import { useParams, useNavigate, useSearchParams } from "react-router"
 import { ArrowLeft, Calendar, Check, CreditCard, AlertCircle, Clock } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
-import DatePicker from "react-datepicker"
-import DateInput from "@/components/ui/date-input"
-import GuestSelector, { type GuestCount } from "@/components/ui/guest-selector"
 import { publicRoomsApi, type PublicRoomData } from "@/services/api"
 import { rooms as fallbackRooms, type Room } from "@/data/rooms"
 import { getCached, setCache } from "@/lib/cache"
@@ -13,19 +10,6 @@ import { useAuth } from "@/contexts/AuthContext"
 import LoadingDots from "@/components/LoadingDots"
 
 const PRIMARY = "#82285f"
-
-const DAY_USE_DURATIONS = [3, 6, 8, 12] as const
-const CLOSING_HOUR = 22 // 10 PM
-
-function generateStartTimes(maxHour: number = 20): string[] {
-  const times: string[] = []
-  for (let h = 6; h <= maxHour; h++) {
-    const period = h >= 12 ? "PM" : "AM"
-    const hour12 = h > 12 ? h - 12 : h === 0 ? 12 : h
-    times.push(`${hour12}:00 ${period}`)
-  }
-  return times
-}
 
 function parseTimeToHour(timeStr: string): number {
   const match = timeStr.match(/(\d+):00\s*(AM|PM)/i)
@@ -61,61 +45,17 @@ export default function Booking() {
     message: "",
   })
 
-  const [checkIn, setCheckIn] = useState<Date | null>(
-    searchParams.get("checkIn") ? new Date(searchParams.get("checkIn")!) : null
-  )
-  const [checkOut, setCheckOut] = useState<Date | null>(
-    searchParams.get("checkOut") ? new Date(searchParams.get("checkOut")!) : null
-  )
-  const [guests, setGuests] = useState<GuestCount>(() => ({
+  // All booking params come from URL — read-only, no state needed
+  const checkIn = searchParams.get("checkIn") ? new Date(searchParams.get("checkIn")!) : null
+  const checkOut = searchParams.get("checkOut") ? new Date(searchParams.get("checkOut")!) : null
+  const guests = {
     adults: Number(searchParams.get("adults")) || 2,
     children: Number(searchParams.get("children")) || 0,
-  }))
-  const [stayType, setStayType] = useState<"overnight" | "day">(
-    (searchParams.get("stayType") as "overnight" | "day") || "overnight"
-  )
-  const [dayDuration, setDayDuration] = useState<number>(
-    Number(searchParams.get("duration")) || 3
-  )
-  const [startTime, setStartTime] = useState<string>(
-    searchParams.get("startTime") || ""
-  )
+  }
+  const stayType = (searchParams.get("stayType") as "overnight" | "day") || "overnight"
+  const dayDuration = Number(searchParams.get("duration")) || 3
+  const startTime = searchParams.get("startTime") || ""
   const overnightStartTime = searchParams.get("overnightStartTime") || ""
-
-  const startTimes = useMemo(() => {
-    const maxStart = Math.min(24 - dayDuration, CLOSING_HOUR)
-    const allTimes = generateStartTimes(maxStart)
-    if (!checkIn) return allTimes
-    const now = new Date()
-    const selectedDate = new Date(checkIn)
-    const isToday = selectedDate.toDateString() === now.toDateString()
-    if (!isToday) return allTimes
-    const currentHour = now.getHours()
-    return allTimes.filter((t) => {
-      const h = parseTimeToHour(t)
-      return h > currentHour
-    })
-  }, [dayDuration, checkIn])
-
-
-
-   // Reset startTime if it's no longer available (e.g. date changed to today and hour passed)
-   useEffect(() => {
-     if (startTime && startTimes.length > 0 && !startTimes.includes(startTime)) {
-       setStartTime("")
-     }
-   }, [startTimes])
-
-  // Reset checkOut if it's now invalid (same date as checkIn or earlier)
-  useEffect(() => {
-    if (stayType !== "overnight" || !checkIn || !checkOut) return
-    const minCheckOut = new Date(checkIn.getTime() + 86400000)
-    const checkOutStr = checkOut.toISOString().split("T")[0]
-    const minCheckOutStr = minCheckOut.toISOString().split("T")[0]
-    if (checkOutStr <= minCheckOutStr) {
-      setCheckOut(null)
-    }
-  }, [checkIn, stayType])
 
   const endTime = useMemo(() => addHoursToTime(startTime, dayDuration), [startTime, dayDuration])
 
@@ -157,11 +97,6 @@ export default function Booking() {
       .catch(() => { if (!cached) setRoom(fallbackRooms.find(r => r.id === id) || null) })
       .finally(() => setLoading(false))
   }, [id])
-
-  const excludeDates = useMemo(() => {
-    if (!room || !room.bookedDates) return []
-    return room.bookedDates.map(d => new Date(d + "T00:00:00"))
-  }, [room])
 
   const isOvernight = stayType === "overnight"
   const hasDate = checkIn !== null
@@ -285,165 +220,87 @@ export default function Booking() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-lg">
           {/* LEFT: Forms */}
           <div className="lg:col-span-2 space-y-lg">
-             {/* Stay Details */}
-             <div className={`bg-white border border-hairline rounded-[12px] p-lg ${submitted ? "opacity-50 pointer-events-none" : ""}`}>
+             {/* Stay Details — read-only (already chosen on room page) */}
+             <div className="bg-white border border-hairline rounded-[12px] p-lg">
                <h2 className="typo-display-sm text-ink mb-md flex items-center gap-2">
                  <Calendar className="h-5 w-5 text-primary" />
                  Stay Details
                </h2>
 
-              {/* Stay Type Toggle */}
-              <div className="flex gap-2 mb-md">
-                <button
-                  type="button"
-                  onClick={() => setStayType("overnight")}
-                  className={`flex-1 py-2.5 rounded-[12px] text-sm font-semibold transition-all ${
-                    stayType === "overnight"
-                      ? "bg-primary text-on-primary shadow-sm"
-                      : "bg-white text-muted border border-hairline hover:border-primary/30"
-                  }`}
-                >
-                  Overnight Stay
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setStayType("day")}
-                  className={`flex-1 py-2.5 rounded-[12px] text-sm font-semibold transition-all ${
-                    stayType === "day"
-                      ? "bg-primary text-on-primary shadow-sm"
-                      : "bg-white text-muted border border-hairline hover:border-primary/30"
-                  }`}
-                >
-                  Day Use
-                </button>
-              </div>
-
               {isOvernight ? (
-                /* Overnight: Check-in + Check-out */
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-md">
-                  <div>
-                    <label className="typo-caption text-muted block mb-xs">Check-in</label>
-                    <DatePicker
-                      selected={checkIn}
-                      onChange={(date: Date | null) => {
-                        setCheckIn(date)
-                        if (date && checkOut && date >= checkOut) setCheckOut(null)
-                      }}
-                      selectsStart startDate={checkIn} endDate={checkOut}
-                      minDate={new Date()}
-                      excludeDates={excludeDates}
-                      customInput={<DateInput placeholder="Select date" />}
-                    />
+                /* Overnight: read-only */
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between py-2 border-b border-hairline">
+                    <span className="text-sm text-muted">Stay Type</span>
+                    <span className="text-sm font-semibold text-ink">Overnight Stay</span>
                   </div>
-                  <div>
-                    <label className="typo-caption text-muted block mb-xs">Check-out</label>
-                    <DatePicker
-                      selected={checkOut}
-                      onChange={(date: Date | null) => setCheckOut(date)}
-                      selectsEnd startDate={checkIn} endDate={checkOut}
-                      minDate={checkIn ? new Date(checkIn.getTime() + 86400000) : new Date()}
-                      maxDate={checkIn ? new Date(checkIn.getTime() + 30 * 86400000) : undefined}
-                      excludeDates={excludeDates}
-                      customInput={<DateInput placeholder="Select date" />}
-                    />
+                  <div className="flex items-center justify-between py-2 border-b border-hairline">
+                    <span className="text-sm text-muted">Check-in</span>
+                    <span className="text-sm font-semibold text-ink">
+                      {checkIn ? checkIn.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}
+                    </span>
                   </div>
-                  <div>
-                    <label className="typo-caption text-muted block mb-xs">Guests</label>
-                    <div className="px-3 py-2 rounded-[12px] border border-hairline bg-white">
-                      <GuestSelector value={guests} onChange={setGuests} maxAdults={room.max_adults} maxChildren={room.max_children} allowChildren={room.allows_children} />
-                    </div>
+                  <div className="flex items-center justify-between py-2 border-b border-hairline">
+                    <span className="text-sm text-muted">Check-out</span>
+                    <span className="text-sm font-semibold text-ink">
+                      {checkOut ? checkOut.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}
+                    </span>
                   </div>
-                </div>
-              ) : (
-                /* Day Use: Date + Duration + Start Time */
-                <div className="space-y-md">
-                  <div>
-                    <label className="typo-caption text-muted block mb-xs">Date</label>
-                    <DatePicker
-                      selected={checkIn}
-                      onChange={(date: Date | null) => setCheckIn(date)}
-                      minDate={new Date()}
-                      excludeDates={excludeDates}
-                      customInput={<DateInput placeholder="Select date" />}
-                    />
-                  </div>
-                  <div>
-                    <label className="typo-caption text-muted block mb-xs">Duration</label>
-                    <div className="grid grid-cols-4 gap-2">
-                      {DAY_USE_DURATIONS.map((d) => (
-                        <button
-                          key={d}
-                          type="button"
-                          onClick={() => {
-                            setDayDuration(d)
-                            const maxStart = 24 - d
-                            const match = startTime.match(/(\d+):00/)
-                            if (match) {
-                              let h = parseInt(match[1])
-                              if (startTime.includes("PM") && !startTime.startsWith("12")) h += 12
-                              if (startTime.startsWith("12") && startTime.includes("PM")) h = 12
-                              if (h > maxStart) {
-                                setStartTime(`${maxStart > 12 ? maxStart - 12 : maxStart}:00 ${maxStart >= 12 ? "PM" : "AM"}`)
-                              }
-                            }
-                          }}
-                          className={`py-2.5 rounded-[10px] text-sm font-semibold transition-all ${
-                            dayDuration === d
-                              ? "bg-primary text-on-primary shadow-sm"
-                              : "bg-white text-muted border border-hairline hover:border-primary/30"
-                          }`}
-                        >
-                          {d}h
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div>
-                    <label className="typo-caption text-muted block mb-xs">Start Time</label>
-                    <div className="relative">
-                      <Clock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted pointer-events-none" />
-                      <select
-                        value={startTime}
-                        onChange={(e) => setStartTime(e.target.value)}
-                        className="w-full pl-9 pr-3 py-2 rounded-[12px] border border-hairline bg-white typo-body-sm text-ink focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary appearance-none"
-                      >
-                        <option value="" disabled>Select Time</option>
-                        {startTimes.map((t) => (
-                          <option key={t} value={t}>{t}</option>
-                        ))}
-                      </select>
-                      <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-muted">
-                        <svg className="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
-                      </div>
-                    </div>
-                  </div>
-                  {checkIn && startTime && (
-                    <div className="bg-primary/5 border border-primary/10 rounded-[10px] px-3 py-2 flex items-center gap-2">
-                      <Clock className="h-4 w-4 text-primary" />
-                      <span className="text-sm text-ink font-medium">
-                        {startTime} – {endTime}
-                      </span>
+                  {overnightStartTime && (
+                    <div className="flex items-center justify-between py-2 border-b border-hairline">
+                      <span className="text-sm text-muted">Check-in Time</span>
+                      <span className="text-sm font-semibold text-ink">{overnightStartTime}</span>
                     </div>
                   )}
-                  <div>
-                    <label className="typo-caption text-muted block mb-xs">Guests</label>
-                    <div className="px-3 py-2 rounded-[12px] border border-hairline bg-white">
-                      <GuestSelector value={guests} onChange={setGuests} maxAdults={room.max_adults} maxChildren={room.max_children} allowChildren={room.allows_children} />
-                    </div>
+                  <div className="flex items-center justify-between py-2 border-b border-hairline">
+                    <span className="text-sm text-muted">Duration</span>
+                    <span className="text-sm font-semibold text-ink">{nights} {nights === 1 ? "night" : "nights"}</span>
                   </div>
-                </div>
-              )}
-
-              {isOvernight && validNights && (
-                <div className="mt-md space-y-1">
-                  <p className="typo-caption text-muted">
-                    {nights} {nights === 1 ? "night" : "nights"} stay
-                  </p>
+                  <div className="flex items-center justify-between py-2">
+                    <span className="text-sm text-muted">Guests</span>
+                    <span className="text-sm font-semibold text-ink">{guests.adults} adult{guests.adults !== 1 ? "s" : ""}{guests.children > 0 ? `, ${guests.children} child${guests.children !== 1 ? "ren" : ""}` : ""}</span>
+                  </div>
                   {overnightStartTime && (
-                    <div className="bg-primary/5 border border-primary/10 rounded-[10px] px-3 py-2 flex items-center gap-2">
+                    <div className="bg-primary/5 border border-primary/10 rounded-[10px] px-3 py-2 flex items-center gap-2 mt-1">
                       <Clock className="h-4 w-4 text-primary" />
                       <span className="text-sm text-ink font-medium">
                         {overnightStartTime} – {overnightEndTime}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                /* Day Use: read-only */
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between py-2 border-b border-hairline">
+                    <span className="text-sm text-muted">Stay Type</span>
+                    <span className="text-sm font-semibold text-ink">Day Use</span>
+                  </div>
+                  <div className="flex items-center justify-between py-2 border-b border-hairline">
+                    <span className="text-sm text-muted">Date</span>
+                    <span className="text-sm font-semibold text-ink">
+                      {checkIn ? checkIn.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between py-2 border-b border-hairline">
+                    <span className="text-sm text-muted">Duration</span>
+                    <span className="text-sm font-semibold text-ink">{dayDuration} hours</span>
+                  </div>
+                  {startTime && (
+                    <div className="flex items-center justify-between py-2 border-b border-hairline">
+                      <span className="text-sm text-muted">Time</span>
+                      <span className="text-sm font-semibold text-ink">{startTime} – {endTime}</span>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between py-2">
+                    <span className="text-sm text-muted">Guests</span>
+                    <span className="text-sm font-semibold text-ink">{guests.adults} adult{guests.adults !== 1 ? "s" : ""}{guests.children > 0 ? `, ${guests.children} child${guests.children !== 1 ? "ren" : ""}` : ""}</span>
+                  </div>
+                  {startTime && (
+                    <div className="bg-primary/5 border border-primary/10 rounded-[10px] px-3 py-2 flex items-center gap-2 mt-1">
+                      <Clock className="h-4 w-4 text-primary" />
+                      <span className="text-sm text-ink font-medium">
+                        {startTime} – {endTime}
                       </span>
                     </div>
                   )}

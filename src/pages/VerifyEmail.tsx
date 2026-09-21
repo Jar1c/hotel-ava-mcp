@@ -37,7 +37,10 @@ export default function VerifyEmail() {
             sessionStorage.setItem("access_token", data.access_token)
             sessionStorage.setItem("refresh_token", data.refresh_token)
             setState("redirecting")
-            setTimeout(() => navigate("/"), 2500)
+            // Redirect to stored returnTo (booking page) or fallback to home
+            const returnTo = sessionStorage.getItem("postVerifyReturnTo") || "/"
+            sessionStorage.removeItem("postVerifyReturnTo")
+            setTimeout(() => navigate(returnTo), 2500)
           } else {
             setState("success")
           }
@@ -84,7 +87,7 @@ export default function VerifyEmail() {
               <p className="text-sm text-[#7A7A70] mb-6">
                 Your email has been confirmed. You can now sign in to your account and start booking.
               </p>
-              <Link to="/login">
+              <Link to={`/login?returnTo=${encodeURIComponent(sessionStorage.getItem("postVerifyReturnTo") || "/")}`}>
                 <Button className="w-full bg-[#82285f] hover:bg-[#6b1f4b] text-white text-sm rounded-[6px] py-2.5">
                   Sign In to Your Account
                 </Button>
@@ -99,7 +102,7 @@ export default function VerifyEmail() {
               </div>
               <h1 className="text-lg font-bold text-[#2A2A28] mb-2">Email verified!</h1>
               <p className="text-sm text-[#7A7A70] mb-5">
-                Your account is ready. Redirecting you to the main page...
+                Your account is ready. Redirecting you back to your booking...
               </p>
               <div className="flex items-center justify-center gap-2 text-sm text-[#82285f]">
                 <LoadingDots size="sm" className="text-primary" />

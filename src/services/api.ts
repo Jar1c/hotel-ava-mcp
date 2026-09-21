@@ -337,6 +337,8 @@ export interface GuestData {
   totalSpent: number
   lastStay: string
   status: "VIP" | "Regular" | "New"
+  avatar_url: string
+  created_at: string
 }
 
 export const guestsApi = {

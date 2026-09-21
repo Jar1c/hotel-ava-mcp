@@ -1,4 +1,4 @@
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import { Link, useLocation } from "react-router"
 import { motion } from "motion/react"
 import { ArrowRight } from "lucide-react"
@@ -7,33 +7,8 @@ import AboutSection from "@/components/home/AboutSection"
 import GuestReviews from "@/components/home/GuestReviews"
 import LocationSection from "@/components/home/LocationSection"
 import ImageWithPlaceholder from "@/components/ui/ImageWithPlaceholder"
-
-const featuredRooms = [
-  {
-    id: "standard-room",
-    name: "Standard Room",
-    price: "₱2,400",
-    description: "Comfortable 15-20m² room with AC, hot & cold shower, WiFi, cable TV, and complimentary breakfast on 24-hour stays.",
-    image: "https://hotel-ava.com/wp-content/uploads/2025/04/HACU-WEBSITE-RS-RM-79.jpg",
-    badge: "Best Value",
-  },
-  {
-    id: "deluxe-room",
-    name: "Deluxe Room",
-    price: "₱2,800",
-    description: "Modern room with private garage access, Smart TV, and upgraded amenities. Perfect for those who value convenience.",
-    image: "https://hotel-ava.com/wp-content/uploads/2025/07/HAGP-RM-4.png",
-    badge: null,
-  },
-  {
-    id: "regular-suite",
-    name: "Regular Suite",
-    price: "₱3,800",
-    description: "Expansive suite with relaxing bathtub/jacuzzi and private garage. 30-50m² of pure comfort.",
-    image: "https://hotel-ava.com/wp-content/uploads/2025/04/HAMA-ES-WEBSITE-PHOTO-RM123.png",
-    badge: "Suite",
-  },
-]
+import { publicRoomsApi, type PublicRoomData } from "@/services/api"
+import { getCached, setCache } from "@/lib/cache"
 
 const fadeUp = {
   hidden: { opacity: 0, y: 30 },
@@ -62,6 +37,7 @@ const cardItem = {
 
 export default function Home() {
   const { hash } = useLocation()
+  const [featuredRooms, setFeaturedRooms] = useState<PublicRoomData[]>([])
 
   useEffect(() => {
     if (hash) {
@@ -73,6 +49,21 @@ export default function Home() {
     }
     window.scrollTo(0, 0)
   }, [hash])
+
+  // Fetch rooms from database
+  useEffect(() => {
+    const cached = getCached<PublicRoomData[]>("home:featured-rooms")
+    if (cached) {
+      setFeaturedRooms(cached.slice(0, 3))
+      return
+    }
+    publicRoomsApi.getAll()
+      .then((rooms) => {
+        setCache("home:featured-rooms", rooms)
+        setFeaturedRooms(rooms.slice(0, 3))
+      })
+      .catch(() => {})
+  }, [])
 
   return (
     <div>
@@ -129,7 +120,7 @@ export default function Home() {
       </section>
 
       {/* Featured Rooms */}
-      <section id="rooms" className="px-base py-section">
+      <section id="rooms" className="px-base pt-[100px] pb-section">
         <div className="mx-auto" style={{ maxWidth: "var(--container-max)" }}>
           <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-md mb-xl">
             <div>
@@ -177,26 +168,26 @@ export default function Home() {
           >
             {featuredRooms.map((room) => (
               <motion.div key={room.id} variants={cardItem}>
-                <Link to="/rooms" className="group block">
+                <Link to={`/rooms?room=${room.id}`} className="group block">
                   <div className="relative aspect-[3/4] overflow-hidden rounded-[10px] mb-base">
                     <ImageWithPlaceholder
-                      src={room.image}
+                      src={room.images?.[0] || ""}
                       alt={room.name}
                       className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                     />
-                    {room.badge && (
+                    {room.type === "suite" && (
                       <span className="absolute top-3 left-3 bg-ink/60 backdrop-blur-sm text-on-primary typo-badge uppercase px-2 py-0.5 rounded-[4px]">
-                        {room.badge}
+                        Suite
                       </span>
                     )}
                   </div>
                   <h3 className="font-display italic text-ink group-hover:text-primary transition-colors mb-xs" style={{ fontSize: "1.25rem", fontWeight: 500 }}>
                     {room.name}
                   </h3>
-                  <p className="typo-body-sm text-muted mb-sm">{room.description}</p>
+                  <p className="typo-body-sm text-muted mb-sm line-clamp-2">{room.description}</p>
                   <div className="flex items-center justify-between">
                     <p className="typo-title-md text-ink">
-                      {room.price} <span className="typo-caption text-muted">/night</span>
+                      ₱{room.price.toLocaleString()} <span className="typo-caption text-muted">/night</span>
                     </p>
                     <ArrowRight className="h-4 w-4 text-muted group-hover:text-primary transition-all group-hover:translate-x-1" />
                   </div>

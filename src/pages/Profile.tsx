@@ -58,13 +58,35 @@ export default function Profile() {
   const [firstNameError, setFirstNameError] = useState("")
   const [lastNameError, setLastNameError] = useState("")
 
-  const [avatarSrc, setAvatarSrc] = useState<string | undefined>(user?.avatar)
+  // avatarSrc is ONLY a temporary override during upload/selection previews.
+  // The real display avatar is always derived from user?.avatar (same as Header).
+  const [avatarSrc, setAvatarSrc] = useState<string | undefined>(undefined)
   const [avatarLoading, setAvatarLoading] = useState(false)
   const [showAvatarPicker, setShowAvatarPicker] = useState(false)
   const [selectedStyle, setSelectedStyle] = useState<string | null>(null)
 
+  // Always derive display avatar from user data (mirrors Header logic exactly)
+  const displayAvatar = avatarSrc || user?.avatar || getDiceBearUrl("adventurer", user?.email || "user", 128)
+
+  // Google profile picture from Supabase metadata
+  const [googleAvatar, setGoogleAvatar] = useState<string | null>(null)
   useEffect(() => {
-    if (user?.avatar) setAvatarSrc(user.avatar)
+    let cancelled = false
+    import("@/lib/supabase").then(({ supabase }) =>
+      supabase.auth.getUser().then(({ data: { user: sbUser } }) => {
+        if (cancelled) return
+        if (sbUser?.app_metadata?.providers?.includes("google")) {
+          const meta = sbUser.user_metadata || {}
+          setGoogleAvatar(meta.picture || meta.avatar_url || null)
+        }
+      })
+    )
+    return () => { cancelled = true }
+  }, [])
+
+  // Clear temporary override when user data changes (e.g., after save/reload)
+  useEffect(() => {
+    setAvatarSrc(undefined)
   }, [user?.avatar])
 
   const formatName = (value: string, onError: (msg: string) => void) => {
@@ -134,19 +156,57 @@ export default function Profile() {
     }
   }
 
-  const handleRemoveAvatar = () => {
-    setAvatarSrc(undefined)
-    updateUser({ avatar: undefined })
+  const handleRemoveAvatar = async () => {
+    // Revert to Google profile picture (stored in JWT or DiceBear fallback)
+    let googleAvatar = ""
+    try {
+      const token = sessionStorage.getItem("access_token")
+      if (token) {
+        const payload = JSON.parse(atob(token.split(".")[1]))
+        googleAvatar = payload.avatar_url || payload.picture || ""
+      }
+    } catch { /* ignore */ }
+
+    // Fallback to DiceBear if no Google avatar
+    if (!googleAvatar) {
+      googleAvatar = `https://api.dicebear.com/10.x/adventurer/svg?seed=${user?.email || "user"}`
+    }
+
+    setAvatarSrc(googleAvatar)
+    try {
+      await authApi.updateProfile({ avatar_url: googleAvatar })
+      updateUser({ avatar: googleAvatar })
+    } catch {
+      // keep current
+    }
   }
 
   const handleSelectDiceBear = async (style: string) => {
     const url = getDiceBearUrl(style, user?.email || "user")
+    console.log("[profile] Selecting DiceBear:", style, url)
     setAvatarSrc(url)
     setSelectedStyle(style)
     try {
-      await authApi.updateProfile({ avatar_url: url })
+      const result = await authApi.updateProfile({ avatar_url: url })
+      console.log("[profile] Update result:", result)
       updateUser({ avatar: url })
-    } catch {
+    } catch (e) {
+      console.error("[profile] Update FAILED:", e)
+      // keep current avatar
+    }
+  }
+
+  const handleSelectGoogle = async () => {
+    if (!googleAvatar) return
+    console.log("[profile] Selecting Google avatar:", googleAvatar)
+    setAvatarSrc(googleAvatar)
+    setSelectedStyle("google")
+    try {
+      const result = await authApi.updateProfile({ avatar_url: googleAvatar })
+      console.log("[profile] Update result:", result)
+      updateUser({ avatar: googleAvatar })
+    } catch (e) {
+      console.error("[profile] Update FAILED:", e)
       // keep current avatar
     }
   }
@@ -166,7 +226,7 @@ export default function Profile() {
                 <DropdownMenu modal={false}>
                   <DropdownMenuTrigger className="relative group cursor-pointer">
                       <Avatar className="size-20 md:size-24 !rounded-[6px]">
-                        {avatarSrc && <AvatarImage src={avatarSrc} />}
+                        <AvatarImage src={displayAvatar} />
                         <AvatarFallback className="bg-transparent">
                           <img src={getDiceBearUrl("adventurer", user?.email || "user", 96)} alt="avatar" className="size-full rounded-[6px]" />
                         </AvatarFallback>
@@ -213,7 +273,7 @@ export default function Profile() {
                       <Camera className="size-4 mr-2" />
                       Upload Photo
                     </DropdownMenuItem>
-                    {avatarSrc && (
+                    {displayAvatar && (
                       <DropdownMenuItem onClick={handleRemoveAvatar} className="cursor-pointer">
                         <Trash2 className="size-4 mr-2" />
                         Remove Photo
@@ -386,12 +446,35 @@ export default function Profile() {
 
             {/* Style grid */}
             <div className="grid grid-cols-4 gap-3 overflow-y-auto flex-1 p-1" style={{ maxHeight: "60vh" }}>
+              {/* Google Avatar Option */}
+              {googleAvatar && (
+                <button
+                  onClick={handleSelectGoogle}
+                  className={`flex flex-col items-center gap-1.5 p-2 rounded-[10px] border-2 transition-all cursor-pointer hover:scale-105 ${
+                    selectedStyle === "google" || (displayAvatar === googleAvatar)
+                      ? "border-primary bg-primary/5"
+                      : "border-transparent hover:border-gray-200"
+                  }`}
+                >
+                  <img
+                    src={googleAvatar}
+                    alt="Google"
+                    className="size-14 rounded-full bg-surface-soft object-cover"
+                    loading="lazy"
+                  />
+                  <span className="typo-caption-xs text-center leading-tight" style={{ color: MUTED }}>
+                    Google
+                  </span>
+                </button>
+              )}
+
+              {/* DiceBear Styles */}
               {DICEBEAR_STYLES.map((style) => (
                 <button
                   key={style.id}
                   onClick={() => handleSelectDiceBear(style.id)}
                   className={`flex flex-col items-center gap-1.5 p-2 rounded-[10px] border-2 transition-all cursor-pointer hover:scale-105 ${
-                    selectedStyle === style.id || (avatarSrc && avatarSrc.includes(`/${style.id}/`))
+                    selectedStyle === style.id || (displayAvatar && displayAvatar.includes(`/${style.id}/`))
                       ? "border-primary bg-primary/5"
                       : "border-transparent hover:border-gray-200"
                   }`}

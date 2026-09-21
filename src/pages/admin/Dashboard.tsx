@@ -1,26 +1,24 @@
-import { useState, useEffect } from "react"
-import { Brain, TrendingUp, DollarSign, Calendar } from "lucide-react"
+import { useState } from "react"
+import { Brain, TrendingUp, PhilippinePeso, Calendar } from "lucide-react"
 import StatCard from "@/components/admin/StatCard"
 import { getDashboardStats, type DashboardStats } from "@/services/adminService"
 import { getAIRecommendations, type RecommendationsData } from "@/services/adminService"
+import { usePolling } from "@/hooks/usePolling"
 
 export default function Dashboard() {
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [recommendations, setRecommendations] = useState<RecommendationsData | null>(null)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    async function load() {
-      const [s, reco] = await Promise.all([
-        getDashboardStats(),
-        getAIRecommendations(),
-      ])
-      setStats(s)
-      setRecommendations(reco)
-      setLoading(false)
-    }
-    load()
-  }, [])
+  // Poll every 30 seconds for live dashboard updates
+  usePolling(
+    async () => {
+      const [s, reco] = await Promise.all([getDashboardStats(), getAIRecommendations()])
+      return { s, reco }
+    },
+    ({ s, reco }) => { setStats(s); setRecommendations(reco); setLoading(false) },
+    30000,
+  )
 
   return (
     <div className="flex flex-col gap-5">
@@ -67,7 +65,7 @@ export default function Dashboard() {
 
               <div className="rounded-[8px] bg-white border border-[#e2e4e8] p-4 shadow-sm">
                 <div className="flex items-center justify-between gap-2 mb-2">
-                  <DollarSign className="w-5 h-5 text-[#82285f]" />
+                  <PhilippinePeso className="w-5 h-5 text-[#82285f]" />
                   <span className="text-[11px] font-bold px-2 py-1 rounded-[4px] bg-[#455d58]/10 text-[#455d58]">
                     {(recommendations?.revenueGrowth ?? 0) > 0 ? "+" : ""}
                     {recommendations?.revenueGrowth ?? 0}%
@@ -111,7 +109,7 @@ export default function Dashboard() {
             <StatCard
               label="Monthly Revenue"
               value={`₱${(stats?.monthlyRevenue ?? 0).toLocaleString()}`}
-              icon={<DollarSign className="size-5" />}
+              icon={<PhilippinePeso className="size-5" />}
               trendValue="—"
               trend="this month"
               trendUp

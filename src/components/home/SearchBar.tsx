@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react"
+import { useState, useMemo, useCallback, useRef, useEffect } from "react"
 import { useNavigate } from "react-router"
 import { motion } from "motion/react"
 import DatePicker from "react-datepicker"
@@ -14,6 +14,9 @@ const ALL_TIME_SLOTS = [
   "6:00 PM", "7:00 PM", "8:00 PM", "9:00 PM", "10:00 PM"
 ]
 
+const BUDGET_MAX = 5000
+const BUDGET_STEP = 100
+
 function parseTime(time: string): number {
   const [timePart, period] = time.split(" ")
   let [hours] = timePart.split(":").map(Number)
@@ -22,6 +25,83 @@ function parseTime(time: string): number {
   return hours
 }
 
+/* ── Single Budget Slider ─────────────────────────────────────────────────── */
+
+function BudgetSlider({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+  const trackRef = useRef<HTMLDivElement>(null)
+  const [dragging, setDragging] = useState(false)
+  const isAny = value >= BUDGET_MAX
+
+  const toPercent = (v: number) => (v / BUDGET_MAX) * 100
+  const pct = toPercent(isAny ? BUDGET_MAX : value)
+
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
+    e.preventDefault()
+    setDragging(true)
+  }, [])
+
+  useEffect(() => {
+    if (!dragging) return
+
+    const onMove = (e: PointerEvent) => {
+      if (!trackRef.current) return
+      const rect = trackRef.current.getBoundingClientRect()
+      const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
+      const raw = Math.round((pct * BUDGET_MAX) / BUDGET_STEP) * BUDGET_STEP
+      onChange(Math.max(0, Math.min(BUDGET_MAX, raw)))
+    }
+
+    const onUp = () => setDragging(false)
+
+    document.addEventListener("pointermove", onMove)
+    document.addEventListener("pointerup", onUp)
+    return () => {
+      document.removeEventListener("pointermove", onMove)
+      document.removeEventListener("pointerup", onUp)
+    }
+  }, [dragging, onChange])
+
+  const label = isAny ? "Any" : `₱${value.toLocaleString()}`
+
+  return (
+    <div className="w-full">
+      <div className="flex items-center justify-between mb-1.5">
+        <span className="text-[13px] font-semibold text-ink">{label}</span>
+      </div>
+
+      {/* Track */}
+      <div
+        ref={trackRef}
+        className="relative h-6 flex items-center cursor-pointer select-none touch-none"
+      >
+        {/* Background */}
+        <div className="absolute w-full h-[3px] rounded-full bg-hairline" />
+
+        {/* Active fill */}
+        <div
+          className="absolute h-[3px] rounded-full bg-primary transition-none"
+          style={{ width: `${pct}%` }}
+        />
+
+        {/* Thumb */}
+        <div
+          onPointerDown={handlePointerDown}
+          className="absolute w-5 h-5 rounded-full bg-white border-[2.5px] border-primary shadow-md cursor-grab active:cursor-grabbing -translate-x-1/2 z-10 hover:scale-110 transition-transform"
+          style={{ left: `${pct}%` }}
+        />
+      </div>
+
+      {/* Min / Max labels */}
+      <div className="flex items-center justify-between mt-0.5">
+        <span className="text-[10px] text-muted">₱0</span>
+        <span className="text-[10px] text-muted">₱5,000</span>
+      </div>
+    </div>
+  )
+}
+
+/* ── SearchBar ────────────────────────────────────────────────────────────── */
+
 export default function SearchBar() {
   const navigate = useNavigate()
   const [stayType, setStayType] = useState<StayType>("overnight")
@@ -29,7 +109,7 @@ export default function SearchBar() {
   const [checkOut, setCheckOut] = useState<Date | null>(null)
   const [dayUseTime, setDayUseTime] = useState<string>("")
   const [guests, setGuests] = useState<GuestCount>({ adults: 0, children: 0 })
-  const [budget, setBudget] = useState<string>("")
+  const [budget, setBudget] = useState<number>(BUDGET_MAX)
   const [checkInOpen, setCheckInOpen] = useState(false)
   const [checkOutOpen, setCheckOutOpen] = useState(false)
 
@@ -56,34 +136,33 @@ export default function SearchBar() {
     setDayUseTime("")
     if (isDayUse) {
       setCheckOut(date)
-    } else if (date && checkOut) {
-      // Reset check-out if it's now same date or earlier
-      const minCheckOut = new Date(date.getTime() + 86400000)
-      const checkOutStr = checkOut.toISOString().split("T")[0]
-      const minCheckOutStr = minCheckOut.toISOString().split("T")[0]
-      if (checkOutStr <= minCheckOutStr) {
-        setCheckOut(null)
-      }
+      setCheckInOpen(false)
+    } else if (date) {
+      // Auto-open check-out picker after selecting check-in
+      setCheckInOpen(false)
+      setTimeout(() => setCheckOutOpen(true), 100)
+    } else if (date === null) {
+      setCheckOut(null)
     }
   }
 
   const handleSearch = () => {
     if (!canSearch) return
     const searchParams = new URLSearchParams()
-      searchParams.set("stayType", stayType)
-      if (checkIn) searchParams.set("checkIn", format(checkIn, "yyyy-MM-dd"))
-      if (isDayUse) {
-        if (checkIn) searchParams.set("checkOut", format(checkIn, "yyyy-MM-dd"))
-        searchParams.set("startTime", dayUseTime)
-      } else {
-        if (checkOut) searchParams.set("checkOut", format(checkOut, "yyyy-MM-dd"))
-      }
+    searchParams.set("stayType", stayType)
+    if (checkIn) searchParams.set("checkIn", format(checkIn, "yyyy-MM-dd"))
+    if (isDayUse) {
+      if (checkIn) searchParams.set("checkOut", format(checkIn, "yyyy-MM-dd"))
+      searchParams.set("startTime", dayUseTime)
+    } else {
+      if (checkOut) searchParams.set("checkOut", format(checkOut, "yyyy-MM-dd"))
+    }
     searchParams.set("adults", String(guests.adults))
     searchParams.set("children", String(guests.children))
-    if (budget) searchParams.set("budget", budget)
+    if (budget < BUDGET_MAX) searchParams.set("budgetMax", String(budget))
     navigate({
       pathname: "/rooms",
-      search: searchParams.toString()
+      search: searchParams.toString(),
     })
   }
 
@@ -91,18 +170,19 @@ export default function SearchBar() {
     setCheckIn(null)
     setCheckOut(null)
     setDayUseTime("")
+    setBudget(BUDGET_MAX)
   }
 
   return (
-    <div className="w-full bg-white rounded-[16px] shadow-card-hover border border-hairline">
+    <div className="w-full bg-white rounded-[20px] shadow-card-hover border border-hairline/60">
       {/* Stay Type Toggle */}
-      <div className="flex border-b border-hairline">
+      <div className="flex border-b border-hairline/60">
         <button
           type="button"
           onClick={() => handleStayTypeChange("overnight")}
-          className={`flex-1 py-3 text-center typo-body-sm font-semibold transition-colors cursor-pointer ${
+          className={`flex-1 py-3.5 text-center typo-body-sm font-semibold transition-colors cursor-pointer ${
             stayType === "overnight"
-              ? "text-primary border-b-2 border-primary"
+              ? "text-primary border-b-[3px] border-primary"
               : "text-muted hover:text-ink"
           }`}
         >
@@ -111,9 +191,9 @@ export default function SearchBar() {
         <button
           type="button"
           onClick={() => handleStayTypeChange("day")}
-          className={`flex-1 py-3 text-center typo-body-sm font-semibold transition-colors cursor-pointer ${
+          className={`flex-1 py-3.5 text-center typo-body-sm font-semibold transition-colors cursor-pointer ${
             stayType === "day"
-              ? "text-primary border-b-2 border-primary"
+              ? "text-primary border-b-[3px] border-primary"
               : "text-muted hover:text-ink"
           }`}
         >
@@ -121,20 +201,22 @@ export default function SearchBar() {
         </button>
       </div>
 
-      {/* Fields */}
+      {/* Fields Row */}
       <div className="flex flex-col md:flex-row md:items-stretch">
-        {/* Check In / Select Date */}
-        <div className="flex-1 min-w-0 px-5 py-4 border-b md:border-b-0 md:border-r border-hairline relative">
-          <label className="typo-caption font-display font-semibold text-ink uppercase tracking-wider block mb-1.5 cursor-pointer">
+        {/* Check-In */}
+        <div className="flex-1 min-w-0 px-6 py-5 border-b md:border-b-0 md:border-r border-hairline/60 relative">
+          <label className="typo-caption font-display font-semibold text-ink uppercase tracking-wider block mb-2 cursor-pointer">
             {isDayUse ? "Select Date" : "Check-In"}
           </label>
           <button
             type="button"
             onClick={() => setCheckInOpen(true)}
-            className="w-full flex items-center gap-2 text-left bg-transparent border-none p-0 cursor-pointer"
+            className="w-full flex items-center gap-2.5 text-left bg-transparent border-none p-0 cursor-pointer"
           >
             <Calendar className="h-4 w-4 text-muted shrink-0" />
-            <span className="typo-body-sm text-muted">{checkIn ? format(checkIn, "MMM dd, yyyy") : "Select date"}</span>
+            <span className="typo-body-sm text-muted">
+              {checkIn ? format(checkIn, "MMM dd, yyyy") : "Select date"}
+            </span>
           </button>
 
           <div className="absolute left-0 bottom-0 h-0 w-0">
@@ -167,6 +249,9 @@ export default function SearchBar() {
                   onClick={(e) => {
                     e.preventDefault()
                     setCheckInOpen(false)
+                    if (!isDayUse) {
+                      setTimeout(() => setCheckOutOpen(true), 100)
+                    }
                   }}
                   className="typo-button-sm bg-ink text-on-primary rounded-full px-6 py-2 hover:bg-primary-active transition-colors cursor-pointer"
                 >
@@ -177,16 +262,16 @@ export default function SearchBar() {
           </div>
         </div>
 
-        {/* Check Out - overnight only */}
+        {/* Check-Out — overnight only */}
         {!isDayUse && (
-          <div className="flex-1 min-w-0 px-5 py-4 border-b md:border-b-0 md:border-r border-hairline relative">
-            <label className="typo-caption font-display font-semibold text-ink uppercase tracking-wider block mb-1.5 cursor-pointer">
+          <div className="flex-1 min-w-0 px-6 py-5 border-b md:border-b-0 md:border-r border-hairline/60 relative">
+            <label className="typo-caption font-display font-semibold text-ink uppercase tracking-wider block mb-2 cursor-pointer">
               Check-Out
             </label>
             <button
               type="button"
               onClick={() => setCheckOutOpen(true)}
-              className="w-full flex items-center gap-2 text-left bg-transparent border-none p-0 cursor-pointer"
+              className="w-full flex items-center gap-2.5 text-left bg-transparent border-none p-0 cursor-pointer"
             >
               <Calendar className="h-4 w-4 text-muted shrink-0" />
               <span className="typo-body-sm text-muted">
@@ -225,13 +310,13 @@ export default function SearchBar() {
           </div>
         )}
 
-        {/* Time - day use only */}
+        {/* Time — day use only */}
         {isDayUse && (
-          <div className="flex-1 min-w-0 px-5 py-4 border-b md:border-b-0 md:border-r border-hairline">
-            <label className="typo-caption font-display font-semibold text-ink uppercase tracking-wider block mb-1.5">
+          <div className="flex-1 min-w-0 px-6 py-5 border-b md:border-b-0 md:border-r border-hairline/60">
+            <label className="typo-caption font-display font-semibold text-ink uppercase tracking-wider block mb-2">
               Time
             </label>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2.5">
               <Clock className="h-4 w-4 text-muted shrink-0" />
               <select
                 value={dayUseTime}
@@ -248,41 +333,35 @@ export default function SearchBar() {
         )}
 
         {/* Guests */}
-        <div className="flex-1 min-w-0 px-5 py-4 border-b md:border-b-0 md:border-r border-hairline">
-          <label className="typo-caption font-display font-semibold text-ink uppercase tracking-wider block mb-1.5">Guests</label>
+        <div className="flex-1 min-w-0 px-6 py-5 border-b md:border-b-0 md:border-r border-hairline/60">
+          <label className="typo-caption font-display font-semibold text-ink uppercase tracking-wider block mb-2">
+            Guests
+          </label>
           <GuestSelector value={guests} onChange={setGuests} />
         </div>
 
         {/* Budget */}
-        <div className="flex-1 min-w-0 px-5 py-4 border-b md:border-b-0 md:border-r border-hairline">
-          <label className="typo-caption font-display font-semibold text-ink uppercase tracking-wider block mb-1.5">Budget</label>
-          <div className="relative">
-            <span className="absolute left-0 top-1/2 -translate-y-1/2 text-muted pointer-events-none">&#x20B1;</span>
-            <input
-              type="number"
-              value={budget}
-              onChange={(e) => setBudget(e.target.value)}
-              placeholder="Any"
-              min="0"
-              className="w-full bg-transparent border-none typo-body-sm text-ink placeholder:text-muted-soft focus:outline-none pl-4 font-medium"
-            />
-          </div>
+        <div className="flex-1 min-w-0 px-6 py-5 border-b md:border-b-0 md:border-r border-hairline/60">
+          <label className="typo-caption font-display font-semibold text-ink uppercase tracking-wider block mb-2">
+            Budget
+          </label>
+          <BudgetSlider value={budget} onChange={setBudget} />
         </div>
 
         {/* Button */}
-        <div className="px-5 py-4 flex items-center">
+        <div className="px-6 py-5 flex items-center justify-center md:min-w-[180px]">
           <motion.button
             onClick={handleSearch}
             disabled={!canSearch}
             whileHover={canSearch ? { scale: 1.03 } : undefined}
             whileTap={canSearch ? { scale: 0.97 } : undefined}
-            className={`w-full md:w-auto flex items-center justify-center gap-2 px-6 h-12 rounded-[12px] transition-colors ${
+            className={`w-full md:w-auto flex items-center justify-center gap-2 px-8 h-12 rounded-[14px] font-semibold typo-body-sm transition-all ${
               canSearch
-                ? "bg-primary text-on-primary hover:bg-primary-active cursor-pointer"
-                : "bg-gray-300 text-gray-500 cursor-not-allowed"
+                ? "bg-primary text-on-primary hover:bg-primary-active cursor-pointer shadow-sm"
+                : "bg-gray-200 text-gray-400 cursor-not-allowed"
             }`}
           >
-            <span className="typo-body-sm font-semibold whitespace-nowrap">Check Availability</span>
+            Check Availability
           </motion.button>
         </div>
       </div>

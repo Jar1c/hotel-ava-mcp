@@ -33,7 +33,7 @@ function SubmitButton({ disabled, submitting }: { disabled: boolean; submitting:
 }
 
 export default function Register() {
-  const { register, login } = useAuth()
+  const { register } = useAuth()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const returnTo = searchParams.get("returnTo") || "/"
@@ -216,11 +216,28 @@ export default function Register() {
           {/* Google SSO */}
           <button
             type="button"
+            disabled={submitting}
             onClick={async () => {
-              await login("user@gmail.com", "mock-password")
-              navigate("/")
+              setSubmitting(true)
+              setError(null)
+              try {
+                const { supabase } = await import("@/lib/supabase")
+                const { error } = await supabase.auth.signInWithOAuth({
+                  provider: "google",
+                  options: {
+                    redirectTo: `${window.location.origin}/`,
+                  },
+                })
+                if (error) {
+                  setError(error.message)
+                  setSubmitting(false)
+                }
+              } catch (err: unknown) {
+                setError(err instanceof Error ? err.message : "Google sign-in failed. Please try again.")
+                setSubmitting(false)
+              }
             }}
-            className="w-full flex items-center justify-center gap-3 px-4 py-2.5 rounded-[10px] border border-hairline bg-white hover:bg-surface-soft transition-colors"
+            className="w-full flex items-center justify-center gap-3 px-4 py-2.5 rounded-[10px] border border-hairline bg-white hover:bg-surface-soft transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
               <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>

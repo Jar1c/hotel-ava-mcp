@@ -39,11 +39,11 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     <ToastContext.Provider value={{ toast }}>
       {children}
       {/* Toast container - top right like phone notifications */}
-      <div className="fixed top-20 right-4 z-[9999] flex flex-col gap-2 pointer-events-none">
+      <div className="fixed top-20 right-4 z-[9999] flex flex-col gap-2 pointer-events-none max-sm:right-2 max-sm:left-2 max-sm:top-16">
         {toasts.map((t) => (
           <div
             key={t.id}
-            className="pointer-events-auto bg-white rounded-[14px] shadow-[0_4px_20px_rgba(0,0,0,0.12)] px-4 py-3 w-[320px] animate-toast-slide flex items-start gap-3"
+            className="pointer-events-auto bg-white dark:bg-surface-soft rounded-[14px] shadow-[0_4px_20px_rgba(0,0,0,0.12)] px-4 py-3 w-full max-w-[320px] sm:w-[320px] animate-toast-slide flex items-start gap-3"
           >
             <div className="shrink-0 mt-0.5">
               {icons[t.variant || "default"]}

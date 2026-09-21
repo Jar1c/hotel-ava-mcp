@@ -3,6 +3,7 @@ import BookingsTable from "@/components/admin/BookingsTable"
 import { getBookings } from "@/services/adminService"
 import { bookingsApi } from "@/services/api"
 import type { Booking } from "@/data/admin"
+import { usePolling } from "@/hooks/usePolling"
 
 export default function Bookings() {
   const [bookings, setBookings] = useState<Booking[]>([])
@@ -17,11 +18,18 @@ export default function Bookings() {
   }, [])
 
   useEffect(() => {
-    // Auto-complete expired bookings first, then fetch
+    // Auto-complete expired bookings first
     bookingsApi.autoComplete().catch(() => {}).finally(() => {
       fetchBookings()
     })
   }, [fetchBookings])
+
+  // Poll every 20 seconds for live updates
+  usePolling(
+    () => getBookings(),
+    (data) => { setBookings(data); setLoading(false) },
+    20000,
+  )
 
   return (
     <div className="flex flex-col gap-6">

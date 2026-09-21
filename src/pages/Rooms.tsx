@@ -6,6 +6,7 @@ import { type Room } from "@/data/rooms"
 import { setCache, getCached } from "@/lib/cache"
 import RoomCard from "@/components/rooms/RoomCard"
 import type { DiscountRoom } from "@/lib/discountEngine"
+import { getRoomDiscount } from "@/lib/discountEngine"
 import { useDiscountApproval } from "@/hooks/useDiscountApproval"
 
 const fadeUp = {
@@ -81,6 +82,7 @@ export default function Rooms() {
     duration: searchParams.get("duration") || undefined,
     adults: Number(searchParams.get("adults")) || undefined,
     children: Number(searchParams.get("children")) || undefined,
+    budgetMax: Number(searchParams.get("budgetMax")) || 99999,
   }
 
   const hasDateFilter = filters.checkIn && (
@@ -139,15 +141,32 @@ export default function Rooms() {
     checkAll()
   }, [roomsData, hasDateFilter, filters.checkIn, filters.checkOut, filters.stayType, filters.startTime, filters.duration])
 
-  // Filter rooms by availability
+  // Filter rooms by availability and budget
   const filteredRooms = hasDateFilter
-    ? roomsData.filter((room) => availabilityMap[room.id] !== false)
-    : roomsData
+    ? roomsData.filter((room) => availabilityMap[room.id] !== false && room.price <= filters.budgetMax)
+    : roomsData.filter((room) => room.price <= filters.budgetMax)
 
   const discountRooms: DiscountRoom[] = useMemo(
     () => roomsData.map((r) => ({ id: r.id, name: r.name, type: r.type, price: r.price })),
     [roomsData]
   )
+
+  // Sort: discounted rooms first, then by effective price (cheapest first)
+  const sortedRooms = useMemo(() => {
+    return [...filteredRooms].sort((a, b) => {
+      const dA = getRoomDiscount(discountRooms, a.id)
+      const dB = getRoomDiscount(discountRooms, b.id)
+      const priceA = dA ? dA.discountedPrice : a.price
+      const priceB = dB ? dB.discountedPrice : b.price
+
+      // Discounted rooms come first
+      if (dA && !dB) return -1
+      if (!dA && dB) return 1
+
+      // Then by effective price (cheapest first)
+      return priceA - priceB
+    })
+  }, [filteredRooms, discountRooms])
 
   return (
     <div className="px-base py-section">
@@ -168,8 +187,8 @@ export default function Rooms() {
         <div className="mb-md">
           <p className="typo-caption-sm text-muted">
             {loading ? "Loading..." : hasDateFilter
-              ? `${filteredRooms.length} ${filteredRooms.length === 1 ? "room" : "rooms"} available for selected dates`
-              : `${roomsData.length} ${roomsData.length === 1 ? "room" : "rooms"} available`}
+              ? `${sortedRooms.length} ${sortedRooms.length === 1 ? "room" : "rooms"} available for selected dates`
+              : `${sortedRooms.length} ${sortedRooms.length === 1 ? "room" : "rooms"} available`}
           </p>
         </div>
 
@@ -181,15 +200,15 @@ export default function Rooms() {
               <RoomCardSkeleton key={i} />
             ))}
           </div>
-        ) : filteredRooms.length > 0 ? (
+        ) : sortedRooms.length > 0 ? (
           <motion.div
             className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-lg"
             variants={cardContainer}
             initial="hidden"
             animate="visible"
-            key={filteredRooms.length}
+            key={sortedRooms.length}
           >
-            {filteredRooms.map((room, index) => (
+            {sortedRooms.map((room, index) => (
               <motion.div key={room.id} variants={cardItem} custom={index}>
                 <RoomCard room={room} filters={filters} discountRooms={discountRooms} isApproved={isApproved} />
               </motion.div>

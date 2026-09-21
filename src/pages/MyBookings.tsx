@@ -1,12 +1,14 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useNavigate, useSearchParams } from "react-router"
-import { CalendarDays, Users, Clock, X, ChevronRight, SlidersHorizontal, ChevronLeft, LayoutGrid, CheckCircle, BadgeCheck, XCircle } from "lucide-react"
+import { CalendarDays, Users, Clock, X, ChevronRight, SlidersHorizontal, ChevronLeft, LayoutGrid, CheckCircle, BadgeCheck, XCircle, Receipt, CreditCard, MapPin, FileText } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { userBookingsApi, type UserBookingData } from "@/services/api"
 import { bookingsApi } from "@/services/api"
 import { useToast } from "@/contexts/ToastContext"
 import LoadingDots from "@/components/LoadingDots"
 import ConfirmDialog from "@/components/ui/confirm-dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { usePolling } from "@/hooks/usePolling"
 
 const PRIMARY = "#82285f"
 const CANVAS = "#FBF9F8"
@@ -39,6 +41,8 @@ function formatDateRange(checkIn: string, checkOut: string, stayType?: string) {
   return `${ci.toLocaleDateString("en-US", opts)} – ${co.toLocaleDateString("en-US", opts)}`
 }
 
+type BookingDetail = UserBookingData & { full_name: string; email: string; phone: string; special_requests: string }
+
 export default function MyBookings() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -51,6 +55,11 @@ export default function MyBookings() {
   const [page, setPage] = useState(1)
   const [cancelDialog, setCancelDialog] = useState<{ open: boolean; id: string | null }>({ open: false, id: null })
 
+  // Detail sheet state
+  const [detailBooking, setDetailBooking] = useState<BookingDetail | null>(null)
+  const [detailOpen, setDetailOpen] = useState(false)
+  const [detailLoading, setDetailLoading] = useState(false)
+
   useEffect(() => {
     if (searchParams.get("payment") === "cancelled") {
       toast({ title: "Payment cancelled", description: "You can retry payment from My Bookings.", variant: "error" })
@@ -58,14 +67,14 @@ export default function MyBookings() {
     }
   }, [])
 
-  useEffect(() => {
-    // Fetch bookings immediately — don't wait for auto-complete
-    userBookingsApi
-      .getMine()
-      .then((data) => setBookings(data))
-      .catch(() => {})
-      .finally(() => setLoading(false))
+  // Poll bookings every 15 seconds for live updates
+  usePolling(
+    () => userBookingsApi.getMine(),
+    (data) => { setBookings(data); setLoading(false) },
+    15000,
+  )
 
+  useEffect(() => {
     // Fire auto-complete in background (non-blocking)
     bookingsApi.autoComplete().catch(() => {})
   }, [])
@@ -77,11 +86,27 @@ export default function MyBookings() {
   const totalPages = Math.ceil(filteredBookings.length / PER_PAGE)
   const pagedBookings = filteredBookings.slice((page - 1) * PER_PAGE, page * PER_PAGE)
 
+  const handleCardClick = useCallback(async (booking: UserBookingData) => {
+    setDetailOpen(true)
+    setDetailLoading(true)
+    try {
+      const detail = await userBookingsApi.getOne(booking.id)
+      setDetailBooking(detail)
+    } catch {
+      // Fallback: show what we have
+      setDetailBooking(booking as BookingDetail)
+    } finally {
+      setDetailLoading(false)
+    }
+  }, [])
+
   const handleCancel = async (id: string) => {
     setCancelling(id)
     try {
       await userBookingsApi.cancel(id)
       setBookings((prev) => prev.map((b) => (b.id === id ? { ...b, status: "cancelled" } : b)))
+      // Update detail if open
+      setDetailBooking((prev) => (prev?.id === id ? { ...prev, status: "cancelled" } : prev))
       toast({ title: "Booking cancelled", description: "Your booking has been cancelled.", variant: "success" })
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to cancel booking"
@@ -151,12 +176,12 @@ export default function MyBookings() {
 
         {/* Category Tabs */}
         {bookings.length > 0 && (
-          <div className="flex items-center gap-0 mb-lg border-b border-hairline">
+          <div className="flex items-center gap-0 mb-lg border-b border-hairline overflow-x-auto scrollbar-hide">
             {tabs.map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => { setActiveTab(tab.id); setPage(1) }}
-                className="relative flex items-center gap-1.5 px-4 py-3 text-sm font-medium transition-colors duration-200 cursor-pointer"
+                className="relative flex items-center gap-1.5 px-4 py-3 text-sm font-medium transition-colors duration-200 cursor-pointer whitespace-nowrap"
                 style={{
                   color: activeTab === tab.id ? PRIMARY : "#7A7A70",
                 }}
@@ -207,7 +232,8 @@ export default function MyBookings() {
               return (
                 <div
                   key={booking.id}
-                  className="bg-white border border-hairline rounded-[12px] overflow-hidden hover:shadow-[0_2px_8px_rgba(0,0,0,0.06)] transition-shadow duration-200"
+                  onClick={() => handleCardClick(booking)}
+                  className="bg-white border border-hairline rounded-[12px] overflow-hidden hover:shadow-[0_2px_8px_rgba(0,0,0,0.06)] transition-shadow duration-200 cursor-pointer group"
                 >
                   <div className="flex flex-col sm:flex-row">
                     {/* Room Image */}
@@ -218,7 +244,7 @@ export default function MyBookings() {
                           "https://images.unsplash.com/photo-1631049307264-da0ec9d70304?w=400&h=300&fit=crop"
                         }
                         alt={booking.room_name}
-                        className="w-full h-full object-cover"
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                       />
                     </div>
 
@@ -267,7 +293,7 @@ export default function MyBookings() {
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => setCancelDialog({ open: true, id: booking.id })}
+                              onClick={(e) => { e.stopPropagation(); setCancelDialog({ open: true, id: booking.id }) }}
                               disabled={cancelling === booking.id}
                               className="text-muted hover:text-ink hover:bg-gray-50 !rounded-[8px] text-xs"
                             >
@@ -288,7 +314,7 @@ export default function MyBookings() {
                             <>
                               <Button
                                 size="sm"
-                                onClick={() => handlePay(booking.id)}
+                                onClick={(e) => { e.stopPropagation(); handlePay(booking.id) }}
                                 disabled={paying === booking.id}
                                 className="!rounded-[8px] text-xs font-medium"
                                 style={{ backgroundColor: PRIMARY, color: CANVAS }}
@@ -303,7 +329,7 @@ export default function MyBookings() {
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                onClick={() => setCancelDialog({ open: true, id: booking.id })}
+                                onClick={(e) => { e.stopPropagation(); setCancelDialog({ open: true, id: booking.id }) }}
                                 disabled={cancelling === booking.id}
                                 className="text-muted hover:text-ink hover:bg-gray-50 !rounded-[8px] text-xs"
                               >
@@ -333,7 +359,7 @@ export default function MyBookings() {
               <button
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={page === 1}
-                className="w-9 h-9 flex items-center justify-center rounded-[8px] text-sm transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed hover:bg-gray-100"
+                className="w-11 h-11 flex items-center justify-center rounded-[8px] text-sm transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed hover:bg-gray-100"
                 style={{ color: "#7A7A70" }}
               >
                 <ChevronLeft className="h-4 w-4" />
@@ -342,7 +368,7 @@ export default function MyBookings() {
                 <button
                   key={p}
                   onClick={() => setPage(p)}
-                  className="w-9 h-9 flex items-center justify-center rounded-[8px] text-sm font-medium transition-colors cursor-pointer"
+                  className="w-11 h-11 flex items-center justify-center rounded-[8px] text-sm font-medium transition-colors cursor-pointer"
                   style={{
                     backgroundColor: page === p ? PRIMARY : "transparent",
                     color: page === p ? CANVAS : "#7A7A70",
@@ -354,7 +380,7 @@ export default function MyBookings() {
               <button
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                 disabled={page === totalPages}
-                className="w-9 h-9 flex items-center justify-center rounded-[8px] text-sm transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed hover:bg-gray-100"
+                className="w-11 h-11 flex items-center justify-center rounded-[8px] text-sm transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed hover:bg-gray-100"
                 style={{ color: "#7A7A70" }}
               >
                 <ChevronRight className="h-4 w-4" />
@@ -364,6 +390,156 @@ export default function MyBookings() {
           </>
         )}
       </div>
+
+      {/* ── Booking Detail Dialog ────────────────────────────────────── */}
+      <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
+        <DialogContent className="!rounded-[16px] !max-w-[520px] !p-0 overflow-hidden">
+          {/* Header */}
+          <DialogHeader className="px-6 pt-6 pb-4 border-b border-hairline">
+            <DialogTitle className="flex items-center gap-2">
+              <Receipt className="h-5 w-5" style={{ color: PRIMARY }} />
+              Booking Details
+            </DialogTitle>
+          </DialogHeader>
+
+          {detailLoading ? (
+            <div className="p-6 space-y-4">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="animate-pulse">
+                  <div className="h-3 bg-gray-100 rounded w-24 mb-2" />
+                  <div className="h-4 bg-gray-50 rounded w-full" />
+                </div>
+              ))}
+            </div>
+          ) : detailBooking ? (
+            <div className="overflow-y-auto max-h-[70vh] p-6">
+              {/* Room Image + Name */}
+              <div className="flex items-start gap-4 mb-6">
+                <div className="w-20 h-20 rounded-[10px] overflow-hidden shrink-0">
+                  <img
+                    src={detailBooking.room_image || "https://images.unsplash.com/photo-1631049307264-da0ec9d70304?w=400&h=300&fit=crop"}
+                    alt={detailBooking.room_name}
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="font-display font-semibold text-ink text-lg truncate">{detailBooking.room_name}</h3>
+                  <p className="text-sm text-muted">{detailBooking.room_type}</p>
+                  <span className="inline-flex items-center gap-1.5 text-xs font-medium mt-1">
+                    <span className={`w-1.5 h-1.5 rounded-full ${(statusStyles[detailBooking.status.toLowerCase()] || statusStyles.pending).dot}`} />
+                    <span className={(statusStyles[detailBooking.status.toLowerCase()] || statusStyles.pending).text}>
+                      {(statusStyles[detailBooking.status.toLowerCase()] || statusStyles.pending).label}
+                    </span>
+                  </span>
+                </div>
+              </div>
+
+              {/* Booking Information */}
+              <div className="space-y-3 mb-6">
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-muted">Booking Information</h4>
+                <div className="bg-gray-50 rounded-[10px] p-4 space-y-3">
+                  <DetailRow icon={<FileText className="h-4 w-4" />} label="Booking ID" value={`#${detailBooking.id.slice(0, 8).toUpperCase()}`} />
+                  <DetailRow
+                    icon={<CalendarDays className="h-4 w-4" />}
+                    label="Dates"
+                    value={formatDateRange(detailBooking.check_in, detailBooking.check_out, detailBooking.stay_type)}
+                  />
+                  <DetailRow
+                    icon={<Clock className="h-4 w-4" />}
+                    label="Duration"
+                    value={
+                      detailBooking.stay_type === "day" && detailBooking.duration
+                        ? `${detailBooking.duration} hours${detailBooking.start_time ? ` at ${detailBooking.start_time}` : ""}`
+                        : `${detailBooking.nights} ${detailBooking.nights === 1 ? "night" : "nights"}`
+                    }
+                  />
+                  <DetailRow
+                    icon={<Users className="h-4 w-4" />}
+                    label="Guests"
+                    value={`${detailBooking.guests} ${detailBooking.guests === 1 ? "guest" : "guests"}`}
+                  />
+                </div>
+              </div>
+
+              {/* Guest Info (if available) */}
+              {(detailBooking.full_name || detailBooking.email) && (
+                <div className="space-y-3 mb-6">
+                  <h4 className="text-xs font-semibold uppercase tracking-wider text-muted">Guest Information</h4>
+                  <div className="bg-gray-50 rounded-[10px] p-4 space-y-3">
+                    {detailBooking.full_name && (
+                      <DetailRow icon={<Users className="h-4 w-4" />} label="Name" value={detailBooking.full_name} />
+                    )}
+                    {detailBooking.email && (
+                      <DetailRow icon={<MapPin className="h-4 w-4" />} label="Email" value={detailBooking.email} />
+                    )}
+                    {detailBooking.phone && (
+                      <DetailRow icon={<MapPin className="h-4 w-4" />} label="Phone" value={detailBooking.phone} />
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Payment Details */}
+              <div className="space-y-3 mb-6">
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-muted">Payment Details</h4>
+                <div className="bg-gray-50 rounded-[10px] p-4 space-y-3">
+                  <DetailRow
+                    icon={<CreditCard className="h-4 w-4" />}
+                    label="Payment Method"
+                    value={detailBooking.payment_method ? detailBooking.payment_method.charAt(0).toUpperCase() + detailBooking.payment_method.slice(1) : "N/A"}
+                  />
+                  <DetailRow
+                    icon={<Receipt className="h-4 w-4" />}
+                    label="Booking Date"
+                    value={new Date(detailBooking.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                  />
+                  <div className="flex items-center justify-between pt-2 border-t border-gray-200">
+                    <span className="text-sm font-semibold text-ink">Total Amount</span>
+                    <span className="text-lg font-display font-bold" style={{ color: PRIMARY }}>
+                      ₱{detailBooking.total_price.toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Special Requests */}
+              {detailBooking.special_requests && (
+                <div className="space-y-3 mb-6">
+                  <h4 className="text-xs font-semibold uppercase tracking-wider text-muted">Special Requests</h4>
+                  <div className="bg-gray-50 rounded-[10px] p-4">
+                    <p className="text-sm text-ink">{detailBooking.special_requests}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="pt-4 border-t border-hairline flex gap-3">
+                {detailBooking.status.toLowerCase() === "pending" && (
+                  <Button
+                    onClick={() => { handlePay(detailBooking.id) }}
+                    disabled={paying === detailBooking.id}
+                    className="flex-1 !rounded-[8px]"
+                    style={{ backgroundColor: PRIMARY, color: CANVAS }}
+                  >
+                    {paying === detailBooking.id ? <LoadingDots size="sm" className="mr-2" /> : <ChevronRight className="h-4 w-4 mr-1" />}
+                    {paying === detailBooking.id ? "Redirecting..." : "Pay Now"}
+                  </Button>
+                )}
+                {(detailBooking.status.toLowerCase() === "confirmed" || detailBooking.status.toLowerCase() === "pending") && (
+                  <Button
+                    variant="outline"
+                    onClick={() => { setDetailOpen(false); setCancelDialog({ open: true, id: detailBooking.id }) }}
+                    disabled={cancelling === detailBooking.id}
+                    className="flex-1 !rounded-[8px]"
+                  >
+                    Cancel Booking
+                  </Button>
+                )}
+              </div>
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
 
       <ConfirmDialog
         open={cancelDialog.open}
@@ -378,6 +554,20 @@ export default function MyBookings() {
           if (cancelDialog.id) handleCancel(cancelDialog.id)
         }}
       />
+    </div>
+  )
+}
+
+/* ── Detail Row Component ──────────────────────────────────────────────── */
+
+function DetailRow({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between">
+      <span className="flex items-center gap-2 text-sm text-muted">
+        {icon}
+        {label}
+      </span>
+      <span className="text-sm font-medium text-ink text-right">{value}</span>
     </div>
   )
 }

@@ -13,11 +13,11 @@ const fadeUp = {
 
 export default function AboutSection() {
   return (
-    <section id="about" className="bg-[#F5F3F3] py-[120px]" style={{ marginLeft: "calc(-50vw + 50%)", marginRight: "calc(-50vw + 50%)" }}>
-      <div className="max-w-container mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+    <section id="about" className="bg-[#F5F3F3] py-16 sm:py-20 lg:py-[120px]" style={{ marginLeft: "calc(-50vw + 50%)", marginRight: "calc(-50vw + 50%)" }}>
+      <div className="max-w-container mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 items-center px-5 md:px-8">
         {/* Left Column — Text */}
         <motion.div
-          className="lg:col-span-5 pr-12"
+          className="lg:col-span-5 lg:pr-12"
           initial="hidden"
           whileInView="visible"
           viewport={{ once: true, margin: "-100px" }}
@@ -35,7 +35,7 @@ export default function AboutSection() {
 
           <motion.h2
             className="font-display text-ink mb-8"
-            style={{ fontSize: "48px", fontWeight: 700, lineHeight: "60px", letterSpacing: "-0.48px" }}
+            style={{ fontSize: "clamp(2rem, 4vw, 48px)", fontWeight: 700, lineHeight: "1.2", letterSpacing: "-0.48px" }}
             variants={fadeUp}
           >
             Your Prime Drive-In Hotel in Malate
@@ -61,7 +61,7 @@ export default function AboutSection() {
 
         {/* Right Column — Image Collage */}
         <motion.div
-          className="lg:col-span-7 relative h-[650px]"
+          className="lg:col-span-7 relative h-[400px] sm:h-[500px] lg:h-[650px]"
           initial="hidden"
           whileInView="visible"
           viewport={{ once: true, margin: "-100px" }}
@@ -72,7 +72,7 @@ export default function AboutSection() {
         >
           {/* Large background image — top right */}
           <motion.div
-            className="absolute top-0 right-0 w-3/4 h-[420px] overflow-hidden shadow-[0_10px_40px_0_rgba(0,0,0,0.04)]"
+            className="absolute top-0 right-0 w-3/4 h-[250px] sm:h-[320px] lg:h-[420px] overflow-hidden shadow-[0_10px_40px_0_rgba(0,0,0,0.04)]"
             variants={{
               hidden: { opacity: 0, scale: 0.95 },
               visible: {
@@ -91,7 +91,7 @@ export default function AboutSection() {
 
           {/* Suite image — bottom left */}
           <motion.div
-            className="absolute bottom-4 left-0 w-1/2 h-[380px] border-8 border-white overflow-hidden shadow-[0_10px_40px_0_rgba(0,0,0,0.04)] z-10"
+            className="absolute bottom-4 left-0 w-1/2 h-[200px] sm:h-[280px] lg:h-[380px] border-4 lg:border-8 border-white overflow-hidden shadow-[0_10px_40px_0_rgba(0,0,0,0.04)] z-10"
             variants={{
               hidden: { opacity: 0, y: 30, x: -20 },
               visible: {
@@ -111,7 +111,7 @@ export default function AboutSection() {
 
           {/* Living room image — bottom right */}
           <motion.div
-            className="absolute bottom-16 right-8 w-2/5 h-[280px] border-8 border-white overflow-hidden shadow-[0_10px_40px_0_rgba(0,0,0,0.04)] z-20"
+            className="absolute bottom-16 right-4 lg:right-8 w-2/5 h-[160px] sm:h-[200px] lg:h-[280px] border-4 lg:border-8 border-white overflow-hidden shadow-[0_10px_40px_0_rgba(0,0,0,0.04)] z-20 hidden sm:block"
             variants={{
               hidden: { opacity: 0, y: 30, x: 20 },
               visible: {

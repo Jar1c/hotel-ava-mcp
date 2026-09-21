@@ -26,13 +26,13 @@ export default function Footer() {
               </div>
             </div>
             <div className="flex items-center gap-sm">
-              <a href="https://facebook.com/hotelavaph" target="_blank" rel="noopener noreferrer" className="w-8 h-8 rounded-full bg-surface-soft flex items-center justify-center text-muted hover:bg-primary hover:text-on-primary transition-colors" aria-label="Facebook">
+              <a href="https://facebook.com/hotelavaph" target="_blank" rel="noopener noreferrer" className="w-11 h-11 rounded-full bg-surface-soft flex items-center justify-center text-muted hover:bg-primary hover:text-on-primary transition-colors" aria-label="Facebook">
                 <Globe className="h-4 w-4" />
               </a>
-              <a href="https://instagram.com/hotelavaph" target="_blank" rel="noopener noreferrer" className="w-8 h-8 rounded-full bg-surface-soft flex items-center justify-center text-muted hover:bg-primary hover:text-on-primary transition-colors" aria-label="Instagram">
+              <a href="https://instagram.com/hotelavaph" target="_blank" rel="noopener noreferrer" className="w-11 h-11 rounded-full bg-surface-soft flex items-center justify-center text-muted hover:bg-primary hover:text-on-primary transition-colors" aria-label="Instagram">
                 <Globe className="h-4 w-4" />
               </a>
-              <a href="https://twitter.com/hotelavaph" target="_blank" rel="noopener noreferrer" className="w-8 h-8 rounded-full bg-surface-soft flex items-center justify-center text-muted hover:bg-primary hover:text-on-primary transition-colors" aria-label="Twitter">
+              <a href="https://twitter.com/hotelavaph" target="_blank" rel="noopener noreferrer" className="w-11 h-11 rounded-full bg-surface-soft flex items-center justify-center text-muted hover:bg-primary hover:text-on-primary transition-colors" aria-label="Twitter">
                 <Globe className="h-4 w-4" />
               </a>
             </div>

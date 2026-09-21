@@ -22,7 +22,6 @@ import {
 import { getStale, isStale, setCache, clearCache } from "@/lib/cache"
 import type { Booking, Guest, AdminRoom } from "@/data/admin"
 import type { BookingStatus } from "@/data/admin"
-import { guests as mockGuests } from "@/data/admin"
 import { adminRooms as mockAdminRooms } from "@/data/admin"
 import { bookings as mockBookings } from "@/data/admin"
 
@@ -190,6 +189,7 @@ async function fetchBookings(): Promise<Booking[]> {
       duration: (b as any).duration,
       start_time: (b as any).start_time,
       createdAt: (b as any).createdAt,
+      payment_method: (b as any).payment_method,
     }))
     setCache("bookings", result)
     return result.length > 0 ? result : mockBookings
@@ -248,11 +248,13 @@ async function fetchGuests(): Promise<Guest[]> {
       totalSpent: g.totalSpent,
       lastStay: g.lastStay,
       status: g.status,
+      avatar_url: g.avatar_url || "",
+      created_at: g.created_at || "",
     }))
     setCache("guests", result)
-    return result.length > 0 ? result : mockGuests
+    return result
   } catch {
-    return mockGuests
+    return []
   }
 }
 

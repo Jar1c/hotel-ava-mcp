@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify, redirect
 from flask_cors import CORS
 from supabase import create_client, Client
-from config import SUPABASE_URL, SUPABASE_KEY, PAYMONGO_SECRET_KEY, PAYMONGO_BASE_URL
+from config import SUPABASE_URL, SUPABASE_KEY, SUPABASE_SERVICE_KEY, PAYMONGO_SECRET_KEY, PAYMONGO_BASE_URL
 from datetime import datetime, date
 from math import ceil
 import os
@@ -18,6 +18,7 @@ CORS(app, resources={r"/api/*": {"origins": [
 ]}})
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+supabase_admin: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY) if SUPABASE_SERVICE_KEY else supabase
 
 
 def set_auth(token):
@@ -219,6 +220,7 @@ def register():
             supabase.table("users").insert({
                 "id": res.user.id,
                 "name": name,
+                "email": email,
                 "role": "guest",
                 "avatar_url": avatar_url,
             }).execute()
@@ -253,6 +255,7 @@ def login():
                 supabase.table("users").insert({
                     "id": user.id,
                     "name": name_val,
+                    "email": user.email,
                     "role": "guest",
                 }).execute()
                 profile_data = {"name": name_val, "role": "guest", "avatar_url": ""}
@@ -315,6 +318,30 @@ def verify_email():
         return jsonify({"error": error_msg}), 400
 
 
+@app.route("/api/auth/complete-registration", methods=["POST"])
+def complete_registration():
+    """Complete registration for Google OAuth users — set their name."""
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    set_auth(token)
+    user_id = get_user_from_token(token)
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.get_json()
+    name = (data or {}).get("name", "").strip()
+    if not name:
+        return jsonify({"error": "Name is required"}), 400
+
+    # Update the user's name (skip cooldown for new users)
+    updates = {
+        "name": name,
+        "updated_at": "now()",
+    }
+    supabase.table("users").update(updates).eq("id", user_id).execute()
+
+    return jsonify({"message": "Registration completed", "name": name}), 200
+
+
 @app.route("/api/auth/profile", methods=["GET"])
 def get_profile():
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
@@ -335,12 +362,61 @@ def get_profile():
         except Exception:
             email = ""
 
+    # Auto-create user row for Google/OAuth users if missing
+    if not p or not p.get("id"):
+        try:
+            payload = pyjwt.decode(token, options={"verify_signature": False, "verify_exp": False})
+            name = payload.get("name", payload.get("full_name", email.split("@")[0] if email else ""))
+            avatar = payload.get("avatar_url", payload.get("picture", ""))
+            supabase.table("users").insert({
+                "id": user_id,
+                "name": name,
+                "email": email,
+                "role": "guest",
+                "avatar_url": avatar,
+            }).execute()
+            p = {"id": user_id, "name": name, "email": email, "role": "guest", "avatar_url": avatar, "phone": "", "created_at": "", "name_changed_at": ""}
+        except Exception:
+            p = {}
+
+    # If avatar_url is empty, fetch from Supabase Auth metadata (Google OAuth picture)
+    avatar_url = p.get("avatar_url", "")
+    print(f"[profile] user_id={user_id}, db_avatar_url='{avatar_url}'")
+    if not avatar_url:
+        try:
+            auth_user = supabase_admin.auth.admin.get_user_by_id(user_id)
+            if auth_user and auth_user.user:
+                user_meta = auth_user.user.user_metadata or {}
+                app_meta = getattr(auth_user.user, 'app_metadata', {}) or {}
+                print(f"[profile] auth user_metadata={user_meta}")
+                print(f"[profile] auth app_metadata providers={app_meta.get('providers', [])}")
+                avatar_url = user_meta.get("picture", "") or user_meta.get("avatar_url", "")
+                if avatar_url:
+                    print(f"[profile] found avatar from auth metadata: {avatar_url}")
+                    supabase.table("users").update({"avatar_url": avatar_url, "updated_at": "now()"}).eq("id", user_id).execute()
+                else:
+                    print(f"[profile] no picture in auth metadata, keys={list(user_meta.keys())}")
+            else:
+                print(f"[profile] get_user_by_id returned: {auth_user}")
+        except Exception as e:
+            print(f"[profile] get avatar from auth metadata error: {type(e).__name__}: {e}")
+
+    # Final fallback: try JWT claims
+    if not avatar_url:
+        try:
+            payload = pyjwt.decode(token, options={"verify_signature": False, "verify_exp": False})
+            avatar_url = payload.get("avatar_url", payload.get("picture", ""))
+            if avatar_url:
+                supabase.table("users").update({"avatar_url": avatar_url, "updated_at": "now()"}).eq("id", user_id).execute()
+        except Exception:
+            pass
+
     return jsonify({
         "id": user_id,
         "email": email,
         "name": p.get("name", ""),
         "role": p.get("role", "guest"),
-        "avatar_url": p.get("avatar_url", ""),
+        "avatar_url": avatar_url,
         "phone": p.get("phone", ""),
         "created_at": p.get("created_at", ""),
         "name_changed_at": p.get("name_changed_at", ""),
@@ -353,10 +429,12 @@ def update_profile():
     set_auth(token)
     user_id = get_user_from_token(token)
     if not user_id:
+        print("[update_profile] No user_id from token")
         return jsonify({"error": "Unauthorized"}), 401
 
     try:
         data = request.get_json()
+        print(f"[update_profile] user_id={user_id}, data keys={list(data.keys())}")
         updates = {}
 
         if "name" in data:
@@ -375,15 +453,20 @@ def update_profile():
 
         if "avatar_url" in data:
             updates["avatar_url"] = data["avatar_url"]
+            print(f"[update_profile] Setting avatar_url={data['avatar_url'][:80]}")
         if "phone" in data:
             updates["phone"] = data["phone"]
 
         if updates:
-            updates["updated_at"] = "now()"
-            supabase.table("users").update(updates).eq("id", user_id).execute()
+            from datetime import datetime, timezone
+            updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+            print(f"[update_profile] Executing update: {list(updates.keys())}")
+            result = supabase.table("users").update(updates).eq("id", user_id).execute()
+            print(f"[update_profile] Update result: data={result.data}")
 
         user_record = supabase.table("users").select("*").eq("id", user_id).single().execute()
         p = user_record.data or {}
+        print(f"[update_profile] DB avatar after update: '{p.get('avatar_url', '')}'")
 
         return jsonify({
             "id": user_id,
@@ -394,8 +477,11 @@ def update_profile():
             "phone": p.get("phone", ""),
             "name_changed_at": p.get("name_changed_at", ""),
         }), 200
-    except Exception:
-        return jsonify({"error": "Unauthorized"}), 401
+    except Exception as e:
+        print(f"[update_profile] ERROR: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/auth/avatar", methods=["POST"])
@@ -1312,6 +1398,7 @@ def get_bookings():
                 "duration": b.get("duration"),
                 "start_time": b.get("start_time"),
                 "createdAt": b.get("created_at", ""),
+                "payment_method": b.get("payment_method", ""),
             })
 
         return jsonify(result), 200
@@ -1470,6 +1557,34 @@ def get_guests():
         users_res = supabase.table("users").select("*").eq("role", "guest").order("created_at", desc=True).execute()
         users = users_res.data or []
 
+        # Fetch emails from auth.users using service_role key
+        auth_emails = {}
+        auth_avatars = {}
+        try:
+            result = supabase_admin.auth.admin.list_users()
+            auth_users_list = result if isinstance(result, list) else (result.users if hasattr(result, 'users') else [])
+            print(f"[guests] auth users found: {len(auth_users_list)}")
+            for au in auth_users_list:
+                auth_emails[au.id] = au.email or ""
+                meta = au.user_metadata or {}
+                if meta.get("avatar_url"):
+                    auth_avatars[au.id] = meta["avatar_url"]
+        except Exception as e:
+            print(f"[guests] auth admin list_users error: {type(e).__name__}: {e}")
+
+        # Also get emails from bookings table (fallback if auth admin fails)
+        try:
+            booking_emails_res = supabase.table("bookings").select("user_id, email").execute()
+            for be in (booking_emails_res.data or []):
+                uid = be.get("user_id")
+                email = be.get("email", "")
+                if uid and email and uid not in auth_emails:
+                    auth_emails[uid] = email
+        except Exception:
+            pass
+
+        print(f"[guests] auth_emails found: {len(auth_emails)}, auth_avatars found: {len(auth_avatars)}")
+
         bookings_res = supabase.table("bookings").select("user_id, total_price, check_out").execute()
         bookings = bookings_res.data or []
 
@@ -1501,12 +1616,14 @@ def get_guests():
             result.append({
                 "id": u["id"],
                 "name": u.get("name") or "Unknown",
-                "email": "",
+                "email": auth_emails.get(u["id"], "") or u.get("email") or "",
                 "phone": u.get("phone") or "—",
                 "totalBookings": s["count"],
                 "totalSpent": s["total_spent"],
                 "lastStay": last_stay or "—",
                 "status": status,
+                "avatar_url": u.get("avatar_url") or auth_avatars.get(u["id"], "") or "",
+                "created_at": u.get("created_at") or "",
             })
 
         return jsonify(result), 200

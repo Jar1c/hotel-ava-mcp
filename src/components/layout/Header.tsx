@@ -16,6 +16,8 @@ import { publicNavItems, guestNavItems } from "@/data/navigation"
 import hotelAvaLogo from "@/assets/images/Hotel Ava logo.png"
 import { formatDistanceToNow } from "date-fns"
 import { getDiceBearUrl } from "@/lib/dicebear"
+import GoogleSignInModal from "@/components/GoogleSignInModal"
+import MobileNav from "@/components/layout/MobileNav"
 
 const notifTypeStyles: Record<string, { bg: string; icon: React.ReactNode }> = {
   booking: { bg: "bg-gray-100 dark:bg-surface-strong", icon: <CalendarDays className="size-4 text-ink" /> },
@@ -32,6 +34,7 @@ export default function Header() {
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
   const [isLoggingOut, setIsLoggingOut] = useState(false)
   const [dropdownOpen, setDropdownOpen] = useState(false)
+  const [showGoogleModal, setShowGoogleModal] = useState(false)
 
   const handleDropdownOpenChange = useCallback((open: boolean) => {
     setDropdownOpen(open)
@@ -63,7 +66,7 @@ export default function Header() {
     await logout()
     setIsLoggingOut(false)
     setShowLogoutConfirm(false)
-    navigate("/login")
+    navigate("/")
   }
 
   const navItems = !isAuthenticated ? publicNavItems : guestNavItems
@@ -127,12 +130,19 @@ export default function Header() {
         </nav>
 
         <div className="flex items-center gap-sm ml-auto">
+          {/* Mobile nav hamburger - visible on mobile only */}
+          <div className="md:hidden">
+            <MobileNav />
+          </div>
+
           {!isAuthenticated ? (
-            <Link to="/login">
-              <Button variant="default" className="bg-primary text-on-primary hover:bg-primary-active px-5 py-2.5 text-sm">
-                Sign In
-              </Button>
-            </Link>
+            <Button
+              onClick={() => setShowGoogleModal(true)}
+              variant="default"
+              className="bg-primary text-on-primary hover:bg-primary-active px-5 py-2.5 text-sm cursor-pointer"
+            >
+              Sign In
+            </Button>
           ) : (
             <>
               {/* Notification bell */}
@@ -308,6 +318,8 @@ export default function Header() {
           </div>
         </div>
       )}
+
+      <GoogleSignInModal open={showGoogleModal} onClose={() => setShowGoogleModal(false)} />
     </header>
   )
 }

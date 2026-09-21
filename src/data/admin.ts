@@ -16,6 +16,7 @@ export interface Booking {
   duration?: number
   start_time?: string
   createdAt?: string
+  payment_method?: string
 }
 
 export interface MonthlyRevenue {
@@ -209,6 +210,8 @@ export interface Guest {
   totalSpent: number
   lastStay: string
   status: "VIP" | "Regular" | "New"
+  avatar_url?: string
+  created_at?: string
 }
 
 export const guests: Guest[] = [
