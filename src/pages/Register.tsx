@@ -77,6 +77,7 @@ export default function Register() {
     try {
       const fullName = `${firstName.trim()} ${lastName.trim()}`
       await register(email, password, fullName)
+      sessionStorage.setItem("postVerifyReturnTo", returnTo)
       setRegisteredEmail(email)
     } catch (err: unknown) {
       let message = "Unable to create account. Please try again."
