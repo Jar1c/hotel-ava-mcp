@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Link, useNavigate } from "react-router"
+import { Link, useNavigate, useSearchParams } from "react-router"
 import { Mail, Lock, Eye, EyeOff } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useAuth } from "@/contexts/AuthContext"
@@ -11,6 +11,8 @@ const PRIMARY = "#82285f"
 export default function Login() {
   const { login } = useAuth()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const returnTo = searchParams.get("returnTo") || "/"
 
   const [showPassword, setShowPassword] = useState(false)
   const [focused, setFocused] = useState<string | null>(null)
@@ -36,7 +38,7 @@ export default function Login() {
       if (user?.role === "admin") {
         navigate("/admin/dashboard")
       } else {
-        navigate("/")
+        navigate(returnTo)
       }
     } catch {
       setError("Invalid email or password.")
@@ -53,7 +55,7 @@ export default function Login() {
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo: `${window.location.origin}/`,
+          redirectTo: `${window.location.origin}${returnTo}`,
           skipBrowserRedirect: true,
         },
       })
@@ -80,6 +82,7 @@ export default function Login() {
           if (popup.closed) {
             clearInterval(checkPopup)
             setSubmitting(false)
+            navigate(returnTo)
           }
         }, 500)
       }
