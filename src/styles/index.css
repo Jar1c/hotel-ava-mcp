@@ -824,3 +824,8 @@ input[type="number"] {
 .animate-toast-slide {
   animation: toast-slide 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
+
+/* Safe area for iPhone notch - bottom navigation */
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}

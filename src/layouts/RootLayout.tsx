@@ -2,6 +2,7 @@ import { Outlet, useLocation } from "react-router"
 import { useEffect } from "react"
 import Header from "@/components/layout/Header"
 import Footer from "@/components/layout/Footer"
+import BottomNav from "@/components/layout/BottomNav"
 import { useAuth } from "@/contexts/AuthContext"
 
 const hideHeaderFooter = ["/login", "/register", "/forgot-password", "/reset-password", "/verify-email"]
@@ -27,10 +28,11 @@ export default function RootLayout() {
   return (
     <div className="min-h-screen bg-canvas flex flex-col">
       {!isAuthPage && <Header />}
-      <main className={`flex-1 mx-auto w-full${isAuthPage ? "" : " max-w-container"}`}>
+      <main className={`flex-1 mx-auto w-full${isAuthPage ? "" : " max-w-container"} pb-16 md:pb-0`}>
         <Outlet />
       </main>
       {!isAuthPage && <Footer />}
+      {!isAuthPage && <BottomNav />}
     </div>
   )
 }

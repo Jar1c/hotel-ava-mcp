@@ -17,7 +17,6 @@ import hotelAvaLogo from "@/assets/images/Hotel Ava logo.png"
 import { formatDistanceToNow } from "date-fns"
 import { getDiceBearUrl } from "@/lib/dicebear"
 import GoogleSignInModal from "@/components/GoogleSignInModal"
-import MobileNav from "@/components/layout/MobileNav"
 
 const notifTypeStyles: Record<string, { bg: string; icon: React.ReactNode }> = {
   booking: { bg: "bg-gray-100 dark:bg-surface-strong", icon: <CalendarDays className="size-4 text-ink" /> },
@@ -130,11 +129,6 @@ export default function Header() {
         </nav>
 
         <div className="flex items-center gap-sm ml-auto">
-          {/* Mobile nav hamburger - visible on mobile only */}
-          <div className="md:hidden">
-            <MobileNav />
-          </div>
-
           {!isAuthenticated ? (
             <Button
               onClick={() => setShowGoogleModal(true)}
