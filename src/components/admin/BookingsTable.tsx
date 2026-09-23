@@ -169,9 +169,9 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
 
   return (
     <>
-      <div className="rounded-[6px] bg-white border border-[#e2e4e8]">
+      <div className="rounded-[6px] bg-white border border-[#e2e4e8] flex h-[708px] flex-col">
         {showFilters && (
-          <div className="flex items-center justify-between border-b border-[#e2e4e8] px-5 py-3">
+          <div className="flex items-center justify-between border-b border-[#e2e4e8] px-5 py-3 shrink-0">
             <div className="flex items-center gap-2">
               {statusFilters.map((f) => (
                 <button
@@ -202,7 +202,7 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
           </div>
         )}
 
-        <div className="overflow-x-auto">
+        <div className="overflow-auto flex-1">
           <table className="w-full text-[13px]">
             <thead>
               <tr className="border-b border-[#e2e4e8]">
