@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route } from "react-router"
 import RootLayout from "./layouts/RootLayout"
 import ProtectedRoute from "./components/ProtectedRoute"
 import LoadingDots from "./components/LoadingDots"
+import { NotificationProvider } from "./contexts/NotificationContext"
 
 const Home = lazy(() => import("./pages/Home"))
 const Rooms = lazy(() => import("./pages/Rooms"))
@@ -44,8 +45,10 @@ function PageLoader() {
 export default function App() {
   return (
     <BrowserRouter>
-      <Suspense fallback={<PageLoader />}>
-        <Routes>
+      {/* Inside Router so notification toasts can navigate on click */}
+      <NotificationProvider>
+        <Suspense fallback={<PageLoader />}>
+          <Routes>
           {/* Standalone pages — no navbar/footer */}
           <Route path="verify-email" element={<VerifyEmail />} />
           <Route path="login" element={<Login />} />
@@ -88,8 +91,9 @@ export default function App() {
               </Route>
             </Route>
           </Route>
-        </Routes>
-      </Suspense>
+          </Routes>
+        </Suspense>
+      </NotificationProvider>
     </BrowserRouter>
   )
 }

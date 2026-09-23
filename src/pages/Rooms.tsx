@@ -168,6 +168,36 @@ export default function Rooms() {
     })
   }, [filteredRooms, discountRooms])
 
+  // Suggested rooms: when no exact match, show closest alternatives
+  const suggestedRooms = useMemo(() => {
+    if (sortedRooms.length > 0 || !hasDateFilter) return []
+
+    const budget = filters.budgetMax || 99999
+
+    // Available rooms only (if availability was checked)
+    const available = hasDateFilter
+      ? roomsData.filter((r) => availabilityMap[r.id] !== false)
+      : roomsData
+
+    if (available.length === 0) return []
+
+    // Strategy 1: rooms within 1.5x the budget
+    const expandedBudget = budget * 1.5
+    let candidates = available.filter((r) => r.price <= expandedBudget)
+
+    // Strategy 2: if still nothing, take the cheapest available rooms
+    if (candidates.length === 0) {
+      candidates = [...available].sort((a, b) => a.price - b.price).slice(0, 4)
+    }
+
+    // Sort by closest to budget (prefer rooms at or just under budget)
+    return candidates.sort((a, b) => {
+      const diffA = Math.abs(a.price - budget)
+      const diffB = Math.abs(b.price - budget)
+      return diffA - diffB
+    }).slice(0, 4)
+  }, [sortedRooms, hasDateFilter, roomsData, availabilityMap, filters.budgetMax])
+
   return (
     <div className="px-base py-section">
       <div className="max-w-container mx-auto">
@@ -187,8 +217,12 @@ export default function Rooms() {
         <div className="mb-md">
           <p className="typo-caption-sm text-muted">
             {loading ? "Loading..." : hasDateFilter
-              ? `${sortedRooms.length} ${sortedRooms.length === 1 ? "room" : "rooms"} available for selected dates`
-              : `${sortedRooms.length} ${sortedRooms.length === 1 ? "room" : "rooms"} available`}
+              ? sortedRooms.length > 0
+                ? `${sortedRooms.length} ${sortedRooms.length === 1 ? "room" : "rooms"} available for selected dates`
+                : suggestedRooms.length > 0
+                  ? `${suggestedRooms.length} ${suggestedRooms.length === 1 ? "room" : "rooms"} suggested — no exact match`
+                  : "No rooms available for selected dates"
+              : `${roomsData.length} ${roomsData.length === 1 ? "room" : "rooms"} available`}
           </p>
         </div>
 
@@ -215,17 +249,38 @@ export default function Rooms() {
             ))}
           </motion.div>
         ) : (
-          <motion.div
-            className="text-center py-section"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.3, ease: [0.22, 1, 0.36, 1] as const }}
-          >
-            <p className="typo-body-lg text-muted">
-              {hasDateFilter ? "No rooms available for the selected dates." : "No rooms available right now."}
-            </p>
-            <p className="typo-body-sm text-muted mt-sm">Please check back later or try different dates.</p>
-          </motion.div>
+          <div>
+            <motion.div
+              className="text-center py-xl"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] as const }}
+            >
+              <p className="typo-body-lg text-ink font-medium">
+                No exact match found
+              </p>
+              <p className="typo-body-sm text-muted mt-sm">
+                {hasDateFilter
+                  ? "No rooms are available for your exact search. Here are the closest options we found:"
+                  : "No rooms match your budget. Here are the closest options:"}
+              </p>
+            </motion.div>
+
+            {suggestedRooms.length > 0 && (
+              <motion.div
+                className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-lg"
+                variants={cardContainer}
+                initial="hidden"
+                animate="visible"
+              >
+                {suggestedRooms.map((room, index) => (
+                  <motion.div key={room.id} variants={cardItem} custom={index}>
+                    <RoomCard room={room} filters={filters} discountRooms={discountRooms} isApproved={isApproved} />
+                  </motion.div>
+                ))}
+              </motion.div>
+            )}
+          </div>
         )}
       </div>
     </div>

@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Link, useNavigate, useSearchParams } from "react-router"
 import { Mail, Lock, Eye, EyeOff } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -9,7 +9,7 @@ import hotelLogo from "@/assets/images/Hotel Ava logo.png"
 const PRIMARY = "#82285f"
 
 export default function Login() {
-  const { login } = useAuth()
+  const { login, isAuthenticated, loading } = useAuth()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const returnTo = searchParams.get("returnTo") || "/"
@@ -20,6 +20,13 @@ export default function Login() {
   const [password, setPassword] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+
+  // Auto-redirect after Google OAuth completes (or already authenticated)
+  useEffect(() => {
+    if (!loading && isAuthenticated) {
+      navigate(returnTo, { replace: true })
+    }
+  }, [loading, isAuthenticated, navigate, returnTo])
 
   const inputClass = (_field: string) =>
     "w-full pl-10 pr-4 py-2.5 rounded-[10px] border typo-body-sm text-ink placeholder:text-muted-soft bg-white transition-all duration-150 focus:outline-none"
@@ -52,11 +59,10 @@ export default function Login() {
     setError(null)
     try {
       const { supabase } = await import("@/lib/supabase")
-      const { data, error } = await supabase.auth.signInWithOAuth({
+      const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
           redirectTo: `${window.location.origin}${returnTo}`,
-          skipBrowserRedirect: true,
         },
       })
 
@@ -65,32 +71,27 @@ export default function Login() {
         setSubmitting(false)
         return
       }
-
-      if (data?.url) {
-        const popup = window.open(
-          data.url,
-          "google-auth",
-          "width=500,height=600,left=200,top=100,popup=true"
-        )
-
-        if (!popup || popup.closed || typeof popup.closed === "undefined") {
-          window.location.href = data.url
-          return
-        }
-
-        const checkPopup = setInterval(() => {
-          if (popup.closed) {
-            clearInterval(checkPopup)
-            setSubmitting(false)
-            navigate(returnTo)
-          }
-        }, 500)
-      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Google sign-in failed.")
       setSubmitting(false)
     }
   }
+
+  // Show loading while auth is resolving after OAuth redirect
+  if (loading && !isAuthenticated) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-canvas">
+        <div className="text-center">
+          <img src={hotelLogo} alt="Hotel Ava" className="h-14 w-auto mx-auto mb-6" />
+          <LoadingDots size="md" />
+          <p className="text-sm text-muted mt-3">Signing you in...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Already authenticated — redirect is handled by useEffect above
+  if (isAuthenticated) return null
 
   return (
     <div className="min-h-screen flex">

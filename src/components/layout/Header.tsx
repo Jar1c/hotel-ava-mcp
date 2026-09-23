@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { useAuth } from "@/contexts/AuthContext"
 import { useNotifications } from "@/contexts/NotificationContext"
+import { useToast } from "@/contexts/ToastContext"
 import { publicNavItems, guestNavItems } from "@/data/navigation"
 import hotelAvaLogo from "@/assets/images/Hotel Ava logo.png"
 import { formatDistanceToNow } from "date-fns"
@@ -25,8 +26,9 @@ const notifTypeStyles: Record<string, { bg: string; icon: React.ReactNode }> = {
 }
 
 export default function Header() {
-  const { isAuthenticated, user, logout } = useAuth()
+  const { isAuthenticated, user, logout, isAdmin, loading: authLoading } = useAuth()
   const { notifications, unreadCount, loading, fetchNotifications, markRead, markAllRead } = useNotifications()
+  const { toast } = useToast()
   const location = useLocation()
   const navigate = useNavigate()
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
@@ -45,11 +47,11 @@ export default function Header() {
     if (!notif.read) {
       markRead(notif.id)
     }
-    if (notif.booking_id) {
+    if (notif.booking_id || notif.type === "booking") {
       setDropdownOpen(false)
-      navigate("/my-bookings")
+      navigate(isAdmin ? "/admin/bookings" : "/my-bookings")
     }
-  }, [markRead, navigate])
+  }, [markRead, navigate, isAdmin])
 
   const formatTime = (dateStr: string) => {
     try {
@@ -64,7 +66,8 @@ export default function Header() {
     await logout()
     setIsLoggingOut(false)
     setShowLogoutConfirm(false)
-    navigate("/")
+    toast({ title: "Signed out", description: "You have been logged out successfully.", variant: "success" })
+    navigate("/login")
   }
 
   const navItems = !isAuthenticated ? publicNavItems : guestNavItems
@@ -88,6 +91,15 @@ export default function Header() {
       window.scrollTo({ top: 0, behavior: "smooth" })
     }
   }
+
+  const displayName = (user?.name || "").trim()
+  const hasRealName = !!displayName && displayName.toLowerCase() !== "guest" && !displayName.includes("@")
+  const emailLocal = (user?.email || "").split("@")[0].trim()
+  // Prefer real name → email local → "Account". Never "…", never "Guest".
+  const identityLabel = hasRealName ? displayName : (emailLocal || (isAuthenticated ? "Account" : ""))
+  const canShowIdentity = hasRealName || !!(user?.email || "").trim()
+  // Skeleton only before we have anything to render — never once identity exists
+  const showAuthSkeleton = authLoading && !user && !canShowIdentity
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-hairline bg-white dark:bg-surface-soft dark:border-hairline/50">
@@ -128,7 +140,15 @@ export default function Header() {
         </nav>
 
         <div className="flex items-center gap-sm ml-auto">
-          {!isAuthenticated ? (
+                {showAuthSkeleton ? (
+            <div className="flex items-center gap-2.5 rounded-full bg-[#f0f1f3] dark:bg-surface-strong pl-1 pr-4 py-1">
+              <div className="size-9 rounded-full bg-gray-300 dark:bg-surface-strong animate-pulse" />
+              <div className="flex flex-col gap-1.5">
+                <div className="h-3.5 w-24 bg-gray-300 dark:bg-surface-strong rounded animate-pulse" />
+                <div className="h-2.5 w-28 bg-gray-300 dark:bg-surface-strong rounded animate-pulse" />
+              </div>
+            </div>
+          ) : !isAuthenticated ? (
             <Button
               onClick={() => setShowGoogleModal(true)}
               variant="default"
@@ -218,7 +238,7 @@ export default function Header() {
                   {/* Footer */}
                   <div className="border-t border-gray-100 dark:border-hairline/50 px-4 py-2.5">
                     <button
-                      onClick={() => { setDropdownOpen(false); navigate("/my-bookings") }}
+                      onClick={() => { setDropdownOpen(false); navigate(isAdmin ? "/admin/bookings" : "/my-bookings") }}
                       className="w-full text-center text-xs text-primary hover:text-primary-active font-medium cursor-pointer"
                     >
                       View all notifications
@@ -229,21 +249,33 @@ export default function Header() {
 
             <DropdownMenu modal={false}>
               <DropdownMenuTrigger className="flex items-center gap-2.5 rounded-full bg-[#f0f1f3] dark:bg-surface-strong pl-1 pr-3 py-1 cursor-pointer hover:bg-[#e2e4e8] dark:hover:bg-surface-strong transition-all duration-200">
-                <Avatar className="size-9">
-                  <AvatarImage src={user?.avatar || undefined} />
-                  <AvatarFallback className="bg-gray-200">
-                    <svg className="size-full text-gray-400" viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
-                    </svg>
-                  </AvatarFallback>
-                </Avatar>
-                <div className="flex flex-col items-start">
-                  <div className="flex items-center gap-1">
-                    <span className="text-sm font-semibold text-ink leading-tight">{user?.name || "Guest"}</span>
-                    <ChevronDown className="size-3.5 text-muted" />
-                  </div>
-                  <span className="text-[11px] text-muted leading-tight">{user?.email || ""}</span>
-                </div>
+          {showAuthSkeleton ? (
+                  <>
+                    <div className="size-9 rounded-full bg-gray-200 dark:bg-surface-strong animate-pulse" />
+                    <div className="flex flex-col items-start gap-1.5">
+                      <div className="h-3.5 w-24 bg-gray-200 dark:bg-surface-strong rounded animate-pulse" />
+                      <div className="h-2.5 w-28 bg-gray-200 dark:bg-surface-strong rounded animate-pulse" />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <Avatar className="size-9">
+                      <AvatarImage src={user?.avatar || undefined} />
+                      <AvatarFallback className="bg-gray-200">
+                        <svg className="size-full text-gray-400" viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+                        </svg>
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex flex-col items-start">
+                      <div className="flex items-center gap-1">
+                        <span className="text-sm font-semibold text-ink leading-tight">{identityLabel || "Account"}</span>
+                        <ChevronDown className="size-3.5 text-muted" />
+                      </div>
+                      <span className="text-[11px] text-muted leading-tight">{user?.email || ""}</span>
+                    </div>
+                  </>
+                )}
               </DropdownMenuTrigger>
               <DropdownMenuContent align="center" className="w-60 !rounded-[6px] dark:bg-surface-soft dark:border-hairline/50" positionMethod="fixed" style={{ transform: "translateX(-70px)" }}>
                 <DropdownMenuSeparator />

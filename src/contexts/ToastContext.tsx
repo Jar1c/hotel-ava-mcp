@@ -6,6 +6,8 @@ interface Toast {
   title: string
   description?: string
   variant?: "default" | "error" | "success"
+  onClick?: () => void
+  duration?: number
 }
 
 interface ToastContextValue {
@@ -18,15 +20,21 @@ export function useToast() {
   return useContext(ToastContext)
 }
 
+const MAX_TOASTS = 3
+
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([])
 
   const toast = useCallback((t: Omit<Toast, "id">) => {
-    const id = Date.now()
-    setToasts((prev) => [...prev, { ...t, id }])
+    const id = Date.now() + Math.random()
+    setToasts((prev) => {
+      const next = [...prev, { ...t, id }]
+      // Cap stack so history/race bugs can't flood the screen
+      return next.length > MAX_TOASTS ? next.slice(next.length - MAX_TOASTS) : next
+    })
     setTimeout(() => {
       setToasts((prev) => prev.filter((x) => x.id !== id))
-    }, 4000)
+    }, t.duration ?? 4000)
   }, [])
 
   const icons = {
@@ -43,7 +51,13 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         {toasts.map((t) => (
           <div
             key={t.id}
-            className="pointer-events-auto bg-white dark:bg-surface-soft rounded-[14px] shadow-[0_4px_20px_rgba(0,0,0,0.12)] px-4 py-3 w-full max-w-[320px] sm:w-[320px] animate-toast-slide flex items-start gap-3"
+            onClick={() => {
+              t.onClick?.()
+              setToasts((prev) => prev.filter((x) => x.id !== t.id))
+            }}
+            className={`pointer-events-auto bg-white dark:bg-surface-soft rounded-[14px] shadow-[0_4px_20px_rgba(0,0,0,0.12)] px-4 py-3 w-full max-w-[320px] sm:w-[320px] animate-toast-slide flex items-start gap-3 ${
+              t.onClick ? "cursor-pointer hover:bg-gray-50 dark:hover:bg-surface-strong transition-colors" : ""
+            }`}
           >
             <div className="shrink-0 mt-0.5">
               {icons[t.variant || "default"]}
@@ -52,6 +66,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               <p className="text-sm font-semibold text-ink leading-tight">{t.title}</p>
               {t.description && (
                 <p className="text-xs text-muted mt-0.5 leading-snug">{t.description}</p>
+              )}
+              {t.onClick && (
+                <p className="text-[11px] text-primary mt-1 font-medium">Tap to view</p>
               )}
             </div>
           </div>

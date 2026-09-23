@@ -38,6 +38,7 @@ const cardItem = {
 export default function Home() {
   const { hash } = useLocation()
   const [featuredRooms, setFeaturedRooms] = useState<PublicRoomData[]>([])
+  const [roomsLoading, setRoomsLoading] = useState(true)
 
   useEffect(() => {
     if (hash) {
@@ -55,6 +56,7 @@ export default function Home() {
     const cached = getCached<PublicRoomData[]>("home:featured-rooms")
     if (cached) {
       setFeaturedRooms(cached.slice(0, 3))
+      setRoomsLoading(false)
       return
     }
     publicRoomsApi.getAll()
@@ -63,6 +65,7 @@ export default function Home() {
         setFeaturedRooms(rooms.slice(0, 3))
       })
       .catch(() => {})
+      .finally(() => setRoomsLoading(false))
   }, [])
 
   return (
@@ -159,42 +162,59 @@ export default function Home() {
             </motion.div>
           </div>
 
-          <motion.div
-            className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-xl"
-            variants={cardContainer}
-            initial="hidden"
-            whileInView="visible"
-            viewport={{ once: true, margin: "-100px" }}
-          >
-            {featuredRooms.map((room) => (
-              <motion.div key={room.id} variants={cardItem}>
-                <Link to={`/rooms?room=${room.id}`} className="group block">
-                  <div className="relative aspect-[3/4] overflow-hidden rounded-[10px] mb-base">
-                    <ImageWithPlaceholder
-                      src={room.images?.[0] || ""}
-                      alt={room.name}
-                      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                    />
-                    {room.type === "suite" && (
-                      <span className="absolute top-3 left-3 bg-ink/60 backdrop-blur-sm text-on-primary typo-badge uppercase px-2 py-0.5 rounded-[4px]">
-                        Suite
-                      </span>
-                    )}
-                  </div>
-                  <h3 className="font-display italic text-ink group-hover:text-primary transition-colors mb-xs" style={{ fontSize: "1.25rem", fontWeight: 500 }}>
-                    {room.name}
-                  </h3>
-                  <p className="typo-body-sm text-muted mb-sm line-clamp-2">{room.description}</p>
+          {roomsLoading ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-xl">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="animate-pulse">
+                  <div className="aspect-[3/4] bg-gray-200 rounded-[10px] mb-base" />
+                  <div className="h-5 bg-gray-200 rounded w-3/4 mb-2" />
+                  <div className="h-3.5 bg-gray-200 rounded w-full mb-1.5" />
+                  <div className="h-3.5 bg-gray-200 rounded w-2/3 mb-3" />
                   <div className="flex items-center justify-between">
-                    <p className="typo-title-md text-ink">
-                      ₱{room.price.toLocaleString()} <span className="typo-caption text-muted">/night</span>
-                    </p>
-                    <ArrowRight className="h-4 w-4 text-muted group-hover:text-primary transition-all group-hover:translate-x-1" />
+                    <div className="h-5 bg-gray-200 rounded w-24" />
+                    <div className="h-4 bg-gray-200 rounded w-4" />
                   </div>
-                </Link>
-              </motion.div>
-            ))}
-          </motion.div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <motion.div
+              className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-xl"
+              variants={cardContainer}
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true, margin: "-100px" }}
+            >
+              {featuredRooms.map((room) => (
+                <motion.div key={room.id} variants={cardItem}>
+                  <Link to={`/rooms?room=${room.id}`} className="group block">
+                    <div className="relative aspect-[3/4] overflow-hidden rounded-[10px] mb-base">
+                      <ImageWithPlaceholder
+                        src={room.images?.[0] || ""}
+                        alt={room.name}
+                        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                      />
+                      {room.type === "suite" && (
+                        <span className="absolute top-3 left-3 bg-ink/60 backdrop-blur-sm text-on-primary typo-badge uppercase px-2 py-0.5 rounded-[4px]">
+                          Suite
+                        </span>
+                      )}
+                    </div>
+                    <h3 className="font-display italic text-ink group-hover:text-primary transition-colors mb-xs" style={{ fontSize: "1.25rem", fontWeight: 500 }}>
+                      {room.name}
+                    </h3>
+                    <p className="typo-body-sm text-muted mb-sm line-clamp-2">{room.description}</p>
+                    <div className="flex items-center justify-between">
+                      <p className="typo-title-md text-ink">
+                        ₱{room.price.toLocaleString()} <span className="typo-caption text-muted">/night</span>
+                      </p>
+                      <ArrowRight className="h-4 w-4 text-muted group-hover:text-primary transition-all group-hover:translate-x-1" />
+                    </div>
+                  </Link>
+                </motion.div>
+              ))}
+            </motion.div>
+          )}
         </div>
       </section>
 

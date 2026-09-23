@@ -3,11 +3,12 @@ import { useParams, Link, useNavigate, useSearchParams } from "react-router"
 import { motion } from "motion/react"
 import DatePicker from "react-datepicker"
 import {
-  Star, Users, ArrowLeft, Check,
+  Star, Users, ArrowLeft, Check, X,
   Wifi, Wind, Wine, ConciergeBell, Building2, BedDouble,
   TreePine, Coffee, Sunrise, Bath, UserCheck, Sofa,
   Baby, Waves, Fence, Droplets, Monitor, Armchair,
-  Shirt, Fish, Sunset, UtensilsCrossed, Tv, Sparkles, Music, Clock, Tag, Mail
+  Shirt, Fish, Sunset, UtensilsCrossed, Tv, Sparkles, Music, Clock, Tag, Mail,
+  ChevronDown
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import DateInput from "@/components/ui/date-input"
@@ -128,9 +129,23 @@ export default function RoomDetail() {
   const [showAuthModal, setShowAuthModal] = useState(false)
   const [isAvailable, setIsAvailable] = useState<boolean | null>(null)
   const [checkingAvailability, setCheckingAvailability] = useState(false)
+  const [showMoreDetails, setShowMoreDetails] = useState(false)
   const { isAuthenticated } = useAuth()
   const navigate = useNavigate()
   const { isApproved } = useDiscountApproval()
+
+  // Master amenities list — union of all amenities across all room types
+  const allAmenities = useMemo(() => {
+    const set = new Set<string>()
+    fallbackRooms.forEach((r) => r.amenities.forEach((a) => set.add(a)))
+    return Array.from(set).sort()
+  }, [])
+
+  const missingAmenities = useMemo(() => {
+    if (!room) return []
+    const roomSet = new Set(room.amenities)
+    return allAmenities.filter((a) => !roomSet.has(a))
+  }, [room, allAmenities])
 
   useEffect(() => {
     let checkInDate = searchParams.get("checkIn")
@@ -412,6 +427,16 @@ export default function RoomDetail() {
                     )
                   })}
                 </div>
+
+                {/* Show More Button */}
+                <button
+                  type="button"
+                  onClick={() => setShowMoreDetails(true)}
+                  className="mt-3 inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:text-primary-active transition-colors cursor-pointer"
+                >
+                  Show more details
+                  <ChevronDown className="h-4 w-4" />
+                </button>
               </div>
             </div>
           </div>
@@ -754,12 +779,14 @@ export default function RoomDetail() {
             <button
               type="button"
               onClick={async () => {
-                const returnToUrl = `/rooms/${id}?${window.location.search}`
-                sessionStorage.setItem("postVerifyReturnTo", returnToUrl)
+                // window.location.search already starts with "?" when present — don't add another
+                const returnToUrl = `/rooms/${id}${window.location.search}`
+                sessionStorage.setItem("postOAuthReturnTo", returnToUrl)
+                sessionStorage.setItem("postOAuthReturnToAt", String(Date.now()))
                 const { supabase } = await import("@/lib/supabase")
                 await supabase.auth.signInWithOAuth({
                   provider: "google",
-                  options: { redirectTo: `${window.location.origin}/` },
+                  options: { redirectTo: `${window.location.origin}${returnToUrl}` },
                 })
               }}
               className="w-full flex items-center justify-center gap-3 px-4 py-2.5 rounded-[10px] border border-hairline bg-white hover:bg-surface-soft transition-colors cursor-pointer"
@@ -785,7 +812,8 @@ export default function RoomDetail() {
               type="button"
               onClick={() => {
                 setShowAuthModal(false)
-                const returnToUrl = `/rooms/${id}?${window.location.search}`
+                // window.location.search already starts with "?" when present — don't add another
+                const returnToUrl = `/rooms/${id}${window.location.search}`
                 navigate(`/login?returnTo=${encodeURIComponent(returnToUrl)}`)
               }}
               className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-[10px] border border-hairline bg-white hover:bg-surface-soft transition-colors cursor-pointer text-sm text-ink/80"
@@ -800,6 +828,147 @@ export default function RoomDetail() {
               {" "}and{" "}
               <span className="font-medium" style={{ color: "#82285f" }}>Privacy Policy</span>
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* Show More Details Modal */}
+      {showMoreDetails && room && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 animate-fade-in" onClick={() => setShowMoreDetails(false)}>
+          <div
+            className="bg-white rounded-2xl shadow-2xl animate-scale-in relative overflow-hidden flex flex-col"
+            style={{ width: "100%", maxWidth: "520px", maxHeight: "85vh" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-start justify-between px-6 pt-6 pb-4 border-b border-gray-100 shrink-0">
+              <div>
+                <h2 className="text-xl font-semibold text-gray-900 tracking-tight">Room Details</h2>
+                <p className="text-sm text-gray-500 mt-0.5">{room.name}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowMoreDetails(false)}
+                className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors cursor-pointer -mt-1"
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="px-6 py-5 overflow-y-auto space-y-7">
+              {/* Specifications */}
+              <div>
+                <h3 className="text-[11px] font-medium text-gray-400 uppercase tracking-wider mb-3">Specifications</h3>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  <div className="bg-gray-50 rounded-xl p-3">
+                    <p className="text-[11px] text-gray-400 mb-0.5">Type</p>
+                    <p className="text-sm font-medium text-gray-900">{room.type}</p>
+                  </div>
+                  <div className="bg-gray-50 rounded-xl p-3">
+                    <p className="text-[11px] text-gray-400 mb-0.5">Capacity</p>
+                    <p className="text-sm font-medium text-gray-900">{room.capacity} guests</p>
+                  </div>
+                  <div className="bg-gray-50 rounded-xl p-3">
+                    <p className="text-[11px] text-gray-400 mb-0.5">Max Adults</p>
+                    <p className="text-sm font-medium text-gray-900">{room.max_adults}</p>
+                  </div>
+                  <div className="bg-gray-50 rounded-xl p-3">
+                    <p className="text-[11px] text-gray-400 mb-0.5">Max Children</p>
+                    <p className="text-sm font-medium text-gray-900">
+                      {room.max_children}
+                      {!room.allows_children && (
+                        <span className="ml-1 text-xs font-normal text-gray-400">(n/a)</span>
+                      )}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Available Amenities */}
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                  <h3 className="text-[11px] font-medium text-gray-400 uppercase tracking-wider">Available</h3>
+                  <span className="text-[11px] text-gray-300">·</span>
+                  <span className="text-[11px] text-gray-400">{room.amenities.length} of {allAmenities.length}</span>
+                </div>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                  {allAmenities
+                    .filter((a) => room.amenities.includes(a))
+                    .map((amenity) => {
+                      const iconName = getAmenityIcon(amenity)
+                      const IconComponent = lucideIconMap[iconName] || Sparkles
+                      return (
+                        <div key={amenity} className="flex items-center gap-2.5 py-1.5">
+                          <div className="w-5 h-5 rounded-md bg-emerald-50 flex items-center justify-center shrink-0">
+                            <Check className="h-3 w-3 text-emerald-600" />
+                          </div>
+                          <IconComponent className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+                          <span className="text-[13px] text-gray-700">{amenity}</span>
+                        </div>
+                      )
+                    })}
+                </div>
+              </div>
+
+              {/* Divider */}
+              {missingAmenities.length > 0 && (
+                <div className="border-t border-gray-100" />
+              )}
+
+              {/* Not Available Amenities */}
+              {missingAmenities.length > 0 && (
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-1.5 h-1.5 rounded-full bg-gray-300" />
+                    <h3 className="text-[11px] font-medium text-gray-400 uppercase tracking-wider">Not Available</h3>
+                    <span className="text-[11px] text-gray-300">·</span>
+                    <span className="text-[11px] text-gray-400">{missingAmenities.length} {missingAmenities.length === 1 ? "item" : "items"}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                    {missingAmenities.map((amenity) => {
+                      const iconName = getAmenityIcon(amenity)
+                      const IconComponent = lucideIconMap[iconName] || Sparkles
+                      return (
+                        <div key={amenity} className="flex items-center gap-2.5 py-1.5">
+                          <div className="w-5 h-5 rounded-md bg-gray-100 flex items-center justify-center shrink-0">
+                            <X className="h-3 w-3 text-gray-400" />
+                          </div>
+                          <IconComponent className="h-3.5 w-3.5 text-gray-300 shrink-0" />
+                          <span className="text-[13px] text-gray-400">{amenity}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <p className="text-xs text-gray-400 mt-3 ml-7">Available in other room types.</p>
+                </div>
+              )}
+
+              {/* All Included Note */}
+              {missingAmenities.length === 0 && (
+                <div className="flex items-center gap-2.5 px-4 py-3 bg-gray-50 rounded-xl">
+                  <div className="w-5 h-5 rounded-md bg-emerald-100 flex items-center justify-center shrink-0">
+                    <Check className="h-3 w-3 text-emerald-600" />
+                  </div>
+                  <p className="text-[13px] text-gray-600">This room includes every available amenity.</p>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 border-t border-gray-100 shrink-0 bg-gray-50/50 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowMoreDetails(false)}
+                className="px-5 py-2 rounded-xl bg-primary text-on-primary hover:bg-primary-active text-sm font-medium transition-colors cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

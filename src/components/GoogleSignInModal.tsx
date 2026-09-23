@@ -19,43 +19,20 @@ export default function GoogleSignInModal({ open, onClose }: GoogleSignInModalPr
     setLoading(true)
     try {
       const { supabase } = await import("@/lib/supabase")
-      const { data, error } = await supabase.auth.signInWithOAuth({
+      // Return the user to the page they were on when the modal opened
+      const returnToUrl = `${window.location.pathname}${window.location.search}`
+      sessionStorage.setItem("postOAuthReturnTo", returnToUrl)
+      sessionStorage.setItem("postOAuthReturnToAt", String(Date.now()))
+      const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo: `${window.location.origin}/`,
-          skipBrowserRedirect: true, // Get URL instead of redirect
+          redirectTo: `${window.location.origin}${returnToUrl}`,
         },
       })
 
       if (error) {
         console.error("[GoogleSignIn] OAuth error:", error)
         setLoading(false)
-        return
-      }
-
-      if (data?.url) {
-        // Try popup first
-        const popup = window.open(
-          data.url,
-          "google-auth",
-          "width=500,height=600,left=200,top=100,popup=true"
-        )
-
-        // If popup blocked, fall back to redirect
-        if (!popup || popup.closed || typeof popup.closed === "undefined") {
-          console.log("[GoogleSignIn] Popup blocked, falling back to redirect")
-          window.location.href = data.url
-          return
-        }
-
-        // Watch for popup to close (user completed or cancelled)
-        const checkPopup = setInterval(() => {
-          if (popup.closed) {
-            clearInterval(checkPopup)
-            setLoading(false)
-            // Auth state will update via onAuthStateChange listener
-          }
-        }, 500)
       }
     } catch (err) {
       console.error("[GoogleSignIn] Error:", err)
@@ -124,7 +101,8 @@ export default function GoogleSignInModal({ open, onClose }: GoogleSignInModalPr
           type="button"
           onClick={() => {
             onClose()
-            navigate("/login")
+            const returnToUrl = `${window.location.pathname}${window.location.search}`
+            navigate(`/login?returnTo=${encodeURIComponent(returnToUrl)}`)
           }}
           className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-[10px] border border-hairline bg-white hover:bg-surface-soft transition-colors cursor-pointer text-sm text-ink/80"
         >

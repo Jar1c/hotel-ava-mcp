@@ -129,6 +129,11 @@ export default function Profile() {
     try {
       await authApi.updateProfile({ name: fullName })
       updateUser({ name: fullName, name_changed_at: new Date().toISOString() })
+      // Sync system name into Supabase user_metadata so next session's
+      // instant display shows system name, not Google's full_name
+      import("@/lib/supabase").then(({ supabase }) =>
+        supabase.auth.updateUser({ data: { name: fullName, full_name: fullName } }).catch(() => {})
+      )
       setIsEditing(false)
     } catch {
       // keep current state
@@ -274,7 +279,9 @@ export default function Profile() {
                 </DropdownMenu>
               </div>
               <h1 className="font-display text-xl font-bold mt-4" style={{ color: INK }}>
-                {user?.name || "Guest"}
+                {user?.name && user.name.toLowerCase() !== "guest" && !user.name.includes("@")
+                  ? user.name
+                  : (user?.email?.split("@")[0] || "Guest")}
               </h1>
               <p className="typo-body-sm" style={{ color: MUTED }}>
                 {user?.email || ""}

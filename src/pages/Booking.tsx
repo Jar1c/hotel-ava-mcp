@@ -487,38 +487,20 @@ export default function Booking() {
                 setGoogleLoading(true)
                 try {
                   const { supabase } = await import("@/lib/supabase")
-                  const { data, error } = await supabase.auth.signInWithOAuth({
+                  const returnToUrl = `${window.location.pathname}${window.location.search}`
+                  sessionStorage.setItem("postOAuthReturnTo", returnToUrl)
+                  sessionStorage.setItem("postOAuthReturnToAt", String(Date.now()))
+                  const { error } = await supabase.auth.signInWithOAuth({
                     provider: "google",
                     options: {
-                      redirectTo: `${window.location.origin}/booking${window.location.search}`,
-                      skipBrowserRedirect: true,
+                      // pathname includes /booking/:id — bare "/booking" lands on NotFound
+                      redirectTo: `${window.location.origin}${returnToUrl}`,
                     },
                   })
 
                   if (error) {
                     console.error("[Booking] Google OAuth error:", error)
                     setGoogleLoading(false)
-                    return
-                  }
-
-                  if (data?.url) {
-                    const popup = window.open(
-                      data.url,
-                      "google-auth",
-                      "width=500,height=600,left=200,top=100,popup=true"
-                    )
-
-                    if (!popup || popup.closed || typeof popup.closed === "undefined") {
-                      window.location.href = data.url
-                      return
-                    }
-
-                    const checkPopup = setInterval(() => {
-                      if (popup.closed) {
-                        clearInterval(checkPopup)
-                        setGoogleLoading(false)
-                      }
-                    }, 500)
                   }
                 } catch (err) {
                   console.error("[Booking] Google sign-in error:", err)

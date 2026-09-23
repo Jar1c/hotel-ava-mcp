@@ -119,6 +119,33 @@ def create_notification(user_id, notif_type, title, message, booking_id=None):
         print(f"Notification error: {e}")
 
 
+def notify_admins(notif_type, title, message, booking_id=None):
+    """Fan-out a notification to every user with role=admin (realtime picks these up)."""
+    try:
+        admins_res = supabase_admin.table("users").select("id").eq("role", "admin").execute()
+        admin_ids = [r["id"] for r in (admins_res.data or [])]
+        if not admin_ids:
+            return
+        for admin_id in admin_ids:
+            notif_data = {
+                "user_id": admin_id,
+                "type": notif_type,
+                "title": title,
+                "message": message,
+            }
+            if booking_id:
+                notif_data["booking_id"] = booking_id
+            try:
+                # Service-role client bypasses RLS (required when notifying another user)
+                supabase_admin.table("notifications").insert(notif_data).execute()
+            except Exception as insert_err:
+                print(f"notify_admins insert error for {admin_id}: {insert_err}")
+                # Fallback: current auth context (works if RLS WITH CHECK is open)
+                create_notification(admin_id, notif_type, title, message, booking_id=booking_id)
+    except Exception as e:
+        print(f"notify_admins error: {e}")
+
+
 @app.route("/api/notifications", methods=["GET"])
 def get_notifications():
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
@@ -350,8 +377,15 @@ def get_profile():
     if not user_id:
         return jsonify({"error": "Unauthorized"}), 401
 
-    profile = supabase.table("users").select("*").eq("id", user_id).single().execute()
-    p = profile.data or {}
+    # .single() throws (PGRST116) when no row exists yet — common for first-time
+    # Google OAuth users whose auth.users entry has no matching public.users row.
+    # Catch so the auto-create block below can insert the missing row instead of 500ing.
+    try:
+        profile = supabase.table("users").select("*").eq("id", user_id).single().execute()
+        p = profile.data or {}
+    except Exception as e:
+        print(f"[profile] user row missing for {user_id}: {e}")
+        p = {}
 
     # Get email from JWT claims (no admin API needed)
     email = p.get("email", "")
@@ -365,9 +399,23 @@ def get_profile():
     # Auto-create user row for Google/OAuth users if missing
     if not p or not p.get("id"):
         try:
+            # Try Supabase Auth metadata first (most reliable for Google users)
+            google_name = ""
+            google_avatar = ""
+            try:
+                auth_user = supabase_admin.auth.admin.get_user_by_id(user_id)
+                if auth_user and auth_user.user:
+                    user_meta = auth_user.user.user_metadata or {}
+                    google_name = user_meta.get("full_name", "") or user_meta.get("name", "")
+                    google_avatar = user_meta.get("picture", "") or user_meta.get("avatar_url", "")
+            except Exception:
+                pass
+
+            # Fallback to JWT claims
             payload = pyjwt.decode(token, options={"verify_signature": False, "verify_exp": False})
-            name = payload.get("name", payload.get("full_name", email.split("@")[0] if email else ""))
-            avatar = payload.get("avatar_url", payload.get("picture", ""))
+            name = google_name or payload.get("name", payload.get("full_name", email.split("@")[0] if email else ""))
+            avatar = google_avatar or payload.get("avatar_url", payload.get("picture", ""))
+
             supabase.table("users").insert({
                 "id": user_id,
                 "name": name,
@@ -379,27 +427,44 @@ def get_profile():
         except Exception:
             p = {}
 
-    # If avatar_url is empty, fetch from Supabase Auth metadata (Google OAuth picture)
+    # System name (DB) is ALWAYS authoritative once set.
+    # Only treat name as wrong when missing or clearly corrupted (contains @).
+    # Do NOT treat email-prefix names as wrong — that overwrites user-chosen names.
     avatar_url = p.get("avatar_url", "")
-    print(f"[profile] user_id={user_id}, db_avatar_url='{avatar_url}'")
-    if not avatar_url:
+    db_name = p.get("name", "")
+    name_changed_at = p.get("name_changed_at", "")
+    name_is_wrong = (not db_name) or ("@" in db_name)
+    # User explicitly changed their name in the system — never auto-replace with Google
+    if name_changed_at:
+        name_is_wrong = False
+    needs_auth_fetch = (not avatar_url) or name_is_wrong
+    print(f"[profile] user_id={user_id}, db_avatar_url='{avatar_url}', db_name='{db_name}', name_changed_at='{name_changed_at}', needs_auth_fetch={needs_auth_fetch}")
+
+    if needs_auth_fetch:
         try:
             auth_user = supabase_admin.auth.admin.get_user_by_id(user_id)
             if auth_user and auth_user.user:
                 user_meta = auth_user.user.user_metadata or {}
                 app_meta = getattr(auth_user.user, 'app_metadata', {}) or {}
-                print(f"[profile] auth user_metadata={user_meta}")
-                print(f"[profile] auth app_metadata providers={app_meta.get('providers', [])}")
-                avatar_url = user_meta.get("picture", "") or user_meta.get("avatar_url", "")
-                if avatar_url:
-                    print(f"[profile] found avatar from auth metadata: {avatar_url}")
-                    supabase.table("users").update({"avatar_url": avatar_url, "updated_at": "now()"}).eq("id", user_id).execute()
-                else:
-                    print(f"[profile] no picture in auth metadata, keys={list(user_meta.keys())}")
-            else:
-                print(f"[profile] get_user_by_id returned: {auth_user}")
+                is_google = "google" in (app_meta.get("providers", []) or [])
+                print(f"[profile] auth user_metadata keys={list(user_meta.keys())}, is_google={is_google}")
+
+                # Fix avatar if empty
+                if not avatar_url:
+                    avatar_url = user_meta.get("picture", "") or user_meta.get("avatar_url", "")
+                    if avatar_url:
+                        print(f"[profile] found avatar from auth metadata")
+                        supabase.table("users").update({"avatar_url": avatar_url, "updated_at": "now()"}).eq("id", user_id).execute()
+
+                # Fill name ONLY when empty or corrupted — never overwrite a system name
+                if is_google and name_is_wrong:
+                    google_name = user_meta.get("full_name", "") or user_meta.get("name", "")
+                    if google_name:
+                        print(f"[profile] filling empty/corrupt name with '{google_name}'")
+                        supabase.table("users").update({"name": google_name, "updated_at": "now()"}).eq("id", user_id).execute()
+                        db_name = google_name
         except Exception as e:
-            print(f"[profile] get avatar from auth metadata error: {type(e).__name__}: {e}")
+            print(f"[profile] auth metadata fetch error: {type(e).__name__}: {e}")
 
     # Final fallback: try JWT claims
     if not avatar_url:
@@ -414,7 +479,7 @@ def get_profile():
     return jsonify({
         "id": user_id,
         "email": email,
-        "name": p.get("name", ""),
+        "name": db_name,
         "role": p.get("role", "guest"),
         "avatar_url": avatar_url,
         "phone": p.get("phone", ""),
@@ -1159,9 +1224,13 @@ def create_booking():
             description=f"Booking: {booking_id}",
         )
 
+        guest_label = full_name or email or "A guest"
         if checkout_url:
             create_notification(user_id, "booking", "Booking Pending",
                 f"Your booking for {room['name']} on {check_in} is awaiting payment.",
+                booking_id=booking_id)
+            notify_admins("booking", "New Booking",
+                f"{guest_label} booked {room['name']} for {check_in}.",
                 booking_id=booking_id)
             return jsonify({
                 "booking_id": booking_id,
@@ -1173,6 +1242,9 @@ def create_booking():
             supabase.table("bookings").update({"status": "confirmed"}).eq("id", booking_id).execute()
             create_notification(user_id, "booking", "Booking Confirmed",
                 f"Your booking for {room['name']} on {check_in} is confirmed!",
+                booking_id=booking_id)
+            notify_admins("booking", "New Booking",
+                f"{guest_label} booked {room['name']} for {check_in}.",
                 booking_id=booking_id)
             return jsonify({
                 "booking_id": booking_id,
@@ -2169,6 +2241,9 @@ def paymongo_webhook():
                                 room_name = rr.data[0]["name"]
                         create_notification(b["user_id"], "booking", "Payment Confirmed",
                             f"Payment received! Your booking for {room_name} on {b.get('check_in', '')} is now confirmed.",
+                            booking_id=booking_id)
+                        notify_admins("booking", "Payment Confirmed",
+                            f"Payment received for {room_name} on {b.get('check_in', '')}.",
                             booking_id=booking_id)
                         room_id = b.get("room_id")
                         if room_id:
