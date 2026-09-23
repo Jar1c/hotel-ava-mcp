@@ -18,6 +18,8 @@ export function usePolling<T>(
   useEffect(() => { setterRef.current = setter }, [setter])
 
   const tick = useCallback(async () => {
+    // Skip when tab is hidden — don't burn backend cycles in background
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") return
     try {
       const data = await fetchRef.current()
       setterRef.current(data)
@@ -32,6 +34,16 @@ export function usePolling<T>(
 
     // Then on interval
     const id = setInterval(tick, intervalMs)
-    return () => clearInterval(id)
+
+    // Catch up as soon as the tab becomes visible again
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void tick()
+    }
+    document.addEventListener("visibilitychange", onVisible)
+
+    return () => {
+      clearInterval(id)
+      document.removeEventListener("visibilitychange", onVisible)
+    }
   }, [tick, intervalMs])
 }

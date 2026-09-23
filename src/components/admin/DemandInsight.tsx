@@ -1,6 +1,8 @@
 import { TrendingDown, Check, X, Brain, Tag } from "lucide-react"
 import { useState } from "react"
 import type { DemandInsightData } from "@/services/adminService"
+import { setDemandInsightStatus } from "@/services/adminService"
+import { useToast } from "@/contexts/ToastContext"
 import { cn } from "@/lib/utils"
 
 interface DemandInsightProps {
@@ -8,11 +10,44 @@ interface DemandInsightProps {
 }
 
 export default function DemandInsight({ insight }: DemandInsightProps) {
+  const { toast } = useToast()
   const [applied, setApplied] = useState(insight.applied)
-  const [dismissed, setDismissed] = useState(false)
+  const [dismissed, setDismissed] = useState(insight.dismissed ?? false)
   const [showConfirm, setShowConfirm] = useState(false)
+  const [busy, setBusy] = useState(false)
 
   if (dismissed) return null
+
+  const handleAccept = async () => {
+    setBusy(true)
+    try {
+      await setDemandInsightStatus(insight.id, "accept")
+      setApplied(true)
+      setShowConfirm(false)
+      toast({
+        title: "Discount accepted",
+        description: `${insight.period} suggestion is now active.`,
+        variant: "success",
+      })
+    } catch {
+      toast({ title: "Couldn't save", description: "Try again.", variant: "error" })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleDismiss = async () => {
+    setBusy(true)
+    try {
+      await setDemandInsightStatus(insight.id, "dismiss")
+      setDismissed(true)
+      toast({ title: "Suggestion dismissed", description: insight.period, variant: "default" })
+    } catch {
+      toast({ title: "Couldn't save", description: "Try again.", variant: "error" })
+    } finally {
+      setBusy(false)
+    }
+  }
 
   return (
     <>
@@ -39,7 +74,7 @@ export default function DemandInsight({ insight }: DemandInsightProps) {
                   </span>
                   <span className="text-xs text-muted flex items-center gap-1">
                     <Brain className="w-3 h-3" />
-                    {insight.confidence}% confidence
+                    from booking history
                   </span>
                 </div>
               </div>
@@ -50,7 +85,7 @@ export default function DemandInsight({ insight }: DemandInsightProps) {
               <span className="font-display text-2xl font-bold text-foreground">
                 {insight.predictedOccupancy}%
               </span>
-              <span className="text-xs text-muted">predicted occupancy</span>
+              <span className="text-xs text-muted">expected occupancy</span>
             </div>
 
             {/* Reason */}
@@ -59,7 +94,7 @@ export default function DemandInsight({ insight }: DemandInsightProps) {
             {/* Recommendation */}
             <div className="bg-[#f8f7f4] rounded-[4px] px-3 py-2 border border-[#e2e4e8] mb-2">
               <p className="text-sm font-medium text-foreground">
-                Recommendation: {insight.recommendation}
+                Suggestion: {insight.recommendation}
               </p>
             </div>
 
@@ -84,14 +119,16 @@ export default function DemandInsight({ insight }: DemandInsightProps) {
               <>
                 <button
                   onClick={() => setShowConfirm(true)}
-                  className="flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-[4px] bg-[#455d58] text-white hover:bg-[#374d48] transition-colors duration-200"
+                  disabled={busy}
+                  className="flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-[4px] bg-[#455d58] text-white hover:bg-[#374d48] transition-colors duration-200 disabled:opacity-50"
                 >
                   <Check className="w-3.5 h-3.5" />
                   Accept
                 </button>
                 <button
-                  onClick={() => setDismissed(true)}
-                  className="flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-[4px] border border-[#e2e4e8] text-muted hover:bg-[#f5f6f8] transition-colors duration-200"
+                  onClick={handleDismiss}
+                  disabled={busy}
+                  className="flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-[4px] border border-[#e2e4e8] text-muted hover:bg-[#f5f6f8] transition-colors duration-200 disabled:opacity-50"
                 >
                   <X className="w-3.5 h-3.5" />
                   Dismiss
@@ -133,25 +170,24 @@ export default function DemandInsight({ insight }: DemandInsightProps) {
               <p className="text-xs text-muted mb-4">
                 This will activate the {insight.discountPercent}% discount for {insight.period}.
                 Base rates remain fixed — this is a temporary promotional offer.
-                You can deactivate from the Discount Offers section.
+                You can deactivate from the Discounts tab.
               </p>
             </div>
 
             <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-[#e2e4e8]">
               <button
                 onClick={() => setShowConfirm(false)}
-                className="px-4 py-2 text-sm font-medium text-muted rounded-[4px] border border-[#e2e4e8] hover:bg-[#f5f6f8] transition-colors duration-200"
+                disabled={busy}
+                className="px-4 py-2 text-sm font-medium text-muted rounded-[4px] border border-[#e2e4e8] hover:bg-[#f5f6f8] transition-colors duration-200 disabled:opacity-50"
               >
                 Cancel
               </button>
               <button
-                onClick={() => {
-                  setApplied(true)
-                  setShowConfirm(false)
-                }}
-                className="px-4 py-2 text-sm font-medium text-white rounded-[4px] bg-[#455d58] hover:bg-[#374d48] transition-colors duration-200"
+                onClick={handleAccept}
+                disabled={busy}
+                className="px-4 py-2 text-sm font-medium text-white rounded-[4px] bg-[#455d58] hover:bg-[#374d48] transition-colors duration-200 disabled:opacity-50"
               >
-                Confirm
+                {busy ? "Saving…" : "Confirm"}
               </button>
             </div>
           </div>

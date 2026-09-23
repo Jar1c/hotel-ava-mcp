@@ -1,10 +1,16 @@
-import { useState } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { cn } from "@/lib/utils"
 import { bookingsApi } from "@/services/api"
 import type { Booking } from "@/data/admin"
 import LoadingDots from "@/components/LoadingDots"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Mail, Phone, CalendarDays, PhilippinePeso, User, Clock, BedDouble, CreditCard, FileText } from "lucide-react"
+import { getDiceBearUrl } from "@/lib/dicebear"
+import Pagination from "@/components/admin/Pagination"
 
 type BookingStatus = "confirmed" | "pending" | "completed" | "cancelled" | "checked-out"
+
+const PAGE_SIZE = 10
 
 interface BookingsTableProps {
   bookings: Booking[]
@@ -36,12 +42,51 @@ function formatBookingDate(dateStr: string) {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
 }
 
+function formatPaymentLabel(method: string) {
+  if (!method) return "Not set"
+  const m = method.toLowerCase()
+  if (m === "gcash") return "GCash"
+  if (m === "paymaya") return "PayMaya"
+  if (m === "card") return "Credit / Debit Card"
+  return method
+}
+
+function paymentNote(status: BookingStatus) {
+  if (status === "pending") return "Awaiting payment"
+  if (status === "confirmed") return "Paid"
+  if (status === "completed" || status === "checked-out") return "Paid"
+  if (status === "cancelled") return "Cancelled"
+  return "—"
+}
+
 export default function BookingsTable({ bookings, showFilters = true, loading, onStatusChange }: BookingsTableProps) {
   const [filter, setFilter] = useState<BookingStatus | "all">("all")
+  const [page, setPage] = useState(1)
   const [actingId, setActingId] = useState<string | null>(null)
   const [confirmAction, setConfirmAction] = useState<{ bookingId: string; bookingIdShort: string; action: BookingStatus; label: string } | null>(null)
+  const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null)
+  const [modalOpen, setModalOpen] = useState(false)
 
   const filtered = filter === "all" ? bookings : bookings.filter((b) => b.status === filter)
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const safePage = Math.min(page, totalPages)
+  const paged = useMemo(
+    () => filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE),
+    [filtered, safePage],
+  )
+
+  useEffect(() => {
+    setPage(1)
+  }, [filter])
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages)
+  }, [page, totalPages])
+
+  const openBooking = (booking: Booking) => {
+    setSelectedBooking(booking)
+    setModalOpen(true)
+  }
 
   async function handleStatusChange(bookingId: string, newStatus: BookingStatus) {
     if (!bookingId) return
@@ -54,7 +99,14 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
     } finally {
       setActingId(null)
       setConfirmAction(null)
+      setModalOpen(false)
     }
+  }
+
+  function openConfirm(booking: Booking, action: BookingStatus, label: string) {
+    const bid = booking.fullId || booking.id
+    setConfirmAction({ bookingId: bid, bookingIdShort: booking.id, action, label })
+    setModalOpen(false)
   }
 
   function getActions(booking: Booking) {
@@ -73,7 +125,10 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
       <button
         key={a.status}
         disabled={actingId === bid}
-        onClick={() => setConfirmAction({ bookingId: bid, bookingIdShort: booking.id, action: a.status, label: a.label })}
+        onClick={(e) => {
+          e.stopPropagation()
+          openConfirm(booking, a.status, a.label)
+        }}
         className={cn(
           "px-2.5 py-1 rounded-[4px] text-[10px] font-semibold transition-all duration-150",
           actingId === bid ? "opacity-50 cursor-not-allowed" : "cursor-pointer",
@@ -163,18 +218,26 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
               </tr>
             </thead>
             <tbody>
-              {filtered.map((booking) => {
+              {paged.map((booking) => {
                 const status = statusConfig[booking.status]
                 const actions = getActions(booking)
                 return (
                   <tr
                     key={booking.id}
-                    className="border-b border-[#f0f1f3] last:border-b-0 hover:bg-[#f5f6f8] transition-colors duration-150"
+                    onClick={() => openBooking(booking)}
+                    className="border-b border-[#f0f1f3] last:border-b-0 hover:bg-[#f5f6f8] transition-colors duration-150 cursor-pointer group"
                   >
                     <td className="px-5 py-3">
-                      <div>
-                        <div className="font-medium text-[#1a1d26]">{booking.guestName}</div>
-                        {booking.guestEmail && <div className="text-[11px] text-[#9ca3af]">{booking.guestEmail}</div>}
+                      <div className="flex items-center gap-3">
+                        <img
+                          src={booking.guestAvatar || getDiceBearUrl("adventurer", booking.guestEmail || booking.guestName, 32)}
+                          alt={booking.guestName}
+                          className="size-8 rounded-full object-cover"
+                        />
+                        <div>
+                          <div className="font-medium text-[#1a1d26] group-hover:text-[#82285f] transition-colors">{booking.guestName}</div>
+                          {booking.guestEmail && <div className="text-[11px] text-[#9ca3af]">{booking.guestEmail}</div>}
+                        </div>
                       </div>
                     </td>
                     <td className="px-5 py-3 text-[#6b7280] font-mono text-[11px]">#{booking.id}</td>
@@ -231,44 +294,161 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
             </tbody>
           </table>
         </div>
+
+        <Pagination page={safePage} totalPages={totalPages} onPageChange={setPage} />
       </div>
 
-      {/* Confirmation Dialog */}
-      {confirmAction && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-[12px] shadow-xl p-6 w-full max-w-sm mx-4">
-            <h3 className="text-[15px] font-bold text-[#1a1d26] mb-2">
-              {confirmAction.action === "confirmed" && "Confirm Booking?"}
-              {confirmAction.action === "cancelled" && "Cancel Booking?"}
-              {confirmAction.action === "checked-out" && "Mark as Checked Out?"}
-            </h3>
-            <p className="text-[13px] text-[#6b7280] mb-5">
-              {confirmAction.action === "confirmed" && `Booking #${confirmAction.bookingIdShort} will be confirmed. The guest will be notified.`}
-              {confirmAction.action === "cancelled" && `Booking #${confirmAction.bookingIdShort} will be cancelled. This cannot be undone.`}
-              {confirmAction.action === "checked-out" && `Booking #${confirmAction.bookingIdShort} will be marked as checked out.`}
-            </p>
-            <div className="flex items-center justify-end gap-2">
-              <button
-                onClick={() => setConfirmAction(null)}
-                className="px-4 py-2 rounded-[6px] text-[12px] font-semibold text-[#6b7280] bg-[#f5f6f8] hover:bg-[#e2e4e8] transition-colors"
-              >
-                Go Back
-              </button>
-              <button
-                onClick={() => handleStatusChange(confirmAction.bookingId, confirmAction.action)}
-                className={cn(
-                  "px-4 py-2 rounded-[6px] text-[12px] font-semibold transition-colors",
-                  confirmAction.action === "confirmed" && "bg-[#3D6B4F] text-white hover:bg-[#2d5a3e]",
-                  confirmAction.action === "cancelled" && "bg-[#A4423A] text-white hover:bg-[#8a372f]",
-                  confirmAction.action === "checked-out" && "bg-[#82285f] text-white hover:bg-[#6d204f]",
-                )}
-              >
-                {actingId === confirmAction.bookingId ? <LoadingDots size="sm" /> : "Yes, Proceed"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* ── Booking Detail Modal ──────────────────────────────── */}
+      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
+        <DialogContent className="!rounded-[16px] !max-w-[460px] !p-0 overflow-hidden">
+          {selectedBooking && (
+            <>
+              <DialogHeader className="px-6 pt-6 pb-4 border-b border-[#e2e4e8]">
+                <DialogTitle className="flex items-center gap-2">
+                  <FileText className="h-5 w-5 text-[#82285f]" />
+                  Booking Details
+                </DialogTitle>
+              </DialogHeader>
+
+              <div className="p-6 max-h-[70vh] overflow-y-auto">
+                {/* Guest Header */}
+                <div className="flex items-center gap-4 mb-6">
+                  <img
+                    src={selectedBooking.guestAvatar || getDiceBearUrl("adventurer", selectedBooking.guestEmail || selectedBooking.guestName, 56)}
+                    alt={selectedBooking.guestName}
+                    className="size-14 rounded-full object-cover"
+                  />
+                  <div>
+                    <h3 className="font-display font-semibold text-[#1a1d26] text-lg">{selectedBooking.guestName}</h3>
+                    <span className={cn("inline-flex items-center gap-1.5 text-[11px] font-medium mt-0.5", statusConfig[selectedBooking.status].textColor)}>
+                      <span className={cn("size-1.5 rounded-full", statusConfig[selectedBooking.status].dotColor)} />
+                      {statusConfig[selectedBooking.status].label}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Guest Profile */}
+                <div className="space-y-3 mb-6">
+                  <h4 className="text-[10px] font-semibold uppercase tracking-wider text-[#9ca3af]">Guest Profile</h4>
+                  <div className="bg-[#f5f6f8] rounded-[10px] p-4 space-y-3">
+                    <DetailRow icon={<User className="h-4 w-4" />} label="Name" value={selectedBooking.guestName} />
+                    <DetailRow icon={<Mail className="h-4 w-4" />} label="Email" value={selectedBooking.guestEmail || "Not provided"} />
+                    {selectedBooking.phone ? (
+                      <DetailRow icon={<Phone className="h-4 w-4" />} label="Phone" value={selectedBooking.phone} />
+                    ) : null}
+                    {selectedBooking.guestId ? (
+                      <DetailRow icon={<CalendarDays className="h-4 w-4" />} label="Guest ID" value={selectedBooking.guestId.slice(0, 8) + "..."} />
+                    ) : null}
+                  </div>
+                </div>
+
+                {/* Booking Info */}
+                <div className="space-y-3 mb-6">
+                  <h4 className="text-[10px] font-semibold uppercase tracking-wider text-[#9ca3af]">Booking Information</h4>
+                  <div className="bg-[#f5f6f8] rounded-[10px] p-4 space-y-3">
+                    <DetailRow icon={<FileText className="h-4 w-4" />} label="Booking ID" value={`#${selectedBooking.id}`} />
+                    <DetailRow icon={<Clock className="h-4 w-4" />} label="Booked On" value={formatBookingDate(selectedBooking.createdAt || "")} />
+                    <DetailRow icon={<CalendarDays className="h-4 w-4" />} label="Stay" value={
+                      selectedBooking.stay_type === "day" && selectedBooking.duration
+                        ? `${selectedBooking.checkIn} · ${selectedBooking.start_time || ""} · ${selectedBooking.duration}h`
+                        : `${selectedBooking.checkIn} → ${selectedBooking.checkOut}`
+                    } />
+                    <DetailRow icon={<BedDouble className="h-4 w-4" />} label="Room" value={`${selectedBooking.roomType}${selectedBooking.roomNumber ? ` · ${selectedBooking.roomNumber}` : ""}`} />
+                    <DetailRow icon={<User className="h-4 w-4" />} label="Guests" value={`${selectedBooking.guests ?? 1} guest${(selectedBooking.guests ?? 1) !== 1 ? "s" : ""}`} />
+                    <DetailRow icon={<CalendarDays className="h-4 w-4" />} label="Length" value={
+                      selectedBooking.stay_type === "day" && selectedBooking.duration
+                        ? `Day use · ${selectedBooking.duration}h`
+                        : `${selectedBooking.nights} night${selectedBooking.nights !== 1 ? "s" : ""}`
+                    } />
+                    {selectedBooking.specialRequests ? (
+                      <DetailRow icon={<FileText className="h-4 w-4" />} label="Requests" value={selectedBooking.specialRequests} />
+                    ) : null}
+                  </div>
+                </div>
+
+                {/* Payment */}
+                <div className="space-y-3">
+                  <h4 className="text-[10px] font-semibold uppercase tracking-wider text-[#9ca3af]">Payment</h4>
+                  <div className="bg-[#f5f6f8] rounded-[10px] p-4 space-y-3">
+                    <DetailRow icon={<CreditCard className="h-4 w-4" />} label="Method" value={formatPaymentLabel(selectedBooking.payment_method || "")} />
+                    <DetailRow icon={<PhilippinePeso className="h-4 w-4" />} label="Amount" value={`₱${selectedBooking.amount.toLocaleString()}`} valueClass="font-bold text-[#82285f]" />
+                    <DetailRow icon={<Clock className="h-4 w-4" />} label="Status" value={paymentNote(selectedBooking.status)} />
+                  </div>
+                </div>
+
+                {/* Actions inside modal */}
+                {(() => {
+                  const actions = getActions(selectedBooking)
+                  if (actions.length === 0) return null
+                  return (
+                    <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t border-[#e2e4e8]">
+                      {actions}
+                    </div>
+                  )
+                })()}
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirmation Dialog — matches system Dialog */}
+      <Dialog
+        open={!!confirmAction}
+        onOpenChange={(open) => { if (!open) setConfirmAction(null) }}
+      >
+        <DialogContent className="!rounded-[16px] !max-w-[400px]">
+          {confirmAction && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="text-[16px] text-ink">
+                  {confirmAction.action === "confirmed" && "Confirm Booking?"}
+                  {confirmAction.action === "cancelled" && "Cancel Booking?"}
+                  {confirmAction.action === "checked-out" && "Mark as Checked Out?"}
+                </DialogTitle>
+              </DialogHeader>
+              <p className="text-[13px] text-muted mb-6 leading-relaxed">
+                {confirmAction.action === "confirmed" && `Booking #${confirmAction.bookingIdShort} will be confirmed. The guest will be notified.`}
+                {confirmAction.action === "cancelled" && `Booking #${confirmAction.bookingIdShort} will be cancelled. This cannot be undone.`}
+                {confirmAction.action === "checked-out" && `Booking #${confirmAction.bookingIdShort} will be marked as checked out.`}
+              </p>
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  onClick={() => setConfirmAction(null)}
+                  className="px-4 py-2 rounded-[8px] text-[12px] font-semibold text-muted bg-surface-soft hover:bg-surface-strong transition-colors cursor-pointer"
+                >
+                  Go Back
+                </button>
+                <button
+                  onClick={() => handleStatusChange(confirmAction.bookingId, confirmAction.action)}
+                  className={cn(
+                    "px-4 py-2 rounded-[8px] text-[12px] font-semibold transition-colors cursor-pointer",
+                    confirmAction.action === "confirmed" && "bg-[#3D6B4F] text-white hover:bg-[#2d5a3e]",
+                    confirmAction.action === "cancelled" && "bg-destructive text-white hover:bg-destructive-hover",
+                    confirmAction.action === "checked-out" && "bg-primary text-white hover:bg-primary-active",
+                  )}
+                >
+                  {actingId === confirmAction.bookingId ? <LoadingDots size="sm" /> : "Yes, Proceed"}
+                </button>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </>
+  )
+}
+
+/* ── Detail Row ────────────────────────────────────────────────────── */
+
+function DetailRow({ icon, label, value, valueClass }: { icon: React.ReactNode; label: string; value: string; valueClass?: string }) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <div className="flex items-center gap-2 min-w-0">
+        <span className="text-[#9ca3af] shrink-0">{icon}</span>
+        <span className="text-[11px] font-medium text-[#6b7280]">{label}</span>
+      </div>
+      <span className={cn("text-[12px] text-[#1a1d26] text-right truncate", valueClass)}>{value}</span>
+    </div>
   )
 }

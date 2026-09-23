@@ -192,12 +192,25 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     void fetchUnreadCount()
     void fetchNotifications()
 
+    // 30s poll (was 8s) — realtime channel covers immediacy; skip when hidden
     const poll = setInterval(() => {
+      if (document.visibilityState === "hidden") return
       void fetchUnreadCount()
       void fetchNotifications()
-    }, 8000)
+    }, 30000)
 
-    return () => clearInterval(poll)
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        void fetchUnreadCount()
+        void fetchNotifications()
+      }
+    }
+    document.addEventListener("visibilitychange", onVisible)
+
+    return () => {
+      clearInterval(poll)
+      document.removeEventListener("visibilitychange", onVisible)
+    }
   }, [isAuthenticated, fetchUnreadCount, fetchNotifications])
 
   return (

@@ -2,8 +2,10 @@ import { useState, useEffect, useMemo } from "react"
 import { Tag, Check, X, Brain, Calendar, Sparkles, Shield } from "lucide-react"
 import { cn, formatCurrency } from "@/lib/utils"
 import type { DiscountOfferData } from "@/services/adminService"
+import { setDiscountOfferStatus } from "@/services/adminService"
 import { getActiveDiscounts, getUpcomingDiscounts, type ActiveDiscount, type DiscountRoom } from "@/lib/discountEngine"
 import { useDiscountApproval } from "@/hooks/useDiscountApproval"
+import { useToast } from "@/contexts/ToastContext"
 
 interface DiscountOffersProps {
   offers: DiscountOfferData[]
@@ -16,6 +18,11 @@ export default function DiscountOffers({ offers: initialOffers, rooms, loading }
   const [aiDiscounts, setAiDiscounts] = useState<ActiveDiscount[]>([])
   const [upcomingDiscounts, setUpcomingDiscounts] = useState<(ActiveDiscount & { daysUntilStart: number })[]>([])
   const { approvedKeys, loading: approvalLoading, approve, dismiss } = useDiscountApproval()
+  const { toast } = useToast()
+
+  useEffect(() => {
+    setOffers(initialOffers)
+  }, [initialOffers])
 
   useEffect(() => {
     setAiDiscounts(getActiveDiscounts(rooms))
@@ -34,21 +41,43 @@ export default function DiscountOffers({ offers: initialOffers, rooms, loading }
   }, [aiDiscounts])
 
   const handleApproveDiscount = async (eventRoomTypeKey: string) => {
-    await approve(eventRoomTypeKey)
+    try {
+      await approve(eventRoomTypeKey)
+      toast({ title: "Promo approved", description: "Holiday discount is now active.", variant: "success" })
+    } catch {
+      toast({ title: "Couldn't save", description: "Try again.", variant: "error" })
+    }
   }
 
   const handleDismissDiscount = async (eventRoomTypeKey: string) => {
-    await dismiss(eventRoomTypeKey)
+    try {
+      await dismiss(eventRoomTypeKey)
+      toast({ title: "Promo dismissed", variant: "default" })
+    } catch {
+      toast({ title: "Couldn't save", description: "Try again.", variant: "error" })
+    }
   }
 
-  const handleToggleOffer = (offerId: string) => {
+  const handleToggleOffer = async (offerId: string) => {
+    const offer = offers.find((o) => o.id === offerId)
+    if (!offer) return
+    const next = offer.status === "active" ? ("scheduled" as const) : ("active" as const)
     setOffers((prev) =>
-      prev.map((o) =>
-        o.id === offerId
-          ? { ...o, status: o.status === "active" ? ("scheduled" as const) : ("active" as const) }
-          : o
-      )
+      prev.map((o) => (o.id === offerId ? { ...o, status: next } : o))
     )
+    try {
+      await setDiscountOfferStatus(offerId, next)
+      toast({
+        title: next === "active" ? "Offer activated" : "Offer deactivated",
+        description: offer.roomType,
+        variant: "success",
+      })
+    } catch {
+      setOffers((prev) =>
+        prev.map((o) => (o.id === offerId ? { ...o, status: offer.status } : o))
+      )
+      toast({ title: "Couldn't save", description: "Try again.", variant: "error" })
+    }
   }
 
   if (loading || approvalLoading) {
@@ -71,7 +100,7 @@ export default function DiscountOffers({ offers: initialOffers, rooms, loading }
             </div>
             <div>
               <h3 className="font-display text-lg font-semibold text-foreground">AI Holiday Suggestions</h3>
-              <p className="text-sm text-muted mt-0.5">Smart discounts based on holidays & events</p>
+              <p className="text-sm text-muted mt-0.5">Promos for holidays and local events — approve to activate</p>
             </div>
           </div>
           {consolidatedDiscounts.length > 0 && (
@@ -192,7 +221,7 @@ export default function DiscountOffers({ offers: initialOffers, rooms, loading }
         <div className="bg-white rounded-[6px] border border-[#e2e4e8]">
           <div className="px-6 py-4 border-b border-[#e2e4e8]">
             <h3 className="font-display text-lg font-semibold text-foreground">Scheduled Offers</h3>
-            <p className="text-sm text-muted mt-0.5">Toggle each offer individually to activate or dismiss</p>
+            <p className="text-sm text-muted mt-0.5">Price cuts for slow months — activate when you're ready</p>
           </div>
 
           <div className="overflow-x-auto">
@@ -246,12 +275,12 @@ export default function DiscountOffers({ offers: initialOffers, rooms, loading }
                           {isActive ? (
                             <>
                               <Check className="w-3 h-3" />
-                              Active
+                              Deactivate
                             </>
                           ) : (
                             <>
-                              <X className="w-3 h-3" />
-                              Dismiss
+                              <Tag className="w-3 h-3" />
+                              Activate
                             </>
                           )}
                         </button>

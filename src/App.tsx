@@ -1,5 +1,5 @@
 import { lazy, Suspense } from "react"
-import { BrowserRouter, Routes, Route } from "react-router"
+import { BrowserRouter, Routes, Route, Navigate } from "react-router"
 import RootLayout from "./layouts/RootLayout"
 import ProtectedRoute from "./components/ProtectedRoute"
 import LoadingDots from "./components/LoadingDots"
@@ -29,10 +29,8 @@ const Bookings = lazy(() => import("./pages/admin/Bookings"))
 const AdminRooms = lazy(() => import("./pages/admin/Rooms"))
 const Guests = lazy(() => import("./pages/admin/Guests"))
 const Calendar = lazy(() => import("./pages/admin/Calendar"))
-const Analytics = lazy(() => import("./pages/admin/Analytics"))
-const AIInsights = lazy(() => import("./pages/admin/AIInsights"))
+const AIAssistant = lazy(() => import("./pages/admin/AIAssistant"))
 const AdminSettings = lazy(() => import("./pages/admin/Settings"))
-const Discounts = lazy(() => import("./pages/admin/Discounts"))
 
 function PageLoader() {
   return (
@@ -84,9 +82,10 @@ export default function App() {
                 <Route path="rooms" element={<AdminRooms />} />
                 <Route path="guests" element={<Guests />} />
                 <Route path="calendar" element={<Calendar />} />
-                <Route path="analytics" element={<Analytics />} />
-                <Route path="ai-insights" element={<AIInsights />} />
-                <Route path="discounts" element={<Discounts />} />
+                <Route path="ai" element={<AIAssistant />} />
+                <Route path="analytics" element={<Navigate to="/admin/ai" replace />} />
+                <Route path="ai-insights" element={<Navigate to="/admin/ai" replace />} />
+                <Route path="discounts" element={<Navigate to="/admin/ai?tab=discounts" replace />} />
                 <Route path="settings" element={<AdminSettings />} />
               </Route>
             </Route>

@@ -5,8 +5,10 @@ from config import SUPABASE_URL, SUPABASE_KEY, SUPABASE_SERVICE_KEY, PAYMONGO_SE
 from datetime import datetime, date
 from math import ceil
 import os
+import json
 import jwt as pyjwt
 import uuid
+import time
 import requests as http_requests
 
 app = Flask(__name__)
@@ -19,6 +21,31 @@ CORS(app, resources={r"/api/*": {"origins": [
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 supabase_admin: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY) if SUPABASE_SERVICE_KEY else supabase
+
+# ── Simple in-memory TTL cache for heavy analytics/dashboard responses ─────────
+# Avoids re-running full-table scans + sklearn on every 20–30s poll.
+_RESPONSE_CACHE: dict[str, tuple[float, object]] = {}
+_RESPONSE_CACHE_TTL = 90  # seconds — data rarely changes faster than this
+
+
+def cached_json(key: str, builder, ttl: int = _RESPONSE_CACHE_TTL):
+    """Return cached JSON-serializable payload, or build+store it."""
+    now = time.time()
+    entry = _RESPONSE_CACHE.get(key)
+    if entry is not None and now - entry[0] < ttl:
+        return entry[1]
+    payload = builder()
+    _RESPONSE_CACHE[key] = (now, payload)
+    return payload
+
+
+def invalidate_cache(prefix: str | None = None):
+    """Drop cache entries (all, or those starting with prefix). Called on writes."""
+    if prefix is None:
+        _RESPONSE_CACHE.clear()
+        return
+    for k in [k for k in _RESPONSE_CACHE if k.startswith(prefix)]:
+        _RESPONSE_CACHE.pop(k, None)
 
 
 def set_auth(token):
@@ -1208,7 +1235,9 @@ def create_booking():
         elif stay_type == "overnight" and start_time:
             booking_insert["start_time"] = start_time
 
-        booking_res = supabase.table("bookings").insert(booking_insert).execute()
+        # Service-role write: RLS on the shared anon client races with
+        # clear_auth()/set_auth() from concurrent requests (42501).
+        booking_res = supabase_admin.table("bookings").insert(booking_insert).execute()
 
         if not booking_res.data:
             return jsonify({"error": "Failed to create booking"}), 500
@@ -1225,6 +1254,10 @@ def create_booking():
         )
 
         guest_label = full_name or email or "A guest"
+        invalidate_cache("dash-")
+        invalidate_cache("analytics-")
+        invalidate_cache("ai-reco")
+        invalidate_cache("bookings")
         if checkout_url:
             create_notification(user_id, "booking", "Booking Pending",
                 f"Your booking for {room['name']} on {check_in} is awaiting payment.",
@@ -1239,7 +1272,7 @@ def create_booking():
             }), 201
         else:
             # No PayMongo configured — confirm directly
-            supabase.table("bookings").update({"status": "confirmed"}).eq("id", booking_id).execute()
+            supabase_admin.table("bookings").update({"status": "confirmed"}).eq("id", booking_id).execute()
             create_notification(user_id, "booking", "Booking Confirmed",
                 f"Your booking for {room['name']} on {check_in} is confirmed!",
                 booking_id=booking_id)
@@ -1253,7 +1286,10 @@ def create_booking():
             }), 201
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        err = str(e)
+        if "row-level security" in err or "42501" in err:
+            return jsonify({"error": "Unable to save your booking due to a permissions issue. Please try again or contact support."}), 500
+        return jsonify({"error": err}), 500
 
 
 @app.route("/api/bookings/mine", methods=["GET"])
@@ -1315,7 +1351,7 @@ def get_booking(booking_id):
         return jsonify({"error": "Unauthorized"}), 401
 
     try:
-        booking_res = supabase.table("bookings").select("*").eq("id", booking_id).execute()
+        booking_res = supabase_admin.table("bookings").select("*").eq("id", booking_id).execute()
         if not booking_res.data:
             return jsonify({"error": "Booking not found"}), 404
 
@@ -1323,7 +1359,7 @@ def get_booking(booking_id):
         if b["user_id"] != user_id:
             return jsonify({"error": "Forbidden"}), 403
 
-        room_res = supabase.table("rooms").select("name, type, images").eq("id", b["room_id"]).execute()
+        room_res = supabase_admin.table("rooms").select("name, type, images").eq("id", b["room_id"]).execute()
         room = room_res.data[0] if room_res.data else {}
         nights = days_between(b["check_in"], b["check_out"])
 
@@ -1371,7 +1407,7 @@ def cancel_booking(booking_id):
         if b["status"] not in ("pending", "confirmed"):
             return jsonify({"error": "Booking cannot be cancelled"}), 400
 
-        supabase.table("bookings").update({"status": "cancelled"}).eq("id", booking_id).execute()
+        supabase_admin.table("bookings").update({"status": "cancelled"}).eq("id", booking_id).execute()
         create_notification(user_id, "booking", "Booking Cancelled",
             "Your booking has been cancelled successfully.",
             booking_id=booking_id)
@@ -1440,8 +1476,8 @@ def get_bookings():
 
         users_map = {}
         if user_ids:
-            users_res = supabase.table("users").select("id, name").in_("id", user_ids).execute()
-            users_map = {u["id"]: u["name"] for u in (users_res.data or [])}
+            users_res = supabase.table("users").select("id, name, email, avatar_url").in_("id", user_ids).execute()
+            users_map = {u["id"]: u for u in (users_res.data or [])}
 
         rooms_map = {}
         if room_ids:
@@ -1454,11 +1490,17 @@ def get_bookings():
             uid = b.get("user_id")
             rid = b.get("room_id")
             room = rooms_map.get(rid, {})
+            user = users_map.get(uid, {})
+            guest_name = b.get("full_name") or user.get("name") or "Unknown"
+            guest_email = b.get("email") or user.get("email") or ""
+            guest_avatar = user.get("avatar_url") or ""
             result.append({
                 "id": b["id"][:8].upper(),
                 "fullId": b["id"],
-                "guestName": users_map.get(uid, "Unknown"),
-                "guestEmail": "",
+                "guestName": guest_name,
+                "guestEmail": guest_email,
+                "guestAvatar": guest_avatar,
+                "guestId": uid or "",
                 "roomType": room.get("type", "Unknown"),
                 "roomNumber": room.get("name", ""),
                 "checkIn": b["check_in"],
@@ -1466,6 +1508,9 @@ def get_bookings():
                 "nights": nights,
                 "amount": b["total_price"],
                 "status": b["status"],
+                "guests": b.get("guests", 1),
+                "phone": b.get("phone", ""),
+                "specialRequests": b.get("special_requests", ""),
                 "stay_type": b.get("stay_type", "overnight"),
                 "duration": b.get("duration"),
                 "start_time": b.get("start_time"),
@@ -1486,12 +1531,21 @@ def auto_complete_bookings():
 
     try:
         now = datetime.now(timezone.utc)
-        today_str = now.strftime("%Y-%m-%d")
+        today_s = now.strftime("%Y-%m-%d")
         current_time_minutes = now.hour * 60 + now.minute
 
-        # 1) Auto-complete confirmed bookings
-        confirmed_res = supabase.table("bookings").select("*").eq("status", "confirmed").execute()
+        # Fetch both candidate sets + rooms in 3 calls instead of N+1 per row.
+        # Service-role: this cron has no user JWT — RLS would block under anon.
+        confirmed_res = supabase_admin.table("bookings").select("*").eq("status", "confirmed").execute()
         confirmed = confirmed_res.data or []
+        pending_res = supabase_admin.table("bookings").select("*").eq("status", "pending").execute()
+        pending = pending_res.data or []
+        rooms_res = supabase_admin.table("rooms").select("id, name").execute()
+        rooms_by_id = {r["id"]: r["name"] for r in (rooms_res.data or [])}
+
+        def room_name(b):
+            rid = b.get("room_id")
+            return rooms_by_id.get(rid, "your room") if rid else "your room"
 
         completed_ids = []
         for b in confirmed:
@@ -1502,7 +1556,7 @@ def auto_complete_bookings():
                 start_time = b.get("start_time")
                 duration = b.get("duration")
                 check_in = b.get("check_in", "")
-                if start_time and duration and check_in == today_str:
+                if start_time and duration and check_in == today_s:
                     match = _re.match(r"(\d+):00\s*(AM|PM)", start_time, _re.IGNORECASE)
                     if match:
                         h = int(match.group(1))
@@ -1517,42 +1571,34 @@ def auto_complete_bookings():
                             should_complete = True
             else:
                 check_out = b.get("check_out", "")
-                if check_out and check_out < today_str:
+                if check_out and check_out < today_s:
                     should_complete = True
 
             if should_complete:
-                result = supabase.table("bookings").update({"status": "completed"}).eq("id", b["id"]).eq("status", "confirmed").execute()
+                result = supabase_admin.table("bookings").update({"status": "completed"}).eq("id", b["id"]).eq("status", "confirmed").execute()
                 # Only notify if the status actually changed (prevents duplicates on repeated calls)
                 if result.data:
                     completed_ids.append(b["id"])
-                    room_name = "your room"
-                    if b.get("room_id"):
-                        rr = supabase.table("rooms").select("name").eq("id", b["room_id"]).execute()
-                        if rr.data:
-                            room_name = rr.data[0]["name"]
                     create_notification(b["user_id"], "booking", "Stay Completed",
-                        f"Your stay at {room_name} has been marked as completed. We hope to see you again!",
+                        f"Your stay at {room_name(b)} has been marked as completed. We hope to see you again!",
                         booking_id=b["id"])
-
-        # 2) Auto-cancel unpaid (pending) bookings past their check-in date
-        pending_res = supabase.table("bookings").select("*").eq("status", "pending").execute()
-        pending = pending_res.data or []
 
         cancelled_ids = []
         for b in pending:
             check_in = b.get("check_in", "")
-            if check_in and check_in < today_str:
-                result = supabase.table("bookings").update({"status": "cancelled"}).eq("id", b["id"]).eq("status", "pending").execute()
+            if check_in and check_in < today_s:
+                result = supabase_admin.table("bookings").update({"status": "cancelled"}).eq("id", b["id"]).eq("status", "pending").execute()
                 if result.data:
                     cancelled_ids.append(b["id"])
-                    room_name = "your room"
-                    if b.get("room_id"):
-                        rr = supabase.table("rooms").select("name").eq("id", b["room_id"]).execute()
-                        if rr.data:
-                            room_name = rr.data[0]["name"]
                     create_notification(b["user_id"], "booking", "Booking Expired",
-                        f"Your unpaid booking for {room_name} has been automatically cancelled.",
+                        f"Your unpaid booking for {room_name(b)} has been automatically cancelled.",
                         booking_id=b["id"])
+
+        if completed_ids or cancelled_ids:
+            invalidate_cache("dash-")
+            invalidate_cache("analytics-")
+            invalidate_cache("ai-reco")
+            invalidate_cache("bookings")
 
         return jsonify({
             "completed": len(completed_ids),
@@ -1593,10 +1639,15 @@ def update_booking_status(booking_id):
                 room_name = room_res.data[0]["name"]
 
         # Update status
-        result = supabase.table("bookings").update({"status": new_status}).eq("id", booking_id).execute()
+        result = supabase_admin.table("bookings").update({"status": new_status}).eq("id", booking_id).execute()
 
         if not result.data:
             return jsonify({"error": "Failed to update booking"}), 500
+
+        invalidate_cache("dash-")
+        invalidate_cache("analytics-")
+        invalidate_cache("ai-reco")
+        invalidate_cache("bookings")
 
         # Send notification to the booking's user
         if booking_user_id:
@@ -1629,38 +1680,28 @@ def get_guests():
         users_res = supabase.table("users").select("*").eq("role", "guest").order("created_at", desc=True).execute()
         users = users_res.data or []
 
-        # Fetch emails from auth.users using service_role key
+        # list_users() is a slow external Admin API call; only hit it as fallback
+        # when a guest row is missing an email (users.email column is preferred).
         auth_emails = {}
         auth_avatars = {}
-        try:
-            result = supabase_admin.auth.admin.list_users()
-            auth_users_list = result if isinstance(result, list) else (result.users if hasattr(result, 'users') else [])
-            print(f"[guests] auth users found: {len(auth_users_list)}")
-            for au in auth_users_list:
-                auth_emails[au.id] = au.email or ""
-                meta = au.user_metadata or {}
-                if meta.get("avatar_url"):
-                    auth_avatars[au.id] = meta["avatar_url"]
-        except Exception as e:
-            print(f"[guests] auth admin list_users error: {type(e).__name__}: {e}")
+        need_auth = any(not (u.get("email") or "").strip() for u in users) or any(not u.get("avatar_url") for u in users)
+        if need_auth:
+            try:
+                result = supabase_admin.auth.admin.list_users()
+                auth_users_list = result if isinstance(result, list) else (result.users if hasattr(result, 'users') else [])
+                for au in auth_users_list:
+                    auth_emails[au.id] = au.email or ""
+                    meta = au.user_metadata or {}
+                    if meta.get("avatar_url"):
+                        auth_avatars[au.id] = meta["avatar_url"]
+            except Exception as e:
+                print(f"[guests] list_users fallback error: {e}")
 
-        # Also get emails from bookings table (fallback if auth admin fails)
-        try:
-            booking_emails_res = supabase.table("bookings").select("user_id, email").execute()
-            for be in (booking_emails_res.data or []):
-                uid = be.get("user_id")
-                email = be.get("email", "")
-                if uid and email and uid not in auth_emails:
-                    auth_emails[uid] = email
-        except Exception:
-            pass
-
-        print(f"[guests] auth_emails found: {len(auth_emails)}, auth_avatars found: {len(auth_avatars)}")
-
-        bookings_res = supabase.table("bookings").select("user_id, total_price, check_out").execute()
-        bookings = bookings_res.data or []
+        # One bookings pass for stats (was two full scans + email scan)
+        bookings = supabase.table("bookings").select("user_id, email, total_price, check_out").execute().data or []
 
         user_stats = {}
+        booking_emails = {}
         for b in bookings:
             uid = b["user_id"]
             if uid not in user_stats:
@@ -1670,6 +1711,8 @@ def get_guests():
             s["total_spent"] += b["total_price"]
             if b["check_out"] > s["last_stay"]:
                 s["last_stay"] = b["check_out"]
+            if b.get("email") and uid not in booking_emails:
+                booking_emails[uid] = b["email"]
 
         result = []
         for u in users:
@@ -1688,7 +1731,7 @@ def get_guests():
             result.append({
                 "id": u["id"],
                 "name": u.get("name") or "Unknown",
-                "email": auth_emails.get(u["id"], "") or u.get("email") or "",
+                "email": u.get("email") or booking_emails.get(u["id"], "") or auth_emails.get(u["id"], ""),
                 "phone": u.get("phone") or "—",
                 "totalBookings": s["count"],
                 "totalSpent": s["total_spent"],
@@ -1714,34 +1757,48 @@ def get_dashboard_stats():
         return jsonify({"error": "Unauthorized"}), 401
 
     try:
-        now = datetime.now()
-        month_start = f"{now.year}-{now.month:02d}-01"
-        today = today_str()
-
-        all_bookings = supabase.table("bookings").select("status, total_price, check_in, check_out").execute().data or []
-        all_rooms = supabase.table("rooms").select("id, available").execute().data or []
-        total_guests = supabase.table("users").select("id", count="exact").eq("role", "guest").execute()
-
-        total_rooms = len(all_rooms) or 1
-        total_bookings = len(all_bookings)
-        confirmed = sum(1 for b in all_bookings if b["status"] == "confirmed")
-        cancelled = sum(1 for b in all_bookings if b["status"] == "cancelled")
-        monthly_revenue = sum(b["total_price"] for b in all_bookings if b["check_in"] >= month_start)
-        occupied_today = sum(1 for b in all_bookings if b["status"] == "confirmed" and b["check_in"] <= today and b["check_out"] > today)
-        occupancy_rate = round((occupied_today / total_rooms) * 100) if total_rooms else 0
-
-        return jsonify({
-            "totalBookings": total_bookings,
-            "monthlyRevenue": monthly_revenue,
-            "occupancyRate": occupancy_rate,
-            "confirmedBookings": confirmed,
-            "pendingBookings": confirmed,
-            "cancelledBookings": cancelled,
-            "totalGuests": 0,
-            "activeGuests": occupied_today,
-        }), 200
+        payload = cached_json(
+            "dash-stats",
+            lambda: _build_dashboard_stats(),
+            ttl=30,
+        )
+        return jsonify(payload), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+def _build_dashboard_stats():
+    now = datetime.now()
+    month_start = f"{now.year}-{now.month:02d}-01"
+    today = today_str()
+
+    # 2 parallel-ish sequential queries (rooms is tiny); drop the wasted guests
+    # count that was discarded and hard-coded to 0.
+    all_bookings = supabase.table("bookings").select("status, total_price, check_in, check_out").execute().data or []
+    all_rooms = supabase.table("rooms").select("id, available").execute().data or []
+
+    total_rooms = len(all_rooms) or 1
+    total_bookings = len(all_bookings)
+    confirmed = sum(1 for b in all_bookings if b["status"] == "confirmed")
+    pending = sum(1 for b in all_bookings if b["status"] == "pending")
+    cancelled = sum(1 for b in all_bookings if b["status"] == "cancelled")
+    monthly_revenue = sum(b["total_price"] for b in all_bookings if b["check_in"] >= month_start)
+    occupied_today = sum(
+        1 for b in all_bookings
+        if b["status"] == "confirmed" and b["check_in"] <= today and b["check_out"] > today
+    )
+    occupancy_rate = round((occupied_today / total_rooms) * 100)
+
+    return {
+        "totalBookings": total_bookings,
+        "monthlyRevenue": monthly_revenue,
+        "occupancyRate": occupancy_rate,
+        "confirmedBookings": confirmed,
+        "pendingBookings": pending,
+        "cancelledBookings": cancelled,
+        "totalGuests": 0,
+        "activeGuests": occupied_today,
+    }
 
 
 @app.route("/api/dashboard/monthly-revenue", methods=["GET"])
@@ -1818,23 +1875,28 @@ def get_seasonal_data():
         return jsonify({"error": "Unauthorized"}), 401
 
     try:
-        bookings = supabase.table("bookings").select("total_price, check_in, status").neq("status", "cancelled").execute().data or []
-        months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-        current_year = datetime.now().year
-
-        month_stats = []
-        for i, m in enumerate(months):
-            mb = [b for b in bookings if datetime.strptime(b["check_in"][:10], "%Y-%m-%d").year == current_year and datetime.strptime(b["check_in"][:10], "%Y-%m-%d").month == i]
-            total_revenue = sum(b["total_price"] for b in mb)
-            month_stats.append({"month": m, "bookings": len(mb), "revenue": total_revenue})
-
-        sorted_months = sorted(month_stats, key=lambda x: x["bookings"], reverse=True)
-        peak_threshold = ceil(len(month_stats) * 0.4)
-        peak_months = {s["month"] for s in sorted_months[:peak_threshold]}
-
-        return jsonify([{**s, "isPeak": s["month"] in peak_months} for s in month_stats]), 200
+        payload = cached_json("analytics-seasonal", _build_seasonal_data, ttl=60)
+        return jsonify(payload), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+def _build_seasonal_data():
+    bookings = supabase.table("bookings").select("total_price, check_in, status").neq("status", "cancelled").execute().data or []
+    months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    current_year = datetime.now().year
+
+    month_stats = []
+    for i, m in enumerate(months):
+        mb = [b for b in bookings if datetime.strptime(b["check_in"][:10], "%Y-%m-%d").year == current_year and datetime.strptime(b["check_in"][:10], "%Y-%m-%d").month == i]
+        total_revenue = sum(b["total_price"] for b in mb)
+        month_stats.append({"month": m, "bookings": len(mb), "revenue": total_revenue})
+
+    sorted_months = sorted(month_stats, key=lambda x: x["bookings"], reverse=True)
+    peak_threshold = ceil(len(month_stats) * 0.4)
+    peak_months = {s["month"] for s in sorted_months[:peak_threshold]}
+
+    return [{**s, "isPeak": s["month"] in peak_months} for s in month_stats]
 
 
 @app.route("/api/analytics/room-performance", methods=["GET"])
@@ -1846,33 +1908,39 @@ def get_room_performance():
         return jsonify({"error": "Unauthorized"}), 401
 
     try:
-        rooms = supabase.table("rooms").select("id, type, price").execute().data or []
-        bookings = supabase.table("bookings").select("room_id, total_price, check_in, check_out, status").neq("status", "cancelled").execute().data or []
-
-        type_stats = {}
-        for r in rooms:
-            if r["type"] not in type_stats:
-                type_stats[r["type"]] = {"revenue": 0, "nights": 0, "total_bookings": 0}
-
-        for b in bookings:
-            room = next((r for r in rooms if r["id"] == b["room_id"]), None)
-            if not room:
-                continue
-            s = type_stats[room["type"]]
-            s["revenue"] += b["total_price"]
-            s["nights"] += days_between(b["check_in"], b["check_out"])
-            s["total_bookings"] += 1
-
-        result = []
-        for t, s in type_stats.items():
-            avg = round(s["revenue"] / s["nights"]) if s["nights"] > 0 else 0
-            rooms_of_type = sum(1 for r in rooms if r["type"] == t)
-            occ = min(100, round((s["nights"] / (rooms_of_type * 30)) * 100))
-            result.append({"room": t, "revenue": s["revenue"], "avgPerNight": avg, "occupancy": occ})
-
-        return jsonify(sorted(result, key=lambda x: x["revenue"], reverse=True)), 200
+        payload = cached_json("analytics-room-perf", _build_room_performance, ttl=60)
+        return jsonify(payload), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+def _build_room_performance():
+    rooms = supabase.table("rooms").select("id, type, price").execute().data or []
+    bookings = supabase.table("bookings").select("room_id, total_price, check_in, check_out, status").neq("status", "cancelled").execute().data or []
+
+    rooms_by_id = {r["id"]: r for r in rooms}
+    type_stats = {}
+    for r in rooms:
+        if r["type"] not in type_stats:
+            type_stats[r["type"]] = {"revenue": 0, "nights": 0, "total_bookings": 0}
+
+    for b in bookings:
+        room = rooms_by_id.get(b["room_id"])
+        if not room:
+            continue
+        s = type_stats[room["type"]]
+        s["revenue"] += b["total_price"]
+        s["nights"] += days_between(b["check_in"], b["check_out"])
+        s["total_bookings"] += 1
+
+    result = []
+    for t, s in type_stats.items():
+        avg = round(s["revenue"] / s["nights"]) if s["nights"] > 0 else 0
+        rooms_of_type = sum(1 for r in rooms if r["type"] == t)
+        occ = min(100, round((s["nights"] / (rooms_of_type * 30)) * 100))
+        result.append({"room": t, "revenue": s["revenue"], "avgPerNight": avg, "occupancy": occ})
+
+    return sorted(result, key=lambda x: x["revenue"], reverse=True)
 
 
 @app.route("/api/analytics/insights", methods=["GET"])
@@ -1884,38 +1952,44 @@ def get_insights():
         return jsonify({"error": "Unauthorized"}), 401
 
     try:
-        rooms = supabase.table("rooms").select("id, type, price").execute().data or []
-        bookings = supabase.table("bookings").select("room_id, total_price, check_in, check_out, status").neq("status", "cancelled").execute().data or []
-
-        total_bookings = len(bookings)
-        total_revenue = sum(b["total_price"] for b in bookings)
-
-        type_revenue = {}
-        for b in bookings:
-            room = next((r for r in rooms if r["id"] == b["room_id"]), None)
-            if room:
-                type_revenue[room["type"]] = type_revenue.get(room["type"], 0) + b["total_price"]
-        best_room = max(type_revenue.items(), key=lambda x: x[1]) if type_revenue else None
-
-        months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-        current_year = datetime.now().year
-        month_bookings = {}
-        for b in bookings:
-            d = datetime.strptime(b["check_in"][:10], "%Y-%m-%d")
-            if d.year == current_year:
-                m = months[d.month - 1]
-                month_bookings[m] = month_bookings.get(m, 0) + 1
-        sorted_months = sorted(month_bookings.items(), key=lambda x: x[1], reverse=True)
-        peak = ", ".join(m for m, _ in sorted_months[:3]) or "—"
-
-        return jsonify([
-            {"label": "Total Bookings", "value": str(total_bookings), "detail": "All time"},
-            {"label": "Best Room", "value": best_room[0] if best_room else "—", "detail": f"₱{best_room[1]:,} revenue" if best_room else "No data"},
-            {"label": "Total Revenue", "value": f"₱{total_revenue:,}", "detail": "All time"},
-            {"label": "Peak Months", "value": peak, "detail": "Highest booking volume"},
-        ]), 200
+        payload = cached_json("analytics-insights", _build_insights, ttl=60)
+        return jsonify(payload), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+def _build_insights():
+    rooms = supabase.table("rooms").select("id, type, price").execute().data or []
+    bookings = supabase.table("bookings").select("room_id, total_price, check_in, check_out, status").neq("status", "cancelled").execute().data or []
+
+    rooms_by_id = {r["id"]: r for r in rooms}
+    total_bookings = len(bookings)
+    total_revenue = sum(b["total_price"] for b in bookings)
+
+    type_revenue = {}
+    for b in bookings:
+        room = rooms_by_id.get(b["room_id"])
+        if room:
+            type_revenue[room["type"]] = type_revenue.get(room["type"], 0) + b["total_price"]
+    best_room = max(type_revenue.items(), key=lambda x: x[1]) if type_revenue else None
+
+    months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    current_year = datetime.now().year
+    month_bookings = {}
+    for b in bookings:
+        d = datetime.strptime(b["check_in"][:10], "%Y-%m-%d")
+        if d.year == current_year:
+            m = months[d.month - 1]
+            month_bookings[m] = month_bookings.get(m, 0) + 1
+    sorted_months = sorted(month_bookings.items(), key=lambda x: x[1], reverse=True)
+    peak = ", ".join(m for m, _ in sorted_months[:3]) or "—"
+
+    return [
+        {"label": "Total Bookings", "value": str(total_bookings), "detail": "All time"},
+        {"label": "Best Room", "value": best_room[0] if best_room else "—", "detail": f"₱{best_room[1]:,} revenue" if best_room else "No data"},
+        {"label": "Total Revenue", "value": f"₱{total_revenue:,}", "detail": "All time"},
+        {"label": "Peak Months", "value": peak, "detail": "Highest booking volume"},
+    ]
 
 
 @app.route("/api/analytics/forecast/occupancy", methods=["GET"])
@@ -1927,45 +2001,48 @@ def get_occupancy_forecast():
         return jsonify({"error": "Unauthorized"}), 401
 
     try:
-        # Get occupancy data first
-        bookings = supabase.table("bookings").select("check_in, check_out, status").execute().data or []
-        months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-        now = datetime.now()
-        current_month = now.month - 1
-        current_year = now.year
-
-        occupancy = []
-        for i in range(12):
-            month_bookings = [b for b in bookings if datetime.strptime(b["check_in"][:10], "%Y-%m-%d").year == current_year and datetime.strptime(b["check_in"][:10], "%Y-%m-%d").month == i]
-            days_in_month = (datetime(current_year, i + 2, 1) - datetime(current_year, i + 1, 1)).days if i < 11 else 31
-            occupied_days = set()
-            for b in month_bookings:
-                start = max(datetime.strptime(b["check_in"][:10], "%Y-%m-%d"), datetime(current_year, i + 1, 1))
-                end = min(datetime.strptime(b["check_out"][:10], "%Y-%m-%d"), datetime(current_year, i + 1, days_in_month))
-                d = start
-                while d < end:
-                    occupied_days.add(d.strftime("%Y-%m-%d"))
-                    try:
-                        d = d.replace(day=d.day + 1)
-                    except ValueError:
-                        break
-            rate = round((len(occupied_days) / days_in_month) * 100)
-            occupancy.append({"month": months[i], "rate": rate})
-
-        recent = [o["rate"] for o in occupancy[:current_month + 1] if o["rate"] > 0]
-        avg_rate = round(sum(recent) / len(recent)) if recent else 70
-
-        seasonal = [0.85, 0.9, 1.0, 0.95, 1.1, 0.9, 1.05, 1.0, 0.8, 0.75, 0.85, 1.1]
-        result = []
-        for i, m in enumerate(months):
-            real = occupancy[i] if i < len(occupancy) else None
-            actual = real["rate"] if i <= current_month else None
-            predicted = round(avg_rate * seasonal[i])
-            result.append({"month": m, "actual": actual, "predicted": predicted})
-
-        return jsonify(result), 200
+        payload = cached_json("analytics-occ-fc", _build_occupancy_forecast, ttl=60)
+        return jsonify(payload), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+def _build_occupancy_forecast():
+    bookings = supabase.table("bookings").select("check_in, check_out, status").execute().data or []
+    months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    now = datetime.now()
+    current_month = now.month - 1
+    current_year = now.year
+
+    occupancy = []
+    for i in range(12):
+        month_bookings = [b for b in bookings if datetime.strptime(b["check_in"][:10], "%Y-%m-%d").year == current_year and datetime.strptime(b["check_in"][:10], "%Y-%m-%d").month == i]
+        days_in_month = (datetime(current_year, i + 2, 1) - datetime(current_year, i + 1, 1)).days if i < 11 else 31
+        occupied_days = set()
+        for b in month_bookings:
+            start = max(datetime.strptime(b["check_in"][:10], "%Y-%m-%d"), datetime(current_year, i + 1, 1))
+            end = min(datetime.strptime(b["check_out"][:10], "%Y-%m-%d"), datetime(current_year, i + 1, days_in_month))
+            d = start
+            while d < end:
+                occupied_days.add(d.strftime("%Y-%m-%d"))
+                try:
+                    d = d.replace(day=d.day + 1)
+                except ValueError:
+                    break
+        rate = round((len(occupied_days) / days_in_month) * 100)
+        occupancy.append({"month": months[i], "rate": rate})
+
+    recent = [o["rate"] for o in occupancy[:current_month + 1] if o["rate"] > 0]
+    avg_rate = round(sum(recent) / len(recent)) if recent else 70
+
+    seasonal = [0.85, 0.9, 1.0, 0.95, 1.1, 0.9, 1.05, 1.0, 0.8, 0.75, 0.85, 1.1]
+    result = []
+    for i, m in enumerate(months):
+        real = occupancy[i] if i < len(occupancy) else None
+        actual = real["rate"] if i <= current_month else None
+        predicted = round(avg_rate * seasonal[i])
+        result.append({"month": m, "actual": actual, "predicted": predicted})
+    return result
 
 
 @app.route("/api/analytics/forecast/revenue", methods=["GET"])
@@ -1977,30 +2054,99 @@ def get_revenue_forecast():
         return jsonify({"error": "Unauthorized"}), 401
 
     try:
-        bookings = supabase.table("bookings").select("total_price, check_in").execute().data or []
-        months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-        current_month = datetime.now().month - 1
-
-        revenue_map = {}
-        for b in bookings:
-            d = datetime.strptime(b["check_in"][:10], "%Y-%m-%d")
-            m = months[d.month - 1]
-            revenue_map[m] = revenue_map.get(m, 0) + b["total_price"]
-
-        revenue = [revenue_map.get(m, 0) for m in months]
-        recent = [r for r in revenue[:current_month + 1] if r > 0]
-        avg = round(sum(recent) / len(recent)) if recent else 300000
-
-        seasonal = [0.85, 0.9, 1.0, 0.95, 1.1, 0.9, 1.05, 1.0, 0.8, 0.75, 0.85, 1.1]
-        result = []
-        for i, m in enumerate(months):
-            actual = revenue[i] if i <= current_month else None
-            predicted = round(avg * seasonal[i])
-            result.append({"month": m, "actual": actual, "predicted": predicted})
-
-        return jsonify(result), 200
+        payload = cached_json("analytics-rev-fc", _build_revenue_forecast, ttl=60)
+        return jsonify(payload), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+def _build_revenue_forecast():
+    bookings = supabase.table("bookings").select("total_price, check_in").execute().data or []
+    months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    current_month = datetime.now().month - 1
+
+    revenue_map = {}
+    for b in bookings:
+        d = datetime.strptime(b["check_in"][:10], "%Y-%m-%d")
+        m = months[d.month - 1]
+        revenue_map[m] = revenue_map.get(m, 0) + b["total_price"]
+
+    revenue = [revenue_map.get(m, 0) for m in months]
+    recent = [r for r in revenue[:current_month + 1] if r > 0]
+    avg = round(sum(recent) / len(recent)) if recent else 300000
+
+    seasonal = [0.85, 0.9, 1.0, 0.95, 1.1, 0.9, 1.05, 1.0, 0.8, 0.75, 0.85, 1.1]
+    result = []
+    for i, m in enumerate(months):
+        actual = revenue[i] if i <= current_month else None
+        predicted = round(avg * seasonal[i])
+        result.append({"month": m, "actual": actual, "predicted": predicted})
+    return result
+
+
+# ── AI status persistence (demand insights + discount offers) ────────────────
+_demand_status_file = os.path.join(os.path.dirname(__file__), ".demand_insight_status.json")
+_offer_status_file = os.path.join(os.path.dirname(__file__), ".offer_status.json")
+
+
+def _load_json_file(path: str, default):
+    if os.path.exists(path):
+        try:
+            with open(path, "r") as f:
+                return json.load(f)
+        except Exception:
+            return default
+    return default
+
+
+def _save_json_file(path: str, data) -> None:
+    with open(path, "w") as f:
+        json.dump(data, f)
+
+
+@app.route("/api/analytics/demand-insights/status", methods=["POST"])
+def set_demand_insight_status():
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    set_auth(token)
+    user_id = get_user_from_token(token)
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.get_json() or {}
+    insight_id = data.get("id")
+    action = data.get("action")
+    if not insight_id or action not in ("accept", "dismiss"):
+        return jsonify({"error": "id and action (accept|dismiss) required"}), 400
+
+    status = _load_json_file(_demand_status_file, {})
+    if action == "accept":
+        status[insight_id] = "accepted"
+    else:
+        status[insight_id] = "dismissed"
+    _save_json_file(_demand_status_file, status)
+    invalidate_cache("analytics-demand")
+    return jsonify({"ok": True}), 200
+
+
+@app.route("/api/analytics/discount-offers/status", methods=["POST"])
+def set_discount_offer_status():
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    set_auth(token)
+    user_id = get_user_from_token(token)
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.get_json() or {}
+    offer_id = data.get("id")
+    status_val = data.get("status")
+    if not offer_id or status_val not in ("active", "scheduled", "dismissed"):
+        return jsonify({"error": "id and status (active|scheduled|dismissed) required"}), 400
+
+    status = _load_json_file(_offer_status_file, {})
+    status[offer_id] = status_val
+    _save_json_file(_offer_status_file, status)
+    invalidate_cache("analytics-discounts")
+    return jsonify({"ok": True}), 200
 
 
 @app.route("/api/analytics/demand-insights", methods=["GET"])
@@ -2012,11 +2158,18 @@ def get_demand_insights():
         return jsonify({"error": "Unauthorized"}), 401
 
     try:
+        payload = cached_json("analytics-demand", _build_demand_insights, ttl=60)
+        return jsonify(payload), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+def _build_demand_insights():
         rooms = supabase.table("rooms").select("id, type, price").execute().data or []
         bookings = supabase.table("bookings").select("room_id, check_in, check_out, status, total_price").neq("status", "cancelled").execute().data or []
 
         if not rooms:
-            return jsonify([]), 200
+            return []
 
         months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
         current_year = datetime.now().year
@@ -2096,9 +2249,16 @@ def get_demand_insights():
                 "applied": False,
             })
 
-        return jsonify(insights), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        saved = _load_json_file(_demand_status_file, {})
+        out = []
+        for ins in insights:
+            st = saved.get(ins["id"], "")
+            if st == "dismissed":
+                continue
+            ins["applied"] = st == "accepted"
+            ins["dismissed"] = False
+            out.append(ins)
+        return out
 
 
 @app.route("/api/analytics/discount-offers", methods=["GET"])
@@ -2110,11 +2270,18 @@ def get_discount_offers():
         return jsonify({"error": "Unauthorized"}), 401
 
     try:
+        payload = cached_json("analytics-discounts", _build_discount_offers, ttl=60)
+        return jsonify(payload), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+def _build_discount_offers():
         rooms = supabase.table("rooms").select("type, price").execute().data or []
         bookings = supabase.table("bookings").select("room_id, check_in, check_out, status").execute().data or []
 
         if not rooms:
-            return jsonify([]), 200
+            return []
 
         current_year = datetime.now().year
         current_month = datetime.now().month
@@ -2163,9 +2330,16 @@ def get_discount_offers():
                     "confidence": min(95, 60 + len(bookings) // 2),
                 })
 
-        return jsonify(offers), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        saved = _load_json_file(_offer_status_file, {})
+        out = []
+        for o in offers:
+            st = saved.get(o["id"], "")
+            if st == "dismissed":
+                continue
+            if st:
+                o["status"] = st
+            out.append(o)
+        return out
 
 
 # ── PayMongo Webhook ────────────────────────────────────────────────────────────
@@ -2190,14 +2364,14 @@ def paymongo_webhook():
                 booking_id = metadata["booking_id"]
 
             if booking_id:
-                booking_res = supabase.table("bookings").select("user_id, room_id, check_in, status").eq("id", booking_id).execute()
+                booking_res = supabase_admin.table("bookings").select("user_id, room_id, check_in, status").eq("id", booking_id).execute()
                 if booking_res.data:
                     b = booking_res.data[0]
                     if b["status"] != "cancelled":
-                        supabase.table("bookings").update({"status": "cancelled"}).eq("id", booking_id).execute()
+                        supabase_admin.table("bookings").update({"status": "cancelled"}).eq("id", booking_id).execute()
                         room_name = "your room"
                         if b.get("room_id"):
-                            rr = supabase.table("rooms").select("name").eq("id", b["room_id"]).execute()
+                            rr = supabase_admin.table("rooms").select("name").eq("id", b["room_id"]).execute()
                             if rr.data:
                                 room_name = rr.data[0]["name"]
                         create_notification(b["user_id"], "booking", "Booking Failed",
@@ -2226,17 +2400,18 @@ def paymongo_webhook():
 
             if booking_id:
                 # Update booking status to confirmed (only if still pending)
-                result = supabase.table("bookings").update({"status": "confirmed"}).eq("id", booking_id).eq("status", "pending").execute()
+                # Service-role: webhooks have no user JWT for RLS.
+                result = supabase_admin.table("bookings").update({"status": "confirmed"}).eq("id", booking_id).eq("status", "pending").execute()
                 print(f"Booking {booking_id} confirmed via webhook")
 
                 # Only notify if the status actually changed
                 if result.data:
-                    booking_res = supabase.table("bookings").select("user_id, room_id, check_in").eq("id", booking_id).execute()
+                    booking_res = supabase_admin.table("bookings").select("user_id, room_id, check_in").eq("id", booking_id).execute()
                     if booking_res.data:
                         b = booking_res.data[0]
                         room_name = "your room"
                         if b.get("room_id"):
-                            rr = supabase.table("rooms").select("name").eq("id", b["room_id"]).execute()
+                            rr = supabase_admin.table("rooms").select("name").eq("id", b["room_id"]).execute()
                             if rr.data:
                                 room_name = rr.data[0]["name"]
                         create_notification(b["user_id"], "booking", "Payment Confirmed",
@@ -2247,7 +2422,7 @@ def paymongo_webhook():
                             booking_id=booking_id)
                         room_id = b.get("room_id")
                         if room_id:
-                            supabase.table("rooms").update({"available": False}).eq("id", room_id).execute()
+                            supabase_admin.table("rooms").update({"available": False}).eq("id", room_id).execute()
             else:
                 print(f"Webhook: Could not find booking_id from description: {description}")
 
@@ -2261,8 +2436,9 @@ def paymongo_webhook():
 def confirm_booking_after_payment(booking_id):
     """Called by frontend after successful PayMongo redirect."""
     try:
-        # Get booking details before update
-        booking_res = supabase.table("bookings").select("user_id, room_id, check_in, status").eq("id", booking_id).execute()
+        # Service-role: this endpoint never set_auth()'d — ran as anon and
+        # RLS filtered the SELECT (404) / blocked the UPDATE.
+        booking_res = supabase_admin.table("bookings").select("user_id, room_id, check_in, status").eq("id", booking_id).execute()
 
         if not booking_res.data:
             return jsonify({"error": "Booking not found"}), 404
@@ -2272,12 +2448,12 @@ def confirm_booking_after_payment(booking_id):
             return jsonify({"booking_id": booking_id, "status": "confirmed"}), 200
 
         # Update booking status to confirmed
-        result = supabase.table("bookings").update({"status": "confirmed"}).eq("id", booking_id).eq("status", "pending").execute()
+        result = supabase_admin.table("bookings").update({"status": "confirmed"}).eq("id", booking_id).eq("status", "pending").execute()
 
         if result.data:
             room_name = "your room"
             if b.get("room_id"):
-                rr = supabase.table("rooms").select("name").eq("id", b["room_id"]).execute()
+                rr = supabase_admin.table("rooms").select("name").eq("id", b["room_id"]).execute()
                 if rr.data:
                     room_name = rr.data[0]["name"]
             create_notification(b["user_id"], "booking", "Booking Confirmed",
@@ -2293,7 +2469,10 @@ def confirm_booking_after_payment(booking_id):
 
         return jsonify({"booking_id": booking_id, "status": "confirmed"}), 200
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        err = str(e)
+        if "row-level security" in err or "42501" in err:
+            return jsonify({"error": "Unable to confirm booking due to a permissions issue. Please try again or contact support."}), 500
+        return jsonify({"error": err}), 500
 
 
 # ── Health ─────────────────────────────────────────────────────────────────────
@@ -2303,7 +2482,7 @@ def confirm_booking_after_payment(booking_id):
 def report_payment_failed(booking_id):
     """Called by frontend when user lands on /booking/failed — creates notification."""
     try:
-        booking_res = supabase.table("bookings").select("user_id, room_id, check_in, status").eq("id", booking_id).execute()
+        booking_res = supabase_admin.table("bookings").select("user_id, room_id, check_in, status").eq("id", booking_id).execute()
         if not booking_res.data:
             return jsonify({"error": "Booking not found"}), 404
 
@@ -2311,11 +2490,11 @@ def report_payment_failed(booking_id):
         if b["status"] in ("cancelled", "confirmed"):
             return jsonify({"booking_id": booking_id, "status": b["status"]}), 200
 
-        supabase.table("bookings").update({"status": "cancelled"}).eq("id", booking_id).execute()
+        supabase_admin.table("bookings").update({"status": "cancelled"}).eq("id", booking_id).execute()
 
         room_name = "your room"
         if b.get("room_id"):
-            rr = supabase.table("rooms").select("name").eq("id", b["room_id"]).execute()
+            rr = supabase_admin.table("rooms").select("name").eq("id", b["room_id"]).execute()
             if rr.data:
                 room_name = rr.data[0]["name"]
 
@@ -2337,96 +2516,108 @@ def ai_recommendations():
         return jsonify({"error": "Unauthorized"}), 401
 
     try:
-        from predictive_analytics import generate_demand_insights, generate_discount_offers
-
-        rooms = supabase.table("rooms").select("id, type, price").execute().data or []
-        bookings = supabase.table("bookings").select("room_id, check_in, check_out, status, total_price").execute().data or []
-
-        if not rooms:
-            return jsonify({
-                "next30DaysOccupancy": 75,
-                "occupancyTrend": "stable",
-                "projectedRevenue": 0,
-                "revenueGrowth": 5,
-                "activeDiscounts": 0,
-                "confidence": 80,
-                "recommendations": [
-                    {"id": "AI-1", "title": "Occupancy Forecast", "description": "No room data available yet. Using standard projections.", "priority": "medium", "action": "Add rooms to start generating insights."},
-                    {"id": "AI-2", "title": "Revenue Projection", "description": "Using baseline projections until booking data is available.", "priority": "medium", "action": "Monitor performance."},
-                    {"id": "AI-3", "title": "Discount Recommendation", "description": "Standard pricing recommended until demand patterns emerge.", "priority": "low", "action": "Maintain current rates."},
-                ]
-            }), 200
-
-        insights = generate_demand_insights(bookings, rooms)
-        offers = generate_discount_offers(bookings, rooms)
-
-        if insights and len(insights) > 0:
-            first = insights[0]
-            projected_revenue = 0
-            if first.get("predictedOccupancy") and first.get("predictedOccupancy", 0) > 0:
-                avg_price = sum(r.get("price", 0) for r in rooms) / len(rooms) if rooms else 2000
-                projected_revenue = round(first["predictedOccupancy"] / 100 * len(rooms) * avg_price * 30)
-
-            active_discounts = sum(1 for i in insights if i.get("discountPercent", 0) > 0)
-            confidence = min(95, 60 + len(bookings) // 2)
-
-            recommendations = [
-                {
-                    "id": "AI-1",
-                    "title": "Occupancy Forecast",
-                    "description": f"Projected occupancy of {first.get('predictedOccupancy', 72)}% for the next 30 days based on historical patterns.",
-                    "priority": "high",
-                    "action": "Review pricing strategy and consider targeted promotions."
-                },
-                {
-                    "id": "AI-2",
-                    "title": "Revenue Projection",
-                    "description": f"Estimated ₱{projected_revenue:,} revenue over the next 30 days based on current occupancy trends.",
-                    "priority": "medium",
-                    "action": "Monitor weekly and adjust pricing if needed."
-                },
-                {
-                    "id": "AI-3",
-                    "title": "Discount Recommendation",
-                    "description": f"{first.get('discountPercent', 0)}% discount on {', '.join(first.get('affectedRooms', ['all rooms'])) or 'all room types'} to stimulate demand during low periods.",
-                    "priority": "high",
-                    "action": "Implement discount during identified low-demand periods."
-                }
-            ]
-        else:
-            projected_revenue = 0
-            active_discounts = 0
-            confidence = 80
-            recommendations = [
-                {"id": "AI-1", "title": "Occupancy Forecast", "description": "Standard occupancy forecast: 72% projected for next 30 days.", "priority": "high", "action": "Maintain current pricing strategy."},
-                {"id": "AI-2", "title": "Revenue Projection", "description": "Estimated ₱500K+ projected revenue over the next 30 days.", "priority": "medium", "action": "Monitor weekly performance."},
-                {"id": "AI-3", "title": "Discount Recommendation", "description": "No specific discount recommended at this time.", "priority": "low", "action": "Maintain current rates."},
-            ]
-
-        return jsonify({
-            "next30DaysOccupancy": insights[0].get("predictedOccupancy", 72) if insights else 72,
-            "occupancyTrend": "stable",
-            "projectedRevenue": projected_revenue,
-            "revenueGrowth": round((projected_revenue / 450000 - 1) * 100) if projected_revenue else 5,
-            "activeDiscounts": active_discounts,
-            "confidence": confidence,
-            "recommendations": recommendations
-        }), 200
+        # Heaviest endpoint (sklearn + 2 full scans). Cache 90s so the 30s
+        # dashboard poll usually hits cache after the first compute.
+        payload = cached_json("ai-reco", _build_ai_recommendations, ttl=90)
+        return jsonify(payload), 200
     except Exception as e:
         print(f"ai-recommendations error: {e}")
-        return jsonify({
+        return jsonify(_ai_reco_fallback()), 200
+
+
+def _ai_reco_fallback():
+    return {
+        "next30DaysOccupancy": 75,
+        "occupancyTrend": "stable",
+        "projectedRevenue": 0,
+        "revenueGrowth": 5,
+        "activeDiscounts": 0,
+        "confidence": 50,
+        "recommendations": [
+            {"id": "AI-1", "title": "Occupancy Forecast", "description": "Unable to compute predictions. Using standard projections.", "priority": "medium", "action": "Monitor performance manually."},
+            {"id": "AI-2", "title": "Revenue Projection", "description": "Using baseline projections.", "priority": "medium", "action": "Review historical data."},
+            {"id": "AI-3", "title": "Discount Recommendation", "description": "Standard pricing recommended.", "priority": "low", "action": "Maintain current rates."},
+        ]
+    }
+
+
+def _build_ai_recommendations():
+    from predictive_analytics import generate_demand_insights, generate_discount_offers
+
+    rooms = supabase.table("rooms").select("id, type, price").execute().data or []
+    bookings = supabase.table("bookings").select("room_id, check_in, check_out, status, total_price").execute().data or []
+
+    if not rooms:
+        return {
             "next30DaysOccupancy": 75,
             "occupancyTrend": "stable",
             "projectedRevenue": 0,
             "revenueGrowth": 5,
             "activeDiscounts": 0,
-            "confidence": 50,
+            "confidence": 80,
             "recommendations": [
-                {"id": "AI-1", "title": "Occupancy Forecast", "description": "Unable to compute predictions. Using standard projections.", "priority": "medium", "action": "Monitor performance manually."},
-                {"id": "AI-2", "title": "Revenue Projection", "description": "Using baseline projections.", "priority": "medium", "action": "Review historical data."},
-                {"id": "AI-3", "title": "Discount Recommendation", "description": "Standard pricing recommended.", "priority": "low", "action": "Maintain current rates."},
+                {"id": "AI-1", "title": "Occupancy Forecast", "description": "No room data available yet. Using standard projections.", "priority": "medium", "action": "Add rooms to start generating insights."},
+                {"id": "AI-2", "title": "Revenue Projection", "description": "Using baseline projections until booking data is available.", "priority": "medium", "action": "Monitor performance."},
+                {"id": "AI-3", "title": "Discount Recommendation", "description": "Standard pricing recommended until demand patterns emerge.", "priority": "low", "action": "Maintain current rates."},
             ]
-        }), 200
+        }
+
+    # Build months + cluster ONCE, share across insights & offers (was 2× KMeans).
+    insights = generate_demand_insights(bookings, rooms, shared=True)
+    offers = generate_discount_offers(bookings, rooms, shared=True)
+
+    if insights and len(insights) > 0:
+        first = insights[0]
+        projected_revenue = 0
+        if first.get("predictedOccupancy") and first.get("predictedOccupancy", 0) > 0:
+            avg_price = sum(r.get("price", 0) for r in rooms) / len(rooms) if rooms else 2000
+            projected_revenue = round(first["predictedOccupancy"] / 100 * len(rooms) * avg_price * 30)
+
+        active_discounts = sum(1 for i in insights if i.get("discountPercent", 0) > 0)
+        confidence = min(95, 60 + len(bookings) // 2)
+
+        recommendations = [
+            {
+                "id": "AI-1",
+                "title": "Occupancy Forecast",
+                "description": f"Projected occupancy of {first.get('predictedOccupancy', 72)}% for the next 30 days based on historical patterns.",
+                "priority": "high",
+                "action": "Review pricing strategy and consider targeted promotions."
+            },
+            {
+                "id": "AI-2",
+                "title": "Revenue Projection",
+                "description": f"Estimated ₱{projected_revenue:,} revenue over the next 30 days based on current occupancy trends.",
+                "priority": "medium",
+                "action": "Monitor weekly and adjust pricing if needed."
+            },
+            {
+                "id": "AI-3",
+                "title": "Discount Recommendation",
+                "description": f"{first.get('discountPercent', 0)}% discount on {', '.join(first.get('affectedRooms', ['all rooms'])) or 'all room types'} to stimulate demand during low periods.",
+                "priority": "high",
+                "action": "Implement discount during identified low-demand periods."
+            }
+        ]
+    else:
+        projected_revenue = 0
+        active_discounts = 0
+        confidence = 80
+        recommendations = [
+            {"id": "AI-1", "title": "Occupancy Forecast", "description": "Standard occupancy forecast: 72% projected for next 30 days.", "priority": "high", "action": "Maintain current pricing strategy."},
+            {"id": "AI-2", "title": "Revenue Projection", "description": "Estimated ₱500K+ projected revenue over the next 30 days.", "priority": "medium", "action": "Monitor weekly performance."},
+            {"id": "AI-3", "title": "Discount Recommendation", "description": "No specific discount recommended at this time.", "priority": "low", "action": "Maintain current rates."},
+        ]
+
+    return {
+        "next30DaysOccupancy": insights[0].get("predictedOccupancy", 72) if insights else 72,
+        "occupancyTrend": "stable",
+        "projectedRevenue": projected_revenue,
+        "revenueGrowth": round((projected_revenue / 450000 - 1) * 100) if projected_revenue else 5,
+        "activeDiscounts": active_discounts,
+        "confidence": confidence,
+        "recommendations": recommendations
+    }
 
 
 @app.route("/api/health", methods=["GET"])
@@ -2436,7 +2627,6 @@ def health():
 
 # ── Discount Approvals ─────────────────────────────────────────────────────────
 # File is the source of truth. Supabase is a secondary sync.
-import json as _json
 _approved_discounts_file = os.path.join(os.path.dirname(__file__), ".approved_discounts.json")
 _supabase_discounts_table_ok: bool | None = None  # None = untested, True/False = tested
 
@@ -2445,14 +2635,14 @@ def _load_approved_cache() -> set[str]:
     """Load approved keys from disk."""
     if os.path.exists(_approved_discounts_file):
         with open(_approved_discounts_file, "r") as f:
-            return set(_json.load(f))
+            return set(json.load(f))
     return set()
 
 
 def _save_approved_cache(keys: set[str]) -> None:
     """Persist approved keys to disk."""
     with open(_approved_discounts_file, "w") as f:
-        _json.dump(sorted(keys), f)
+        json.dump(sorted(keys), f)
 
 
 def _discounts_table_exists() -> bool:

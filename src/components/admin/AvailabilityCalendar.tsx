@@ -65,13 +65,14 @@ export default function AvailabilityCalendar() {
   const [year, setYear] = useState(today.getFullYear())
   const [month, setMonth] = useState(today.getMonth())
   const [bookings, setBookings] = useState<Booking[]>([])
+  const [calLoading, setCalLoading] = useState(true)
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
 
   // Poll bookings every 20 seconds for live updates
   usePolling(
     () => getBookings(),
-    (data) => setBookings(data),
+    (data) => { setBookings(data); setCalLoading(false) },
     20000,
   )
 
@@ -147,7 +148,15 @@ export default function AvailabilityCalendar() {
 
         {/* Calendar grid */}
         <div className="grid grid-cols-7">
-          {weeks.flat().map((day, i) => {
+          {calLoading && bookings.length === 0
+            ? Array.from({ length: 35 }).map((_, i) => (
+                <div key={`sk-${i}`} className="min-h-[100px] p-1.5 border-b border-r border-[#f0f1f3] last:border-r-0">
+                  <div className="size-6 rounded-[4px] bg-[#f5f6f8] animate-pulse mb-1" />
+                  <div className="h-3 w-12 rounded bg-[#f5f6f8] animate-pulse mb-0.5" />
+                  <div className="h-3 w-10 rounded bg-[#f5f6f8] animate-pulse" />
+                </div>
+              ))
+            : weeks.flat().map((day, i) => {
             if (day === null) return <div key={`empty-${i}`} className="min-h-[100px] p-1.5 border-b border-r border-[#f0f1f3] last:border-r-0" />
 
             const dateStr = formatDate(year, month, day)

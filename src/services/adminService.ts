@@ -178,6 +178,8 @@ async function fetchBookings(): Promise<Booking[]> {
       fullId: b.fullId,
       guestName: b.guestName,
       guestEmail: b.guestEmail,
+      guestAvatar: b.guestAvatar || "",
+      guestId: b.guestId || "",
       roomType: b.roomType,
       roomNumber: b.roomNumber,
       checkIn: b.checkIn,
@@ -185,11 +187,14 @@ async function fetchBookings(): Promise<Booking[]> {
       nights: b.nights,
       amount: b.amount,
       status: b.status as BookingStatus,
-      stay_type: (b as any).stay_type,
-      duration: (b as any).duration,
-      start_time: (b as any).start_time,
-      createdAt: (b as any).createdAt,
-      payment_method: (b as any).payment_method,
+      guests: b.guests ?? 1,
+      phone: b.phone || "",
+      specialRequests: b.specialRequests || "",
+      stay_type: b.stay_type,
+      duration: b.duration,
+      start_time: b.start_time,
+      createdAt: b.createdAt,
+      payment_method: b.payment_method || "",
     }))
     setCache("bookings", result)
     return result.length > 0 ? result : mockBookings
@@ -213,6 +218,8 @@ async function fetchRecentBookings(limit: number): Promise<Booking[]> {
       fullId: b.fullId,
       guestName: b.guestName,
       guestEmail: b.guestEmail,
+      guestAvatar: b.guestAvatar || "",
+      guestId: b.guestId || "",
       roomType: b.roomType,
       roomNumber: b.roomNumber,
       checkIn: b.checkIn,
@@ -220,6 +227,8 @@ async function fetchRecentBookings(limit: number): Promise<Booking[]> {
       nights: b.nights,
       amount: b.amount,
       status: b.status as BookingStatus,
+      guests: b.guests ?? 1,
+      payment_method: b.payment_method || "",
     }))
     setCache(`bookings-recent-${limit}`, result)
     return result
@@ -443,6 +452,11 @@ async function fetchDemandInsights(): Promise<DemandInsightData[]> {
   }
 }
 
+export async function setDemandInsightStatus(id: string, action: "accept" | "dismiss"): Promise<void> {
+  await analyticsApi.setDemandInsightStatus(id, action)
+  clearCache("analytics-demand")
+}
+
 // ── AI: Discount Offers ──────────────────────────────────────────────────────
 
 export type { DiscountOfferData }
@@ -463,6 +477,11 @@ async function fetchDiscountOffers(): Promise<DiscountOfferData[]> {
   }
 }
 
+export async function setDiscountOfferStatus(id: string, status: "active" | "scheduled" | "dismissed"): Promise<void> {
+  await analyticsApi.setDiscountOfferStatus(id, status)
+  clearCache("analytics-discounts")
+}
+
 // ── AI: Recommendations Summary ────────────────────────────────────────────────
 
 export type { RecommendationsData, AIRecommendation }
@@ -479,13 +498,14 @@ async function fetchAIRecommendations(): Promise<RecommendationsData> {
     setCache("analytics-recommendations", data)
     return data
   } catch {
+    // Honest empty state — callers show "—" instead of fake numbers
     return {
-      next30DaysOccupancy: 75,
+      next30DaysOccupancy: 0,
       occupancyTrend: "stable" as const,
       projectedRevenue: 0,
       revenueGrowth: 0,
       activeDiscounts: 0,
-      confidence: 80,
+      confidence: 0,
       recommendations: [],
     }
   }

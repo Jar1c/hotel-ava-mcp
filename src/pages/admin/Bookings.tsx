@@ -18,10 +18,11 @@ export default function Bookings() {
   }, [])
 
   useEffect(() => {
-    // Auto-complete expired bookings first
-    bookingsApi.autoComplete().catch(() => {}).finally(() => {
-      fetchBookings()
-    })
+    // Initial list comes from usePolling's immediate tick — don't double-fetch here.
+    // Auto-complete runs in background; refetch once after it settles to pick up status changes.
+    void bookingsApi.autoComplete()
+      .catch(() => {})
+      .then(() => fetchBookings())
   }, [fetchBookings])
 
   // Poll every 20 seconds for live updates

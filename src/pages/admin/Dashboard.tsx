@@ -35,7 +35,7 @@ export default function Dashboard() {
           </div>
           <div>
             <h2 className="text-[14px] font-bold text-[#82285f]">AI-Powered Insights</h2>
-            <p className="text-[11px] text-[#82285f]/70">Machine learning predictions &amp; recommendations</p>
+            <p className="text-[11px] text-[#82285f]/70">Forecasts and discount ideas from your booking history</p>
           </div>
         </div>
 
@@ -56,23 +56,36 @@ export default function Dashboard() {
                       ? "bg-red-100 text-red-700"
                       : "bg-gray-100 text-gray-700"
                   }`}>
-                    {(recommendations?.occupancyTrend ?? "stable").toUpperCase()}
+                    {(recommendations?.occupancyTrend ?? "stable") === "up"
+                      ? "TRENDING UP"
+                      : (recommendations?.occupancyTrend ?? "stable") === "down"
+                      ? "TRENDING DOWN"
+                      : "STEADY"}
                   </span>
                 </div>
-                <p className="text-[13px] font-bold text-[#1a1d26] mb-1">Occupancy Forecast</p>
-                <p className="text-[12px] text-[#4a4f59]">{recommendations?.next30DaysOccupancy ?? 72}% projected next 30 days</p>
+                <p className="text-[13px] font-bold text-[#1a1d26] mb-1">How full we'll be</p>
+                <p className="text-[12px] text-[#4a4f59]">
+                  {recommendations && recommendations.confidence > 0
+                    ? `${recommendations.next30DaysOccupancy}% projected next 30 days`
+                    : "No forecast data yet"}
+                </p>
               </div>
 
               <div className="rounded-[8px] bg-white border border-[#e2e4e8] p-4 shadow-sm">
                 <div className="flex items-center justify-between gap-2 mb-2">
                   <PhilippinePeso className="w-5 h-5 text-[#82285f]" />
                   <span className="text-[11px] font-bold px-2 py-1 rounded-[4px] bg-[#455d58]/10 text-[#455d58]">
-                    {(recommendations?.revenueGrowth ?? 0) > 0 ? "+" : ""}
-                    {recommendations?.revenueGrowth ?? 0}%
+                    {recommendations && recommendations.revenueGrowth !== 0
+                      ? `${recommendations.revenueGrowth > 0 ? "+" : ""}${recommendations.revenueGrowth}%`
+                      : "—"}
                   </span>
                 </div>
-                <p className="text-[13px] font-bold text-[#1a1d26] mb-1">Revenue Forecast</p>
-                <p className="text-[12px] text-[#4a4f59]">₱{(recommendations?.projectedRevenue ?? 0).toLocaleString()} next 30 days</p>
+                <p className="text-[13px] font-bold text-[#1a1d26] mb-1">Expected earnings</p>
+                <p className="text-[12px] text-[#4a4f59]">
+                  {recommendations && recommendations.confidence > 0
+                    ? `₱${recommendations.projectedRevenue.toLocaleString()} next 30 days`
+                    : "No forecast data yet"}
+                </p>
               </div>
 
               <div className="rounded-[8px] bg-white border border-[#e2e4e8] p-4 shadow-sm">
@@ -82,8 +95,10 @@ export default function Dashboard() {
                     {recommendations?.activeDiscounts ?? 0} active
                   </span>
                 </div>
-                <p className="text-[13px] font-bold text-[#1a1d26] mb-1">Discount Recommendations</p>
-                <p className="text-[12px] text-[#4a4f59]">{recommendations?.bestDiscountPeriod ?? "No discounts needed at this time."}</p>
+                <p className="text-[13px] font-bold text-[#1a1d26] mb-1">Discount ideas</p>
+                <p className="text-[12px] text-[#4a4f59]">
+                  {recommendations?.bestDiscountPeriod ?? "No price cuts needed right now."}
+                </p>
               </div>
             </>
           )}

@@ -5,6 +5,8 @@ export interface Booking {
   fullId?: string
   guestName: string
   guestEmail: string
+  guestAvatar?: string
+  guestId?: string
   roomType: string
   roomNumber: string
   checkIn: string
@@ -12,6 +14,9 @@ export interface Booking {
   nights: number
   amount: number
   status: BookingStatus
+  guests?: number
+  phone?: string
+  specialRequests?: string
   stay_type?: string
   duration?: number
   start_time?: string
@@ -280,36 +285,6 @@ export interface ForecastPoint {
   predicted: number
 }
 
-export const revenueForecast: ForecastPoint[] = [
-  { month: "Jan", actual: 285000, predicted: 280000 },
-  { month: "Feb", actual: 312000, predicted: 305000 },
-  { month: "Mar", actual: 398000, predicted: 380000 },
-  { month: "Apr", actual: 345000, predicted: 350000 },
-  { month: "May", actual: 420000, predicted: 410000 },
-  { month: "Jun", actual: 378000, predicted: 385000 },
-  { month: "Jul", actual: null, predicted: 410000 },
-  { month: "Aug", actual: null, predicted: 395000 },
-  { month: "Sep", actual: null, predicted: 340000 },
-  { month: "Oct", actual: null, predicted: 320000 },
-  { month: "Nov", actual: null, predicted: 355000 },
-  { month: "Dec", actual: null, predicted: 430000 },
-]
-
-export const occupancyForecast: ForecastPoint[] = [
-  { month: "Jan", actual: 62, predicted: 60 },
-  { month: "Feb", actual: 71, predicted: 68 },
-  { month: "Mar", actual: 85, predicted: 82 },
-  { month: "Apr", actual: 78, predicted: 76 },
-  { month: "May", actual: 91, predicted: 88 },
-  { month: "Jun", actual: 74, predicted: 72 },
-  { month: "Jul", actual: null, predicted: 82 },
-  { month: "Aug", actual: null, predicted: 78 },
-  { month: "Sep", actual: null, predicted: 65 },
-  { month: "Oct", actual: null, predicted: 58 },
-  { month: "Nov", actual: null, predicted: 62 },
-  { month: "Dec", actual: null, predicted: 85 },
-]
-
 export interface RoomPerformanceData {
   room: string
   revenue: number
@@ -539,21 +514,3 @@ export const seasonalEvents: SeasonalEvent[] = [
   { month: "Sep", event: "Low Season", impact: "low" },
   { month: "Oct", event: "Low Season", impact: "low" },
 ]
-
-// ── Model Info ───────────────────────────────────────────────────────────────
-
-export interface ModelInfo {
-  name: string
-  accuracy: number
-  lastUpdated: string
-  dataSource: string
-  description: string
-}
-
-export const modelInfo: ModelInfo = {
-  name: "Prophet Time-Series + Linear Regression",
-  accuracy: 87,
-  lastUpdated: "Jun 29, 2026",
-  dataSource: "12 months historical booking data (Jan–Jun 2026 actuals)",
-  description: "Combines Facebook Prophet for seasonal trend detection with linear regression for occupancy-to-price optimization. Trained on 6 months of actual booking data + market events calendar.",
-}

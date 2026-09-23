@@ -1,9 +1,12 @@
-import { useState } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { cn } from "@/lib/utils"
 import type { Guest } from "@/data/admin"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Mail, Phone, CalendarDays, PhilippinePeso, User, Clock } from "lucide-react"
+import { Mail, CalendarDays, PhilippinePeso, User, Clock } from "lucide-react"
 import { getDiceBearUrl } from "@/lib/dicebear"
+import Pagination from "@/components/admin/Pagination"
+
+const PAGE_SIZE = 10
 
 interface GuestsTableProps {
   guests: Guest[]
@@ -40,10 +43,25 @@ function formatDate(dateStr: string): string {
 
 export default function GuestsTable({ guests, loading }: GuestsTableProps) {
   const [filter, setFilter] = useState<GuestStatus | "all">("all")
+  const [page, setPage] = useState(1)
   const [selectedGuest, setSelectedGuest] = useState<Guest | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
 
   const filtered = filter === "all" ? guests : guests.filter((g) => g.status === filter)
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const safePage = Math.min(page, totalPages)
+  const paged = useMemo(
+    () => filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE),
+    [filtered, safePage],
+  )
+
+  useEffect(() => {
+    setPage(1)
+  }, [filter])
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages)
+  }, [page, totalPages])
 
   const openGuest = (guest: Guest) => {
     setSelectedGuest(guest)
@@ -100,7 +118,7 @@ export default function GuestsTable({ guests, loading }: GuestsTableProps) {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((guest) => {
+              {paged.map((guest) => {
                 const status = statusConfig[guest.status]
                 return (
                   <tr
@@ -141,6 +159,8 @@ export default function GuestsTable({ guests, loading }: GuestsTableProps) {
             </tbody>
           </table>
         </div>
+
+        <Pagination page={safePage} totalPages={totalPages} onPageChange={setPage} />
       </div>
 
       {/* ── Guest Detail Modal ──────────────────────────────── */}
@@ -177,7 +197,6 @@ export default function GuestsTable({ guests, loading }: GuestsTableProps) {
                   <h4 className="text-[10px] font-semibold uppercase tracking-wider text-[#9ca3af]">Account Information</h4>
                   <div className="bg-[#f5f6f8] rounded-[10px] p-4 space-y-3">
                     <DetailRow icon={<Mail className="h-4 w-4" />} label="Email" value={selectedGuest.email || "Not provided"} />
-                    <DetailRow icon={<Phone className="h-4 w-4" />} label="Phone" value={selectedGuest.phone || "Not provided"} />
                     <DetailRow icon={<Clock className="h-4 w-4" />} label="Member Since" value={formatDate(selectedGuest.created_at || "")} />
                     <DetailRow icon={<CalendarDays className="h-4 w-4" />} label="Guest ID" value={selectedGuest.id.slice(0, 8) + "..."} />
                   </div>

@@ -35,21 +35,26 @@ def build_monthly_features(bookings: list[dict], rooms: list[dict], year: int) -
     """
     For each month, compute features used by K-Means and Gradient Boosting.
     Returns a list of dicts, one per month.
+    Dates are parsed once per booking (was ~12×N strptime before).
     """
     total_rooms = max(len(rooms), 1)
     months_data: list[dict] = []
 
+    # Parse check_in/check_out once and bucket by month
+    buckets: list[list[tuple[datetime, datetime, dict]]] = [[] for _ in range(12)]
+    for b in bookings:
+        try:
+            ci = datetime.strptime(b["check_in"][:10], "%Y-%m-%d")
+            co = datetime.strptime(b["check_out"][:10], "%Y-%m-%d")
+        except (ValueError, KeyError, TypeError):
+            continue
+        if ci.year != year or not (1 <= ci.month <= 12):
+            continue
+        buckets[ci.month - 1].append((ci, co, b))
+
     for i in range(12):
-        month_bookings = [
-            b for b in bookings
-            if datetime.strptime(b["check_in"][:10], "%Y-%m-%d").year == year
-            and datetime.strptime(b["check_in"][:10], "%Y-%m-%d").month == i
-        ]
-        nights = sum(
-            (datetime.strptime(b["check_out"][:10], "%Y-%m-%d")
-             - datetime.strptime(b["check_in"][:10], "%Y-%m-%d")).days
-            for b in month_bookings
-        )
+        month_rows = buckets[i]
+        nights = sum((co - ci).days for ci, co, _ in month_rows)
         if i < 11:
             days_in_month = (datetime(year, i + 2, 1) - datetime(year, i + 1, 1)).days
         else:
@@ -57,13 +62,10 @@ def build_monthly_features(bookings: list[dict], rooms: list[dict], year: int) -
         total_nights = total_rooms * days_in_month
         occupancy = max(0.0, (nights / total_nights) * 100) if total_nights > 0 else 0.0
 
-        total_revenue = sum(b.get("total_price", 0) for b in month_bookings)
-        avg_stay = (nights / len(month_bookings)) if month_bookings else 0.0
+        total_revenue = sum(b.get("total_price", 0) for _, _, b in month_rows)
+        avg_stay = (nights / len(month_rows)) if month_rows else 0.0
         weekend_nights = sum(
-            (datetime.strptime(b["check_out"][:10], "%Y-%m-%d")
-             - datetime.strptime(b["check_in"][:10], "%Y-%m-%d")).days
-            for b in month_bookings
-            if datetime.strptime(b["check_in"][:10], "%Y-%m-%d").weekday() >= 5
+            (co - ci).days for ci, co, _ in month_rows if ci.weekday() >= 5
         )
         weekend_share = (weekend_nights / nights * 100) if nights else 0.0
 
@@ -71,7 +73,7 @@ def build_monthly_features(bookings: list[dict], rooms: list[dict], year: int) -
             "monthIdx": i,
             "monthName": MONTH_NAMES[i],
             "occupancy": round(occupancy, 2),
-            "bookings": len(month_bookings),
+            "bookings": len(month_rows),
             "revenue": total_revenue,
             "avgStay": round(avg_stay, 2),
             "weekendShare": round(weekend_share, 2),
@@ -171,10 +173,29 @@ def recommend_discount(months_data: list[dict], room_type: str, base_price: floa
 # ── Demand insights (entry point) ────────────────────────────────────────────
 
 
+# Shared cache so insights + offers in the same request reuse one feature build + KMeans fit.
+_SHARED_FEATURES: dict = {}
+
+
+def _shared_or_build(bookings: list[dict], rooms: list[dict], year: int, shared: bool):
+    key = (year, id(bookings), id(rooms), len(bookings))
+    if shared and _SHARED_FEATURES.get("key") == key:
+        return _SHARED_FEATURES["months"], _SHARED_FEATURES["clustered"]
+    months_data = build_monthly_features(bookings, rooms, year)
+    clustered = cluster_demand(months_data, n_clusters=3)
+    if shared:
+        _SHARED_FEATURES.clear()
+        _SHARED_FEATURES["key"] = key
+        _SHARED_FEATURES["months"] = months_data
+        _SHARED_FEATURES["clustered"] = clustered
+    return months_data, clustered
+
+
 def generate_demand_insights(
     bookings: list[dict],
     rooms: list[dict],
     current_year: int | None = None,
+    shared: bool = False,
 ) -> list[dict]:
     """
     Replace hardcoded discount logic with K-Means clustering +
@@ -192,8 +213,7 @@ def generate_demand_insights(
     if not rooms:
         return []
 
-    months_data = build_monthly_features(bookings, rooms, current_year)
-    clustered = cluster_demand(months_data, n_clusters=3)
+    months_data, clustered = _shared_or_build(bookings, rooms, current_year, shared)
 
     # Surface only future months
     future = [m for m in clustered if m["monthIdx"] >= current_month]
@@ -278,6 +298,7 @@ def generate_discount_offers(
     bookings: list[dict],
     rooms: list[dict],
     current_year: int | None = None,
+    shared: bool = False,
 ) -> list[dict]:
     """
     For each room type in a low-demand month, return a discount offer with
@@ -293,8 +314,7 @@ def generate_discount_offers(
     if not rooms:
         return []
 
-    months_data = build_monthly_features(bookings, rooms, current_year)
-    clustered = cluster_demand(months_data, n_clusters=3)
+    months_data, clustered = _shared_or_build(bookings, rooms, current_year, shared)
 
     # Map: room_type → base_price (lowest)
     room_type_map: dict[str, int] = {}

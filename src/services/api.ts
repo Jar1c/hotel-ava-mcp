@@ -303,6 +303,8 @@ export interface BookingData {
   fullId?: string
   guestName: string
   guestEmail: string
+  guestAvatar?: string
+  guestId?: string
   roomType: string
   roomNumber: string
   checkIn: string
@@ -310,6 +312,14 @@ export interface BookingData {
   nights: number
   amount: number
   status: string
+  guests?: number
+  phone?: string
+  specialRequests?: string
+  stay_type?: string
+  duration?: number
+  start_time?: string
+  createdAt?: string
+  payment_method?: string
 }
 
 export const bookingsApi = {
@@ -414,7 +424,8 @@ export interface DemandInsightData {
   confidence: number
   projectedImpact: string
   applied: boolean
-  method: string
+  dismissed?: boolean
+  method?: string
 }
 
 export interface DiscountOfferData {
@@ -458,7 +469,17 @@ export const analyticsApi = {
   getOccupancyForecast: () => apiFetch<ForecastPoint[]>("/analytics/forecast/occupancy"),
   getRevenueForecast: () => apiFetch<ForecastPoint[]>("/analytics/forecast/revenue"),
   getDemandInsights: () => apiFetch<DemandInsightData[]>("/analytics/demand-insights"),
+  setDemandInsightStatus: (id: string, action: "accept" | "dismiss") =>
+    apiFetch<{ ok: boolean }>("/analytics/demand-insights/status", {
+      method: "POST",
+      body: JSON.stringify({ id, action }),
+    }),
   getDiscountOffers: () => apiFetch<DiscountOfferData[]>("/analytics/discount-offers"),
+  setDiscountOfferStatus: (id: string, status: "active" | "scheduled" | "dismissed") =>
+    apiFetch<{ ok: boolean }>("/analytics/discount-offers/status", {
+      method: "POST",
+      body: JSON.stringify({ id, status }),
+    }),
   getAIRecommendations: () => apiFetch<RecommendationsData>("/analytics/ai-recommendations"),
 }
 
