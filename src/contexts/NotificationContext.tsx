@@ -23,6 +23,10 @@ const NotificationContext = createContext<NotificationContextValue | undefined>(
 const TOAST_FRESH_MS = 20_000
 
 function notifTarget(isAdmin: boolean, notif: NotificationData): string {
+  if (notif.type === "review") {
+    // "How was your stay?" toast → the review prompt lives in My Bookings
+    return isAdmin ? "/admin/reviews" : "/my-bookings"
+  }
   if (notif.booking_id || notif.type === "booking") {
     return isAdmin ? "/admin/bookings" : "/my-bookings"
   }

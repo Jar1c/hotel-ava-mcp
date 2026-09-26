@@ -11,6 +11,7 @@ import jwt as pyjwt
 import uuid
 import time
 import requests as http_requests
+from urllib.parse import quote
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": [
@@ -47,6 +48,23 @@ def invalidate_cache(prefix: str | None = None):
         return
     for k in [k for k in _RESPONSE_CACHE if k.startswith(prefix)]:
         _RESPONSE_CACHE.pop(k, None)
+
+
+def get_frontend_url() -> str:
+    """Frontend base URL for redirects: browser Origin/Referer -> FRONTEND_URL -> localhost."""
+    from urllib.parse import urlsplit
+    origin = (request.headers.get("Origin") or "").strip()
+    if origin and origin != "null":
+        return origin.rstrip("/")
+    referer = (request.headers.get("Referer") or "").strip()
+    if referer:
+        parts = urlsplit(referer)
+        if parts.scheme and parts.netloc:
+            return f"{parts.scheme}://{parts.netloc}"
+    env_url = (os.getenv("FRONTEND_URL") or "").strip()
+    if env_url:
+        return env_url.rstrip("/")
+    return "http://localhost:5173"
 
 
 def set_auth(token):
@@ -125,9 +143,13 @@ MAX_NOTIFICATIONS = 30
 def create_notification(user_id, notif_type, title, message, booking_id=None):
     """Insert a notification and trim old ones to MAX_NOTIFICATIONS."""
     try:
-        # Use the global supabase client (which has auth set via set_auth).
-        # The anon-only client can't do writes — Supabase REST API requires
-        # a valid Authorization header even when RLS policy is WITH CHECK (true).
+        # Service-role client on purpose: the row belongs to ANOTHER user, and
+        # notifications RLS only allows INSERT/DELETE where user_id = auth.uid().
+        # Writing with the acting user's JWT (admin, cron or anon) returns 403
+        # and the notification is silently lost — e.g. a guest never received
+        # "Stay Completed" or "How was your stay?" when an admin closed the
+        # booking. The content is server-generated, so nothing user-supplied
+        # goes through this path.
         notif_data = {
             "user_id": user_id,
             "type": notif_type,
@@ -136,13 +158,13 @@ def create_notification(user_id, notif_type, title, message, booking_id=None):
         }
         if booking_id:
             notif_data["booking_id"] = booking_id
-        supabase.table("notifications").insert(notif_data).execute()
+        supabase_admin.table("notifications").insert(notif_data).execute()
 
         # Trim to MAX_NOTIFICATIONS: keep newest, delete oldest
-        all_notifs = supabase.table("notifications").select("id").eq("user_id", user_id).order("created_at", desc=True).execute()
+        all_notifs = supabase_admin.table("notifications").select("id").eq("user_id", user_id).order("created_at", desc=True).execute()
         if all_notifs.data and len(all_notifs.data) > MAX_NOTIFICATIONS:
             old_ids = [n["id"] for n in all_notifs.data[MAX_NOTIFICATIONS:]]
-            supabase.table("notifications").delete().in_("id", old_ids).execute()
+            supabase_admin.table("notifications").delete().in_("id", old_ids).execute()
     except Exception as e:
         print(f"Notification error: {e}")
 
@@ -663,7 +685,7 @@ def forgot_password():
         return jsonify({"error": "Email is required"}), 400
 
     try:
-        frontend_url = os.getenv("FRONTEND_URL", "https://hotelava.vercel.app")
+        frontend_url = get_frontend_url()
         supabase.auth.reset_password_for_email(
             email,
             options={"redirect_to": f"{frontend_url}/reset-password"}
@@ -816,6 +838,141 @@ def delete_image():
 
 # ── Public Rooms (no auth required) ───────────────────────────────────────────
 
+# ── Room ratings (reviews) ─────────────────────────────────────────────────────
+
+# Only stays the guest has actually finished can be reviewed.
+REVIEWABLE_STATUSES = ("completed", "checked-out")
+
+# Comment cap for a single review (enforced here and on the form).
+REVIEW_MAX_CHARS = 250
+
+# Shopee-style photo reviews: up to 5 images, and an admin reply below.
+REVIEW_MAX_IMAGES = 5
+REVIEW_IMAGE_TYPES = ("image/jpeg", "image/png", "image/webp", "image/gif")
+REVIEW_IMAGE_MAX_BYTES = 5 * 1024 * 1024          # 5 MB per photo, before resize
+REVIEW_REPLY_MAX_CHARS = 500
+REVIEW_MIGRATION_HINT = "Run migrate-reviews-images-reply.sql in Supabase → SQL Editor."
+
+# Full column set first; the LEGACY set keeps every review endpoint working
+# until migrate-reviews-images-reply.sql has been run.
+REVIEW_COLUMNS = "id, booking_id, room_id, user_id, rating, comment, images, admin_reply, admin_replied_at, created_at"
+REVIEW_COLUMNS_LEGACY = "id, booking_id, room_id, user_id, rating, comment, created_at"
+
+
+def _review_columns_missing(err: str) -> bool:
+    """True when migrate-reviews-images-reply.sql hasn't been run yet.
+
+    Postgres reports it as 42703 "column … does not exist" on SELECT, while
+    PostgREST reports it as PGRST204 "… not … in the schema cache" on
+    INSERT/UPDATE — both have to land in the fallback.
+    """
+    if "reviews" not in err:
+        return False
+    if not any(col in err for col in ("images", "admin_reply", "admin_replied_at")):
+        return False
+    return any(marker in err for marker in (
+        "does not exist", "schema cache", "PGRST204", "PGRST205", "42703"))
+
+
+def _select_reviews(make_query):
+    """Run a reviews query, retrying without the new columns if the migration is pending."""
+    try:
+        return make_query(REVIEW_COLUMNS).execute().data or []
+    except Exception as e:
+        if not _review_columns_missing(str(e)):
+            raise
+        return make_query(REVIEW_COLUMNS_LEGACY).execute().data or []
+
+
+def _upload_review_image(file_bytes: bytes, content_type: str, user_id: str, ext: str) -> str:
+    """Store one review photo and return its public URL.
+
+    `review-images` comes from the migration; until it exists we fall back to
+    room-images/reviews/ so photo reviews never hard-fail.
+    """
+    token = uuid.uuid4().hex
+    last_err = None
+    for bucket, prefix in (("review-images", ""), ("room-images", "reviews/")):
+        path = f"{prefix}{user_id}/{token}.{ext}"
+        try:
+            supabase_admin.storage.from_(bucket).upload(
+                path=path, file=file_bytes, file_options={"content-type": content_type})
+            return f"{SUPABASE_URL}/storage/v1/object/public/{bucket}/{path}"
+        except Exception as e:
+            last_err = e
+    raise last_err
+
+
+def _delete_review_images(urls):
+    """Best-effort cleanup of stored photos when a review is removed."""
+    by_bucket: dict = {}
+    for url in urls or []:
+        m = re.search(r"/storage/v1/object/public/([^/]+)/(.+)$", url or "")
+        if m:
+            by_bucket.setdefault(m.group(1), []).append(m.group(2))
+    for bucket, paths in by_bucket.items():
+        try:
+            supabase_admin.storage.from_(bucket).remove(paths)
+        except Exception:
+            pass
+
+
+def _public_review_avatar(user: dict, first_name: str) -> str:
+    """Avatar shown next to a review on the public room page.
+
+    Stored avatars are either a real photo (upload/Google) or a generated
+    dicebear URL seeded with the account email, so the seed is swapped for a
+    name+id seed — a public page must never leak an email address. Accounts
+    without an avatar get the same deterministic placeholder.
+    """
+    url = (user.get("avatar_url") or "").strip()
+    if url and "api.dicebear.com" not in url:
+        return url
+    seed = f"{first_name or 'Guest'}-{str(user.get('id') or '')[:6]}"
+    return f"https://api.dicebear.com/10.x/adventurer/svg?seed={quote(seed)}"
+
+
+def _reviews_table_missing(err: str) -> bool:
+    """True when migrate-add-reviews.sql hasn't been run in Supabase yet."""
+    not_found = "PGRST205" in err or "Could not find the table" in err or "does not exist" in err
+    return not_found and "reviews" in err
+
+
+REVIEWS_NOT_SETUP = "Reviews are not set up yet — run migrate-add-reviews.sql in Supabase → SQL Editor."
+
+
+_reviews_warned = False
+
+
+def room_rating_summary(room_id=None):
+    """{room_id: {"rating": avg, "reviews": count}} aggregated from the reviews table."""
+    global _reviews_warned
+    try:
+        query = supabase_admin.table("reviews").select("room_id, rating")
+        if room_id:
+            query = query.eq("room_id", room_id)
+        rows = query.execute().data or []
+    except Exception as e:
+        # Table not migrated yet — degrade to "no ratings" instead of 500ing.
+        if not _reviews_warned:
+            _reviews_warned = True
+            print(f"room_rating_summary: {e} — run migrate-add-reviews.sql in Supabase")
+        return {}
+
+    buckets: dict[str, tuple[float, int]] = {}
+    for r in rows:
+        rid = r.get("room_id")
+        if not rid:
+            continue
+        total, count = buckets.get(rid, (0.0, 0))
+        buckets[rid] = (total + float(r.get("rating") or 0), count + 1)
+    return {
+        rid: {"rating": round(total / count, 1), "reviews": count}
+        for rid, (total, count) in buckets.items()
+        if count
+    }
+
+
 @app.route("/api/rooms/public", methods=["GET"])
 def get_public_rooms():
     try:
@@ -823,10 +980,13 @@ def get_public_rooms():
         rooms_res = supabase.table("rooms").select("*").order("created_at", desc=True).execute()
         rooms = rooms_res.data or []
 
+        ratings = room_rating_summary()
+
         result = []
         for r in rooms:
             if not r.get("available", True):
                 continue
+            summary = ratings.get(r["id"], {})
             result.append({
                 "id": r["id"],
                 "name": r["name"],
@@ -839,6 +999,8 @@ def get_public_rooms():
                 "max_children": r.get("max_children", 1),
                 "amenities": r.get("amenities") or [],
                 "images": r.get("images") or [],
+                "rating": summary.get("rating"),
+                "reviews": summary.get("reviews", 0),
             })
 
         return jsonify(result), 200
@@ -856,6 +1018,7 @@ def get_public_room(room_id):
             return jsonify({"error": "Room not found"}), 404
 
         r = rooms[0]
+        summary = room_rating_summary(room_id).get(room_id, {})
         return jsonify({
             "id": r["id"],
             "name": r["name"],
@@ -868,6 +1031,8 @@ def get_public_room(room_id):
             "max_children": r.get("max_children", 1),
             "amenities": r.get("amenities") or [],
             "images": r.get("images") or [],
+            "rating": summary.get("rating"),
+            "reviews": summary.get("reviews", 0),
         }), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -1074,7 +1239,7 @@ def create_paymongo_checkout(booking_id, amount, email, description, success_pat
         import base64
         encoded_key = base64.b64encode(PAYMONGO_SECRET_KEY.encode()).decode()
 
-        frontend_url = os.getenv("FRONTEND_URL", "https://hotelava.vercel.app")
+        frontend_url = get_frontend_url()
         success_url = f"{frontend_url}{success_path or f'/booking/confirmation/{booking_id}'}"
         cancel_url = f"{frontend_url}{cancel_path or f'/booking/failed?booking={booking_id}'}"
 
@@ -1600,6 +1765,17 @@ def get_my_bookings():
             rooms_res = supabase.table("rooms").select("id, name, type, images, price").in_("id", room_ids).execute()
             rooms_map = {r["id"]: r for r in (rooms_res.data or [])}
 
+        # One call for this guest's reviews → lets My Bookings know which
+        # completed stays still need a review (and show the rating they gave).
+        review_by_booking: dict = {}
+        if bookings:
+            try:
+                my_reviews = supabase_admin.table("reviews").select("booking_id, rating") \
+                    .eq("user_id", user_id).execute().data or []
+                review_by_booking = {r["booking_id"]: r for r in my_reviews if r.get("booking_id")}
+            except Exception as e:
+                print(f"reviews lookup error: {e}")
+
         result = []
         for b in bookings:
             room = rooms_map.get(b.get("room_id"), {})
@@ -1630,6 +1806,8 @@ def get_my_bookings():
                 "duration": b.get("duration"),
                 "start_time": b.get("start_time"),
                 "end_time": end_time,
+                "reviewed": b["id"] in review_by_booking,
+                "rating": (review_by_booking.get(b["id"]) or {}).get("rating"),
             }
             result.append(booking_data)
 
@@ -2044,6 +2222,10 @@ def auto_complete_bookings():
                     create_notification(b["user_id"], "booking", "Stay Completed",
                         f"Your stay at {room_name(b)} has been marked as completed. We hope to see you again!",
                         booking_id=b["id"])
+                    # Ask for a review right after the stay wraps up
+                    create_notification(b["user_id"], "review", "How was your stay?",
+                        f"Rate {room_name(b)} and share your experience with other guests.",
+                        booking_id=b["id"])
 
         cancelled_ids = []
         for b in pending:
@@ -2122,9 +2304,310 @@ def update_booking_status(booking_id):
             if new_status in status_messages:
                 title, msg = status_messages[new_status]
                 create_notification(booking_user_id, "booking", title, msg, booking_id=booking_id)
+                if new_status in REVIEWABLE_STATUSES:
+                    create_notification(booking_user_id, "review", "How was your stay?",
+                        f"Rate {room_name} and share your experience with other guests.",
+                        booking_id=booking_id)
 
         return jsonify({"message": f"Booking status updated to {new_status}", "status": new_status}), 200
     except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ── Reviews ────────────────────────────────────────────────────────────────────
+
+@app.route("/api/reviews", methods=["POST"])
+def create_review():
+    """Guest submits a review for their own completed stay — one review per booking."""
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    set_auth(token)
+    user_id = get_user_from_token(token)
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.form.to_dict() if (request.content_type or "").startswith("multipart/form-data") else (request.get_json() or {})
+    files = [f for f in request.files.getlist("images") if f and f.filename] if request.files else []
+    booking_id = data.get("booking_id")
+    comment = (data.get("comment") or "").strip()
+
+    if not booking_id:
+        return jsonify({"error": "booking_id is required"}), 400
+    if len(comment) > REVIEW_MAX_CHARS:
+        return jsonify({"error": f"Please keep your review to {REVIEW_MAX_CHARS} characters or less."}), 400
+    if len(files) > REVIEW_MAX_IMAGES:
+        return jsonify({"error": f"You can attach up to {REVIEW_MAX_IMAGES} photos."}), 400
+    try:
+        rating = int(data.get("rating"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "rating must be between 1 and 5"}), 400
+    if not 1 <= rating <= 5:
+        return jsonify({"error": "rating must be between 1 and 5"}), 400
+
+    # Read and type/size-check every photo before anything touches storage.
+    photos = []
+    for f in files:
+        if f.content_type not in REVIEW_IMAGE_TYPES:
+            return jsonify({"error": "Only JPG, PNG, WebP or GIF photos are allowed."}), 400
+        raw = f.read()
+        if len(raw) > REVIEW_IMAGE_MAX_BYTES:
+            return jsonify({"error": "Each photo must be 5 MB or smaller."}), 400
+        ext = f.filename.rsplit(".", 1)[-1].lower() if "." in f.filename else "jpg"
+        photos.append((raw, f.content_type, "jpg" if ext == "jpeg" else ext))
+
+    try:
+        booking_res = supabase_admin.table("bookings") \
+            .select("id, user_id, room_id, status, full_name, email") \
+            .eq("id", booking_id).execute()
+        if not booking_res.data:
+            return jsonify({"error": "Booking not found"}), 404
+        booking = booking_res.data[0]
+
+        if booking.get("user_id") != user_id:
+            return jsonify({"error": "You can only review your own booking."}), 403
+        if booking.get("status") not in REVIEWABLE_STATUSES:
+            return jsonify({"error": "You can review a stay once it is completed."}), 400
+
+        existing = supabase_admin.table("reviews").select("id").eq("booking_id", booking_id).execute()
+        if existing.data:
+            return jsonify({"error": "You have already reviewed this booking."}), 409
+
+        # Upload photos first, so a failed insert never leaves orphan files.
+        uploaded = []
+        try:
+            for raw, ctype, ext in photos:
+                uploaded.append(_upload_review_image(raw, ctype, user_id, ext))
+        except Exception as e:
+            return jsonify({"error": f"Couldn't upload your photos: {e}"}), 500
+
+        payload = {
+            "booking_id": booking_id,
+            "room_id": booking.get("room_id"),
+            "user_id": user_id,
+            "rating": rating,
+            "comment": comment,
+            "images": uploaded,
+        }
+        try:
+            insert_res = supabase_admin.table("reviews").insert(payload).execute()
+        except Exception as e:
+            _delete_review_images(uploaded)
+            if _review_columns_missing(str(e)):
+                # migrate-reviews-images-reply.sql not run yet — keep the text review.
+                print("[reviews] images column missing — saving review without photos")
+                payload.pop("images", None)
+                insert_res = supabase_admin.table("reviews").insert(payload).execute()
+            else:
+                raise
+        if not insert_res.data:
+            _delete_review_images(uploaded)
+            return jsonify({"error": "Failed to save your review"}), 500
+
+        # Surface it on the admin side
+        room_name = "a room"
+        guest_label = booking.get("full_name") or booking.get("email") or "A guest"
+        if booking.get("room_id"):
+            room_res = supabase_admin.table("rooms").select("name").eq("id", booking["room_id"]).execute()
+            if room_res.data:
+                room_name = room_res.data[0].get("name") or room_name
+        notify_admins("review", "New Review",
+            f"{guest_label} rated {room_name} {rating}/5.", booking_id=booking_id)
+
+        return jsonify(insert_res.data[0]), 201
+    except Exception as e:
+        err = str(e)
+        if _reviews_table_missing(err):
+            return jsonify({"error": REVIEWS_NOT_SETUP}), 503
+        return jsonify({"error": err}), 500
+
+
+@app.route("/api/reviews/room/<room_id>", methods=["GET"])
+def get_room_reviews(room_id):
+    """Public: average, count and the guest reviews shown inside the room page."""
+    try:
+        clear_auth()
+        rows = _select_reviews(lambda cols: supabase_admin.table("reviews")
+                               .select(cols).eq("room_id", room_id)
+                               .order("created_at", desc=True).limit(60))
+
+        user_ids = list({r["user_id"] for r in rows if r.get("user_id")})
+        names: dict = {}
+        avatars: dict = {}
+        if user_ids:
+            users = supabase_admin.table("users").select("id, name, avatar_url").in_("id", user_ids).execute().data or []
+            # First name only — the public room page shouldn't leak full names.
+            names = {u["id"]: (u.get("name") or "").split(" ")[0] for u in users}
+            avatars = {u["id"]: _public_review_avatar(u, names[u["id"]]) for u in users}
+
+        reviews = [{
+            "id": r["id"],
+            "rating": r.get("rating"),
+            "comment": r.get("comment") or "",
+            "images": r.get("images") or [],
+            "admin_reply": r.get("admin_reply") or "",
+            "admin_replied_at": r.get("admin_replied_at"),
+            "guest_name": names.get(r.get("user_id")) or "Guest",
+            "guest_avatar": avatars.get(r.get("user_id")) or "",
+            "created_at": r.get("created_at"),
+        } for r in rows]
+
+        # Average + per-star distribution over every review of the room,
+        # not just the returned page.
+        all_ratings = supabase_admin.table("reviews").select("rating") \
+            .eq("room_id", room_id).execute().data or []
+        average = round(sum(float(r.get("rating") or 0) for r in all_ratings) / len(all_ratings), 1) \
+            if all_ratings else 0
+        distribution = {str(k): 0 for k in range(5, 0, -1)}
+        for r in all_ratings:
+            key = str(int(r.get("rating") or 0))
+            if key in distribution:
+                distribution[key] += 1
+
+        return jsonify({
+            "room_id": room_id,
+            "average": average,
+            "count": len(all_ratings),
+            "distribution": distribution,
+            "reviews": reviews,
+        }), 200
+    except Exception as e:
+        err = str(e)
+        if _reviews_table_missing(err):
+            return jsonify({"room_id": room_id, "average": 0, "count": 0, "reviews": []}), 200
+        return jsonify({"error": err}), 500
+
+
+@app.route("/api/reviews", methods=["GET"])
+def get_reviews():
+    """Admin: every review (optionally filtered by room) + per-room rating stats."""
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    if not require_admin(token):
+        return jsonify({"error": "Admin access required"}), 403
+
+    try:
+        room_id = request.args.get("room_id")
+
+        rooms = supabase_admin.table("rooms").select("id, name, type").order("name").execute().data or []
+        rooms_map = {r["id"]: r for r in rooms}
+
+        def _admin_review_query(cols):
+            q = supabase_admin.table("reviews").select(cols).order("created_at", desc=True)
+            return q.eq("room_id", room_id) if room_id else q
+
+        rows = _select_reviews(_admin_review_query)
+
+        user_ids = list({r["user_id"] for r in rows if r.get("user_id")})
+        users_map = {}
+        if user_ids:
+            users = supabase_admin.table("users").select("id, name, email, avatar_url").in_("id", user_ids).execute().data or []
+            users_map = {u["id"]: u for u in users}
+
+        booking_ids = list({r["booking_id"] for r in rows if r.get("booking_id")})
+        bookings_map = {}
+        if booking_ids:
+            bres = supabase_admin.table("bookings").select("id, check_in, check_out") \
+                .in_("id", booking_ids).execute().data or []
+            bookings_map = {b["id"]: b for b in bres}
+
+        items = []
+        for r in rows:
+            u = users_map.get(r.get("user_id"), {})
+            b = bookings_map.get(r.get("booking_id"), {})
+            room = rooms_map.get(r.get("room_id"), {})
+            items.append({
+                "id": r["id"],
+                "booking_id": r.get("booking_id"),
+                "room_id": r.get("room_id"),
+                "room_name": room.get("name", "Unknown room"),
+                "room_type": room.get("type", ""),
+                "guest_name": u.get("name", "Guest"),
+                "guest_email": u.get("email", ""),
+                "guest_avatar": (u.get("avatar_url") or "").strip(),
+                "rating": r.get("rating"),
+                "comment": r.get("comment") or "",
+                "images": r.get("images") or [],
+                "admin_reply": r.get("admin_reply") or "",
+                "admin_replied_at": r.get("admin_replied_at"),
+                "check_in": b.get("check_in"),
+                "check_out": b.get("check_out"),
+                "created_at": r.get("created_at"),
+            })
+
+        ratings = room_rating_summary()
+        stats = [{
+            "room_id": rm["id"],
+            "room_name": rm["name"],
+            "room_type": rm.get("type", ""),
+            "rating": ratings.get(rm["id"], {}).get("rating"),
+            "reviews": ratings.get(rm["id"], {}).get("reviews", 0),
+        } for rm in rooms]
+
+        given = [float(r.get("rating") or 0) for r in rows]
+        return jsonify({
+            "reviews": items,
+            "stats": stats,
+            "totals": {
+                "reviews": len(rows),
+                "average": round(sum(given) / len(given), 1) if given else 0,
+            },
+        }), 200
+    except Exception as e:
+        err = str(e)
+        if _reviews_table_missing(err):
+            return jsonify({"error": REVIEWS_NOT_SETUP}), 503
+        return jsonify({"error": err}), 500
+
+
+@app.route("/api/reviews/<review_id>", methods=["DELETE"])
+def delete_review(review_id):
+    """Admin moderation — remove a review (and its stored photos)."""
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    if not require_admin(token):
+        return jsonify({"error": "Admin access required"}), 403
+
+    try:
+        try:
+            existing = supabase_admin.table("reviews").select("images").eq("id", review_id).execute()
+        except Exception:
+            existing = None
+
+        res = supabase_admin.table("reviews").delete().eq("id", review_id).execute()
+        if not res.data:
+            return jsonify({"error": "Review not found"}), 404
+
+        if existing and existing.data:
+            _delete_review_images(existing.data[0].get("images") or [])
+        return jsonify({"message": "Review deleted"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/reviews/<review_id>/reply", methods=["POST", "DELETE"])
+def review_reply(review_id):
+    """Admin — leave a public reply under a guest's review (DELETE clears it)."""
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    if not require_admin(token):
+        return jsonify({"error": "Admin access required"}), 403
+
+    reply = ""
+    if request.method == "POST":
+        reply = ((request.get_json() or {}).get("reply") or "").strip()
+        if len(reply) > REVIEW_REPLY_MAX_CHARS:
+            return jsonify({"error": f"Please keep your reply to {REVIEW_REPLY_MAX_CHARS} characters or less."}), 400
+
+    update = {
+        "admin_reply": reply or None,
+        "admin_replied_at": datetime.now(timezone.utc).isoformat() if reply else None,
+    }
+    try:
+        res = supabase_admin.table("reviews").update(update).eq("id", review_id).execute()
+        if not res.data:
+            return jsonify({"error": "Review not found"}), 404
+        return jsonify(res.data[0]), 200
+    except Exception as e:
+        if _review_columns_missing(str(e)):
+            return jsonify({"error": REVIEW_MIGRATION_HINT}), 503
+        if _reviews_table_missing(str(e)):
+            return jsonify({"error": REVIEWS_NOT_SETUP}), 503
         return jsonify({"error": str(e)}), 500
 
 

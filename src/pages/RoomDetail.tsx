@@ -8,15 +8,17 @@ import {
   TreePine, Coffee, Sunrise, Bath, UserCheck, Sofa,
   Baby, Waves, Fence, Droplets, Monitor, Armchair,
   Shirt, Fish, Sunset, UtensilsCrossed, Tv, Sparkles, Music, Clock, Tag, Mail,
-  ChevronDown
+  ChevronDown, ChevronLeft, ChevronRight
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent } from "@/components/ui/dialog"
 import DateInput from "@/components/ui/date-input"
 import GuestSelector, { type GuestCount } from "@/components/ui/guest-selector"
-import { publicRoomsApi, type PublicRoomData } from "@/services/api"
+import { publicRoomsApi, reviewsApi, type PublicRoomData, type RoomReviewsResponse } from "@/services/api"
 import { getAmenityIcon, rooms as fallbackRooms, type Room } from "@/data/rooms"
 import { getCached, setCache } from "@/lib/cache"
 import { formatDate as toISODate, parseDateParam } from "@/lib/dates"
+import { getDiceBearUrl } from "@/lib/dicebear"
 import PhotoGallery from "@/components/rooms/PhotoGallery"
 import { useAuth } from "@/contexts/AuthContext"
 import { getRoomDiscount } from "@/lib/discountEngine"
@@ -59,6 +61,12 @@ function addHoursToTime(timeStr: string, hours: number): string {
   const endPeriod = endH >= 12 ? "PM" : "AM"
   const endH12 = endH > 12 ? endH - 12 : endH === 0 ? 12 : endH
   return `${endH12}:00 ${endPeriod}`
+}
+
+function formatReviewDate(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ""
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
 }
 
 function DetailSkeleton() {
@@ -131,6 +139,12 @@ export default function RoomDetail() {
   const [isAvailable, setIsAvailable] = useState<boolean | null>(null)
   const [checkingAvailability, setCheckingAvailability] = useState(false)
   const [showMoreDetails, setShowMoreDetails] = useState(false)
+  // Live guest reviews for this room (average + list shown below)
+  const [reviewSummary, setReviewSummary] = useState<RoomReviewsResponse | null>(null)
+  const [reviewsLoading, setReviewsLoading] = useState(false)
+  // Shopee-style rating filter ("All" + 5★…1★) and the photo lightbox
+  const [ratingFilter, setRatingFilter] = useState<number | null>(null)
+  const [lightbox, setLightbox] = useState<{ images: string[]; index: number } | null>(null)
   const { isAuthenticated } = useAuth()
   const navigate = useNavigate()
   const { isApproved } = useDiscountApproval()
@@ -227,6 +241,8 @@ export default function RoomDetail() {
         allows_children: cached.allows_children,
         amenities: cached.amenities,
         images: cached.images.length > 0 ? cached.images : fallbackRooms[0].images,
+        rating: cached.rating ?? undefined,
+        reviews: cached.reviews,
       })
       setLoading(false)
     }
@@ -245,6 +261,8 @@ export default function RoomDetail() {
           allows_children: data.allows_children,
           amenities: data.amenities,
           images: data.images.length > 0 ? data.images : fallbackRooms[0].images,
+          rating: data.rating ?? undefined,
+          reviews: data.reviews,
         })
         setCache(`room_${id}`, data)
       })
@@ -255,6 +273,20 @@ export default function RoomDetail() {
         }
       })
       .finally(() => setLoading(false))
+  }, [id])
+
+  // Guest reviews — fetched alongside the room so the ratings are always live
+  useEffect(() => {
+    if (!id) return
+    let cancelled = false
+    setReviewsLoading(true)
+    setRatingFilter(null)
+    reviewsApi
+      .getRoom(id)
+      .then((data) => { if (!cancelled) setReviewSummary(data) })
+      .catch(() => { if (!cancelled) setReviewSummary(null) })
+      .finally(() => { if (!cancelled) setReviewsLoading(false) })
+    return () => { cancelled = true }
   }, [id])
 
   const startTimes = useMemo(() => {
@@ -366,6 +398,24 @@ export default function RoomDetail() {
   const displaySubtotal = showDiscount ? discountedSubtotal : subtotal
   const totalPrice = displaySubtotal + Math.round(displaySubtotal * 0.12)
 
+  // Prefer the live review aggregate; fall back to the value shipped with the room
+  const avgRating = reviewSummary && reviewSummary.count > 0 ? reviewSummary.average : room.rating
+  const reviewCount = reviewSummary ? reviewSummary.count : room.reviews
+
+  const allReviews = reviewSummary?.reviews ?? []
+  const distribution = reviewSummary?.distribution ?? {}
+  const starCounts = [5, 4, 3, 2, 1].map((star) => ({
+    star,
+    count: distribution[String(star)] ?? 0,
+  }))
+  const visibleReviews = ratingFilter
+    ? allReviews.filter((r) => r.rating === ratingFilter)
+    : allReviews
+  const filterChips: { value: number | null; label: string }[] = [
+    { value: null, label: `All (${allReviews.length})` },
+    ...starCounts.map(({ star, count }) => ({ value: star, label: `${star}★ (${count})` })),
+  ]
+
   return (
     <div className="px-base py-section">
       <div className="max-w-container mx-auto">
@@ -387,12 +437,14 @@ export default function RoomDetail() {
                   <h1 className="typo-display-lg text-ink">{room.name}</h1>
                   <p className="typo-body-sm text-muted">{room.type}</p>
                 </div>
-                {room.rating != null && (
-                  <div className="flex items-center gap-2 bg-surface-soft px-3 py-1 rounded-full">
+                {avgRating != null && (
+                  <div className="flex items-center gap-2 bg-surface-soft px-3 py-1 rounded-full shrink-0">
                     <Star className="h-4 w-4 fill-star-rating text-star-rating" />
-                    <span className="typo-title-sm text-ink">{room.rating}</span>
-                    {room.reviews != null && (
-                      <span className="typo-caption-sm text-muted">({room.reviews} reviews)</span>
+                    <span className="typo-title-sm text-ink">{avgRating}</span>
+                    {reviewCount != null && reviewCount > 0 && (
+                      <span className="typo-caption-sm text-muted">
+                        ({reviewCount} {reviewCount === 1 ? "review" : "reviews"})
+                      </span>
                     )}
                   </div>
                 )}
@@ -437,6 +489,262 @@ export default function RoomDetail() {
                   Show more details
                   <ChevronDown className="h-4 w-4" />
                 </button>
+              </div>
+
+              {/* Guest Reviews — live ratings from completed stays */}
+              <div className="border-t border-hairline pt-lg mt-lg">
+                <div className="flex items-center justify-between gap-3 mb-md">
+                  <h2 className="typo-display-sm text-ink">Guest Reviews</h2>
+                  {reviewCount != null && reviewCount > 0 && (
+                    <div className="flex items-center gap-1.5 bg-surface-soft px-3 py-1 rounded-full shrink-0">
+                      <Star className="h-4 w-4 fill-star-rating text-star-rating" />
+                      <span className="typo-title-sm text-ink">{avgRating}</span>
+                      <span className="typo-caption-sm text-muted">
+                        ({reviewCount} {reviewCount === 1 ? "review" : "reviews"})
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {reviewsLoading ? (
+                  <div className="space-y-3">
+                    {[1, 2].map((i) => (
+                      <div key={i} className="rounded-[12px] border border-hairline p-4 animate-pulse">
+                        <div className="h-4 bg-gray-100 rounded w-1/4 mb-2" />
+                        <div className="h-3 bg-gray-50 rounded w-full" />
+                      </div>
+                    ))}
+                  </div>
+                ) : allReviews.length > 0 ? (
+                  <>
+                    {/* Shopee-style average + per-star breakdown */}
+                    <div className="mb-4 flex items-center gap-5 rounded-[12px] border border-hairline bg-white p-4">
+                      <div className="shrink-0 border-r border-hairline pr-5 text-center">
+                        <p className="font-display text-3xl leading-none text-ink">
+                          {reviewSummary ? reviewSummary.average : avgRating}
+                        </p>
+                        <div className="my-1.5 flex justify-center gap-0.5">
+                          {[1, 2, 3, 4, 5].map((v) => (
+                            <Star
+                              key={v}
+                              className={`h-3.5 w-3.5 ${
+                                v <= Math.round(Number(avgRating) || 0)
+                                  ? "fill-star-rating text-star-rating"
+                                  : "text-[#D5DADF]"
+                              }`}
+                            />
+                          ))}
+                        </div>
+                        <p className="typo-caption-sm text-muted">
+                          {reviewCount} {reviewCount === 1 ? "review" : "reviews"}
+                        </p>
+                      </div>
+
+                      <div className="min-w-0 flex-1 space-y-1">
+                        {starCounts.map(({ star, count }) => {
+                          const pct = allReviews.length ? (count / allReviews.length) * 100 : 0
+                          const active = ratingFilter === star
+                          return (
+                            <button
+                              key={star}
+                              type="button"
+                              onClick={() => setRatingFilter(active ? null : star)}
+                              className={`flex w-full cursor-pointer items-center gap-2 rounded-[6px] px-1 py-0.5 transition-colors ${
+                                active ? "bg-surface-soft" : "hover:bg-surface-soft"
+                              }`}
+                            >
+                              <span
+                                className={`typo-caption-sm w-7 shrink-0 text-right ${
+                                  active ? "font-semibold text-primary" : "text-muted"
+                                }`}
+                              >
+                                {star}★
+                              </span>
+                              <span className="h-2 flex-1 overflow-hidden rounded-full bg-surface-soft">
+                                <span
+                                  className="block h-full rounded-full bg-star-rating transition-[width]"
+                                  style={{ width: `${pct}%` }}
+                                />
+                              </span>
+                              <span className="typo-caption-sm w-5 shrink-0 text-right text-muted">
+                                {count}
+                              </span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Filter chips — All sa unahan, tapos 5★ hanggang 1★ */}
+                    <div className="mb-3 flex flex-wrap gap-2">
+                      {filterChips.map((chip) => {
+                        const active = ratingFilter === chip.value
+                        return (
+                          <button
+                            key={chip.label}
+                            type="button"
+                            onClick={() => setRatingFilter(chip.value)}
+                            className={`cursor-pointer rounded-full border px-3 py-1 typo-caption-sm transition-colors ${
+                              active
+                                ? "border-primary bg-primary font-semibold text-canvas"
+                                : "border-hairline bg-white text-body hover:border-primary hover:text-primary"
+                            }`}
+                          >
+                            {chip.label}
+                          </button>
+                        )
+                      })}
+                    </div>
+
+                    {visibleReviews.length > 0 ? (
+                      <div className="space-y-3">
+                        {visibleReviews.map((r) => (
+                          <div key={r.id} className="rounded-[12px] border border-hairline bg-white p-4">
+                            <div className="flex items-center justify-between gap-3 mb-1.5">
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <img
+                                  src={r.guest_avatar || getDiceBearUrl("adventurer", r.guest_name, 64)}
+                                  alt=""
+                                  loading="lazy"
+                                  onError={(e) => {
+                                    const el = e.currentTarget
+                                    el.onerror = null
+                                    el.src = getDiceBearUrl("adventurer", r.guest_name, 64)
+                                  }}
+                                  className="h-9 w-9 shrink-0 rounded-full border border-hairline bg-surface-soft object-cover"
+                                />
+                                <span className="typo-body-sm font-semibold text-ink truncate">
+                                  {r.guest_name}
+                                </span>
+                              </div>
+                              <span className="typo-caption-sm text-muted shrink-0">
+                                {formatReviewDate(r.created_at)}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-0.5 mb-2">
+                              {[1, 2, 3, 4, 5].map((v) => (
+                                <Star
+                                  key={v}
+                                  className={`h-3.5 w-3.5 ${
+                                    v <= r.rating ? "fill-star-rating text-star-rating" : "text-[#D5DADF]"
+                                  }`}
+                                />
+                              ))}
+                            </div>
+                            {r.comment && (
+                              <p className="typo-body-sm text-body leading-relaxed">{r.comment}</p>
+                            )}
+
+                            {/* Guest photos — up to 5, tap to enlarge */}
+                            {r.images.length > 0 && (
+                              <div className="mt-2.5 flex flex-wrap gap-2">
+                                {r.images.map((src, i) => (
+                                  <button
+                                    key={src}
+                                    type="button"
+                                    onClick={() => setLightbox({ images: r.images, index: i })}
+                                    className="h-16 w-16 cursor-pointer overflow-hidden rounded-[6px] border border-hairline transition-opacity hover:opacity-90"
+                                  >
+                                    <img
+                                      src={src}
+                                      alt={`${r.guest_name}'s photo ${i + 1}`}
+                                      loading="lazy"
+                                      className="h-full w-full object-cover"
+                                    />
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* Hotel Ava's reply to this review */}
+                            {r.admin_reply && (
+                              <div className="mt-3 rounded-[8px] border-l-4 border-primary bg-surface-soft px-3 py-2">
+                                <p className="typo-caption-sm font-semibold text-primary">
+                                  Hotel Ava replied
+                                  {r.admin_replied_at ? ` · ${formatReviewDate(r.admin_replied_at)}` : ""}
+                                </p>
+                                <p className="typo-body-sm text-body mt-0.5 whitespace-pre-line">
+                                  {r.admin_reply}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="rounded-[12px] border border-dashed border-hairline p-5 text-center">
+                        <p className="typo-body-sm font-medium text-ink">
+                          No {ratingFilter}★ reviews yet
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => setRatingFilter(null)}
+                          className="typo-caption-sm mt-1 cursor-pointer text-primary underline underline-offset-2"
+                        >
+                          Show all reviews
+                        </button>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="rounded-[12px] border border-dashed border-hairline p-6 text-center">
+                    <Star className="h-5 w-5 mx-auto mb-2 text-[#D5DADF]" />
+                    <p className="typo-body-sm font-medium text-ink">No reviews yet</p>
+                    <p className="typo-caption-sm text-muted mt-1">
+                      Stayed here? Your review helps other guests decide.
+                    </p>
+                  </div>
+                )}
+
+                {/* Photo lightbox — tap a review photo to enlarge */}
+                {lightbox && (
+                  <Dialog open onOpenChange={(next) => { if (!next) setLightbox(null) }}>
+                    <DialogContent className="max-w-[46rem] border-none bg-black/95 p-3 shadow-none ring-0 [&_[data-slot=dialog-close]]:text-white [&_[data-slot=dialog-close]]:hover:text-white/80">
+                      <div className="relative flex items-center justify-center">
+                        <img
+                          src={lightbox.images[lightbox.index]}
+                          alt="Review photo enlarged"
+                          className="max-h-[70vh] w-auto max-w-full rounded-[8px] object-contain"
+                        />
+                        {lightbox.images.length > 1 && (
+                          <>
+                            <button
+                              type="button"
+                              aria-label="Previous photo"
+                              onClick={() =>
+                                setLightbox({
+                                  images: lightbox.images,
+                                  index:
+                                    (lightbox.index - 1 + lightbox.images.length) %
+                                    lightbox.images.length,
+                                })
+                              }
+                              className="absolute left-2 top-1/2 -translate-y-1/2 cursor-pointer rounded-full bg-black/50 p-2 text-white transition-colors hover:bg-black/70"
+                            >
+                              <ChevronLeft className="h-5 w-5" />
+                            </button>
+                            <button
+                              type="button"
+                              aria-label="Next photo"
+                              onClick={() =>
+                                setLightbox({
+                                  images: lightbox.images,
+                                  index: (lightbox.index + 1) % lightbox.images.length,
+                                })
+                              }
+                              className="absolute right-2 top-1/2 -translate-y-1/2 cursor-pointer rounded-full bg-black/50 p-2 text-white transition-colors hover:bg-black/70"
+                            >
+                              <ChevronRight className="h-5 w-5" />
+                            </button>
+                          </>
+                        )}
+                      </div>
+                      <p className="mt-2 text-center text-xs text-white/70">
+                        {lightbox.index + 1} / {lightbox.images.length}
+                      </p>
+                    </DialogContent>
+                  </Dialog>
+                )}
               </div>
             </div>
           </div>

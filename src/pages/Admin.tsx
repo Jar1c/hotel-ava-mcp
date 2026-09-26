@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react"
 import { Outlet, useNavigate } from "react-router"
-import { Search, Bell, Calendar, DoorOpen, Users, Hash, CheckCheck, Settings, Tag, Clock } from "lucide-react"
+import { Search, Bell, Calendar, DoorOpen, Users, Hash, CheckCheck, Settings, Tag, Clock, Star } from "lucide-react"
 import AdminSidebar from "@/components/admin/AdminSidebar"
 import { useAuth } from "@/contexts/AuthContext"
 import { useNotifications } from "@/contexts/NotificationContext"
@@ -24,6 +24,7 @@ const searchSuggestions = [
 
 const notifTypeStyles: Record<string, { bg: string; icon: React.ReactNode }> = {
   booking: { bg: "bg-gray-100 dark:bg-surface-strong", icon: <Calendar className="size-4 text-ink" /> },
+  review: { bg: "bg-gray-100 dark:bg-surface-strong", icon: <Star className="size-4 text-star-rating" /> },
   promo: { bg: "bg-gray-100 dark:bg-surface-strong", icon: <Tag className="size-4 text-ink" /> },
   reminder: { bg: "bg-gray-100 dark:bg-surface-strong", icon: <Clock className="size-4 text-ink" /> },
   system: { bg: "bg-gray-100 dark:bg-surface-strong", icon: <Settings className="size-4 text-ink" /> },
@@ -65,7 +66,9 @@ export default function Admin() {
   const handleNotifClick = (notif: NotificationData) => {
     if (!notif.read) markRead(notif.id)
     setNotifOpen(false)
-    if (notif.booking_id || notif.type === "booking") {
+    if (notif.type === "review") {
+      navigate("/admin/reviews")
+    } else if (notif.booking_id || notif.type === "booking") {
       navigate("/admin/bookings")
     }
   }

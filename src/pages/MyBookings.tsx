@@ -1,12 +1,14 @@
 import { useState, useEffect, useCallback } from "react"
 import { useNavigate, useSearchParams } from "react-router"
-import { CalendarDays, Users, Clock, X, ChevronRight, SlidersHorizontal, ChevronLeft, LayoutGrid, CheckCircle, BadgeCheck, XCircle, Receipt, CreditCard, MapPin, FileText } from "lucide-react"
+import { CalendarDays, Users, Clock, X, ChevronRight, SlidersHorizontal, ChevronLeft, LayoutGrid, CheckCircle, BadgeCheck, XCircle, Receipt, CreditCard, MapPin, FileText, Star } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { userBookingsApi, ApiError, type UserBookingData } from "@/services/api"
 import { bookingsApi } from "@/services/api"
 import { useToast } from "@/contexts/ToastContext"
 import LoadingDots from "@/components/LoadingDots"
 import ConfirmDialog from "@/components/ui/confirm-dialog"
+import ReviewModal from "@/components/ReviewModal"
+import ReceiptDialog, { type ReceiptData } from "@/components/ReceiptDialog"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { usePolling } from "@/hooks/usePolling"
 import { formatPaymentMethod } from "@/lib/payment"
@@ -19,6 +21,7 @@ const statusStyles: Record<string, { label: string; dot: string; text: string }>
   pending: { label: "Awaiting Payment", dot: "bg-amber-400", text: "text-amber-600" },
   confirmed: { label: "Confirmed", dot: "bg-emerald-400", text: "text-emerald-600" },
   completed: { label: "Completed", dot: "bg-gray-300", text: "text-muted" },
+  "checked-out": { label: "Checked Out", dot: "bg-gray-300", text: "text-muted" },
   cancelled: { label: "Cancelled", dot: "bg-gray-300", text: "text-muted" },
 }
 
@@ -44,6 +47,42 @@ function formatDateRange(checkIn: string, checkOut: string, stayType?: string) {
 
 type BookingDetail = UserBookingData & { full_name: string; email: string; phone: string; special_requests: string }
 
+/** Normalise a guest booking into the shared receipt shape. */
+function receiptFor(b: BookingDetail): ReceiptData {
+  const isDay = b.stay_type === "day"
+  const rate = b.room_price ?? 0
+  const nights = Math.max(1, b.nights || 1)
+  const dayPrice = isDay && b.duration ? Math.round((rate * b.duration) / 24) : 0
+  const fmtDate = (d?: string) =>
+    d ? new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"
+
+  return {
+    reference: b.id.slice(0, 8).toUpperCase(),
+    fullReference: b.id,
+    issuedAt: b.created_at,
+    guestName: b.full_name || "Guest",
+    guestEmail: b.email,
+    guestPhone: b.phone,
+    roomName: b.room_name,
+    roomDetail: b.room_type,
+    checkInLabel: fmtDate(b.check_in),
+    checkOutLabel: isDay ? undefined : fmtDate(b.check_out),
+    stayLabel:
+      isDay && b.duration
+        ? `Day use · ${b.duration} hours${b.start_time ? ` from ${b.start_time}` : ""}`
+        : `${nights} night${nights === 1 ? "" : "s"}`,
+    guests: b.guests,
+    total: b.total_price,
+    gross: rate > 0 ? (isDay ? dayPrice : rate * nights) : null,
+    itemLabel: isDay
+      ? `${b.room_name} · day use`
+      : `${b.room_name} × ${nights} night${nights === 1 ? "" : "s"}`,
+    paymentMethod: formatPaymentMethod(b.payment_method, "N/A"),
+    paymentStatus:
+      b.status === "pending" ? "Unpaid" : b.status === "cancelled" ? "Cancelled" : "Paid",
+  }
+}
+
 type SuggestedRoom = { id: string; name: string; type: string; price: number; image: string }
 
 function formatTimeLabel(iso: string | null | undefined): string {
@@ -65,10 +104,15 @@ export default function MyBookings() {
   const [page, setPage] = useState(1)
   const [cancelDialog, setCancelDialog] = useState<{ open: boolean; id: string | null }>({ open: false, id: null })
 
+  // Review state — the stay is over, we're asking the guest what they thought
+  const [reviewTarget, setReviewTarget] = useState<UserBookingData | null>(null)
+
   // Detail sheet state
   const [detailBooking, setDetailBooking] = useState<BookingDetail | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
   const [detailLoading, setDetailLoading] = useState(false)
+  // Official receipt for the booking currently open in the detail dialog
+  const [receiptOpen, setReceiptOpen] = useState(false)
 
   // Extend stay state
   const [extendDialog, setExtendDialog] = useState<{ id: string | null; hours: number }>({ id: null, hours: 1 })
@@ -136,7 +180,17 @@ export default function MyBookings() {
 
   const filteredBookings = activeTab === "all"
     ? orderedBookings
-    : orderedBookings.filter((b) => b.status.toLowerCase() === activeTab)
+    : orderedBookings.filter((b) => {
+        const status = b.status.toLowerCase()
+        // Checked-out stays are finished too — group them under the Completed tab
+        if (activeTab === "completed") return status === "completed" || status === "checked-out"
+        return status === activeTab
+      })
+
+  // Finished stays that still owe us a rating
+  const isReviewable = (b: UserBookingData) =>
+    (b.status === "completed" || b.status === "checked-out") && !b.reviewed
+  const pendingReviews = bookings.filter(isReviewable)
 
   const totalPages = Math.ceil(filteredBookings.length / PER_PAGE)
   const pagedBookings = filteredBookings.slice((page - 1) * PER_PAGE, page * PER_PAGE)
@@ -257,6 +311,32 @@ export default function MyBookings() {
               : "Your booking history will appear here"}
           </p>
         </div>
+
+        {/* Review prompt — completed stays still waiting for a rating */}
+        {pendingReviews.length > 0 && (
+          <div className="mb-lg flex items-start gap-3 rounded-[12px] border border-hairline bg-white p-4">
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-[#82285f]/10">
+              <Star className="size-4 fill-star-rating text-star-rating" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="typo-title-sm text-ink">How was your stay?</p>
+              <p className="typo-caption-sm text-muted mt-0.5">
+                {pendingReviews.length === 1
+                  ? "You have 1 completed stay waiting for a review."
+                  : `You have ${pendingReviews.length} completed stays waiting for a review.`}
+              </p>
+            </div>
+            <Button
+              size="sm"
+              onClick={() => setReviewTarget(pendingReviews[0])}
+              className="!rounded-[8px] text-xs font-semibold shrink-0"
+              style={{ backgroundColor: PRIMARY, color: CANVAS }}
+            >
+              <Star className="h-3.5 w-3.5 mr-1" />
+              Review now
+            </Button>
+          </div>
+        )}
 
         {/* Category Tabs */}
         {bookings.length > 0 && (
@@ -428,6 +508,24 @@ export default function MyBookings() {
                               </Button>
                             </>
                           )}
+                          {(booking.status === "completed" || booking.status === "checked-out") && (
+                            booking.reviewed ? (
+                              <span className="inline-flex items-center gap-1 text-xs font-medium text-muted">
+                                <Star className="h-3.5 w-3.5 fill-star-rating text-star-rating" />
+                                You rated {booking.rating ?? "—"} / 5
+                              </span>
+                            ) : (
+                              <Button
+                                size="sm"
+                                onClick={(e) => { e.stopPropagation(); setReviewTarget(booking) }}
+                                className="!rounded-[8px] text-xs font-semibold"
+                                style={{ backgroundColor: PRIMARY, color: CANVAS }}
+                              >
+                                <Star className="h-3.5 w-3.5 mr-1" />
+                                Rate &amp; Review
+                              </Button>
+                            )
+                          )}
                         </div>
                       </div>
                     </div>
@@ -476,7 +574,13 @@ export default function MyBookings() {
       </div>
 
       {/* ── Booking Detail Dialog ────────────────────────────────────── */}
-      <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
+      <Dialog
+        open={detailOpen}
+        onOpenChange={(open) => {
+          setDetailOpen(open)
+          if (!open) setReceiptOpen(false)
+        }}
+      >
         <DialogContent className="!rounded-[16px] !max-w-[520px] !p-0 overflow-hidden">
           {/* Header */}
           <DialogHeader className="px-6 pt-6 pb-4 border-b border-hairline">
@@ -580,6 +684,14 @@ export default function MyBookings() {
                       ₱{detailBooking.total_price.toLocaleString()}
                     </span>
                   </div>
+                  <Button
+                    variant="outline"
+                    onClick={() => setReceiptOpen(true)}
+                    className="mt-3 w-full !rounded-[8px] gap-2"
+                  >
+                    <Receipt className="h-4 w-4" />
+                    View Receipt
+                  </Button>
                 </div>
               </div>
 
@@ -633,6 +745,15 @@ export default function MyBookings() {
           ) : null}
         </DialogContent>
       </Dialog>
+
+      {/* ── Official receipt for the open booking ────────────────────── */}
+      {detailBooking && (
+        <ReceiptDialog
+          open={receiptOpen}
+          onClose={() => setReceiptOpen(false)}
+          data={receiptFor(detailBooking)}
+        />
+      )}
 
       {/* Extend stay: pick hours → PayMongo checkout */}
       <Dialog open={!!extendDialog.id} onOpenChange={(open) => { if (!open) setExtendDialog({ id: null, hours: 1 }) }}>
@@ -775,6 +896,20 @@ export default function MyBookings() {
         loading={!!cancelling}
         onConfirm={() => {
           if (cancelDialog.id) handleCancel(cancelDialog.id)
+        }}
+      />
+
+      {/* Review modal — from the banner or a booking's "Rate & Review" button */}
+      <ReviewModal
+        open={!!reviewTarget}
+        onClose={() => setReviewTarget(null)}
+        bookingId={reviewTarget?.id ?? ""}
+        roomName={reviewTarget?.room_name ?? ""}
+        onSaved={(rating) => {
+          const id = reviewTarget?.id
+          if (!id) return
+          setBookings((prev) => prev.map((b) => (b.id === id ? { ...b, reviewed: true, rating } : b)))
+          setDetailBooking((prev) => (prev?.id === id ? { ...prev, reviewed: true, rating } : prev))
         }}
       />
     </div>

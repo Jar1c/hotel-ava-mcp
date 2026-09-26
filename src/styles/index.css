@@ -864,3 +864,50 @@ input[type="number"] {
 .safe-area-bottom {
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
+
+/* ── Receipt printing (ReceiptDialog) ─────────────────────────────────────────
+   Print only the .receipt-print paper; everything else in the dialog (title bar,
+   buttons, backdrop, page behind it) is hidden. */
+@media print {
+  body * {
+    visibility: hidden !important;
+  }
+
+  .receipt-print,
+  .receipt-print * {
+    visibility: visible !important;
+  }
+
+  /* Neutralise the dialog's scroll/animation constraints so the paper isn't clipped */
+  [data-slot="dialog-content"] {
+    position: static !important;
+    inset: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    transform: none !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+
+  .receipt-scroll {
+    max-height: none !important;
+    overflow: visible !important;
+    padding: 0 !important;
+  }
+
+  .receipt-print {
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 100%;
+    max-width: 340px !important;
+    margin: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+
+  .no-print,
+  [data-slot="dialog-overlay"] {
+    display: none !important;
+  }
+}

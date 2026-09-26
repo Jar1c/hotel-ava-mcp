@@ -166,6 +166,9 @@ export interface PublicRoomData {
   allows_children: boolean
   amenities: string[]
   images: string[]
+  /** Live average from guest reviews — null when the room has none yet */
+  rating?: number | null
+  reviews?: number
 }
 
 export const publicRoomsApi = {
@@ -292,6 +295,9 @@ export interface UserBookingData {
   start_time?: string
   end_time?: string | null
   room_price?: number
+  /** True once the guest has reviewed this stay */
+  reviewed?: boolean
+  rating?: number | null
 }
 
 export interface ExtendStartResponse {
@@ -518,12 +524,109 @@ export const analyticsApi = {
   getAIRecommendations: () => apiFetch<RecommendationsData>("/analytics/ai-recommendations"),
 }
 
+// ── Reviews ────────────────────────────────────────────────────────────────────
+
+export interface RoomReview {
+  id: string
+  rating: number
+  comment: string
+  images: string[]
+  admin_reply: string
+  admin_replied_at: string | null
+  guest_name: string
+  guest_avatar?: string
+  created_at: string
+}
+
+export interface RoomReviewsResponse {
+  room_id: string
+  average: number
+  count: number
+  /** {"5": n, "4": n, …, "1": n} across every review of the room */
+  distribution: Record<string, number>
+  reviews: RoomReview[]
+}
+
+export interface AdminReview {
+  id: string
+  booking_id: string | null
+  room_id: string | null
+  room_name: string
+  room_type: string
+  guest_name: string
+  guest_email: string
+  guest_avatar?: string
+  rating: number
+  comment: string
+  images: string[]
+  admin_reply: string
+  admin_replied_at: string | null
+  check_in: string | null
+  check_out: string | null
+  created_at: string
+}
+
+export interface RoomRatingStat {
+  room_id: string
+  room_name: string
+  room_type: string
+  rating: number | null
+  reviews: number
+}
+
+export interface AdminReviewsResponse {
+  reviews: AdminReview[]
+  stats: RoomRatingStat[]
+  totals: { reviews: number; average: number }
+}
+
+export const reviewsApi = {
+  /** Guest submits a review for a completed booking (one per booking, ≤5 photos) */
+  create: async (payload: { booking_id: string; rating: number; comment: string; images?: File[] }): Promise<{ id: string }> => {
+    const token = sessionStorage.getItem("access_token")
+    const form = new FormData()
+    form.append("booking_id", payload.booking_id)
+    form.append("rating", String(payload.rating))
+    form.append("comment", payload.comment)
+    ;(payload.images || []).forEach((file) => form.append("images", file))
+
+    const res = await fetch(`${API_BASE}/reviews`, {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: form,
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      if (res.status === 401) throw new Error("Unauthorized")
+      throw new ApiError(body.error || `API error ${res.status}`, res.status, body)
+    }
+    return res.json()
+  },
+
+  /** Public — shown inside the room page */
+  getRoom: (roomId: string) => apiFetch<RoomReviewsResponse>(`/reviews/room/${roomId}`),
+
+  /** Admin — full list + per-room stats */
+  getAll: (roomId?: string) =>
+    apiFetch<AdminReviewsResponse>(`/reviews${roomId ? `?room_id=${encodeURIComponent(roomId)}` : ""}`),
+
+  /** Admin moderation */
+  remove: (id: string) => apiFetch<{ message: string }>(`/reviews/${id}`, { method: "DELETE" }),
+
+  /** Admin — public reply/feedback under a review */
+  reply: (id: string, reply: string) =>
+    apiFetch<AdminReview>(`/reviews/${id}/reply`, { method: "POST", body: JSON.stringify({ reply }) }),
+
+  /** Admin — clear a reply */
+  removeReply: (id: string) => apiFetch<AdminReview>(`/reviews/${id}/reply`, { method: "DELETE" }),
+}
+
 // ── Notifications ──────────────────────────────────────────────────────────────
 
 export interface NotificationData {
   id: string
   user_id: string
-  type: "booking" | "promo" | "reminder" | "system"
+  type: "booking" | "promo" | "reminder" | "system" | "review"
   title: string
   message: string
   read: boolean

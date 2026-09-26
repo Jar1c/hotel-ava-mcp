@@ -1,6 +1,6 @@
 import { NavLink, Link, useLocation, useNavigate } from "react-router"
 import { useState, useCallback } from "react"
-import { User, LogOut, Settings, CalendarDays, ChevronDown, Bell, CheckCheck, Tag, Clock } from "lucide-react"
+import { User, LogOut, Settings, CalendarDays, ChevronDown, Bell, CheckCheck, Tag, Clock, Star } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import {
@@ -21,6 +21,7 @@ import { useBellRing } from "@/hooks/useBellRing"
 
 const notifTypeStyles: Record<string, { bg: string; icon: React.ReactNode }> = {
   booking: { bg: "bg-gray-100 dark:bg-surface-strong", icon: <CalendarDays className="size-4 text-ink" /> },
+  review: { bg: "bg-gray-100 dark:bg-surface-strong", icon: <Star className="size-4 text-star-rating" /> },
   promo: { bg: "bg-gray-100 dark:bg-surface-strong", icon: <Tag className="size-4 text-ink" /> },
   reminder: { bg: "bg-gray-100 dark:bg-surface-strong", icon: <Clock className="size-4 text-ink" /> },
   system: { bg: "bg-gray-100 dark:bg-surface-strong", icon: <Settings className="size-4 text-ink" /> },
@@ -48,6 +49,12 @@ export default function Header() {
   const handleNotifClick = useCallback((notif: typeof notifications[0]) => {
     if (!notif.read) {
       markRead(notif.id)
+    }
+    if (notif.type === "review") {
+      // "How was your stay?" → straight to the booking that needs a review
+      setDropdownOpen(false)
+      navigate(isAdmin ? "/admin/reviews" : "/my-bookings")
+      return
     }
     if (notif.booking_id || notif.type === "booking") {
       setDropdownOpen(false)

@@ -48,6 +48,8 @@ function mapApiRoom(r: PublicRoomData): Room {
     allows_children: r.allows_children,
     amenities: r.amenities,
     images: r.images,
+    rating: r.rating ?? undefined,
+    reviews: r.reviews,
   }
 }
 

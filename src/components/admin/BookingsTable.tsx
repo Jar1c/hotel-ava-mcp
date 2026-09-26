@@ -4,7 +4,8 @@ import { bookingsApi } from "@/services/api"
 import type { Booking } from "@/data/admin"
 import LoadingDots from "@/components/LoadingDots"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Mail, Phone, CalendarDays, PhilippinePeso, User, Clock, BedDouble, CreditCard, FileText } from "lucide-react"
+import ReceiptDialog, { type ReceiptData } from "@/components/ReceiptDialog"
+import { Mail, Phone, CalendarDays, PhilippinePeso, User, Clock, BedDouble, CreditCard, FileText, Receipt } from "lucide-react"
 import { getDiceBearUrl } from "@/lib/dicebear"
 import { formatPaymentMethod } from "@/lib/payment"
 import Pagination from "@/components/admin/Pagination"
@@ -55,6 +56,39 @@ function paymentNote(status: BookingStatus) {
   return "—"
 }
 
+/** Normalise an admin booking row into the shared receipt shape. */
+function receiptFor(b: Booking): ReceiptData {
+  const isDay = b.stay_type === "day"
+  const nights = Math.max(1, b.nights || 1)
+  // The API puts the room *name* in roomNumber and the room *type* in roomType,
+  // so lead with the name — the same order the guest receipt uses.
+  const roomName = b.roomNumber || b.roomType
+  const roomType = b.roomNumber && b.roomType && b.roomNumber !== b.roomType ? b.roomType : undefined
+  return {
+    reference: (b.fullId || b.id).slice(0, 8).toUpperCase(),
+    fullReference: b.fullId || b.id,
+    issuedAt: b.createdAt || null,
+    guestName: b.guestName,
+    guestEmail: b.guestEmail,
+    guestPhone: b.phone,
+    roomName,
+    roomDetail: roomType,
+    checkInLabel: formatBookingDate(b.checkIn),
+    checkOutLabel: isDay ? undefined : formatBookingDate(b.checkOut),
+    stayLabel:
+      isDay && b.duration
+        ? `Day use · ${b.duration} hours${b.start_time ? ` from ${b.start_time}` : ""}`
+        : `${nights} night${nights === 1 ? "" : "s"}`,
+    guests: b.guests,
+    total: b.amount,
+    // The room rate isn't on this row, so the receipt shows the charge without a rate line.
+    gross: null,
+    itemLabel: isDay ? `${roomName} · day use` : `${roomName} × ${nights} night${nights === 1 ? "" : "s"}`,
+    paymentMethod: formatPaymentLabel(b.payment_method || ""),
+    paymentStatus: paymentNote(b.status),
+  }
+}
+
 export default function BookingsTable({ bookings, showFilters = true, loading, onStatusChange }: BookingsTableProps) {
   const [filter, setFilter] = useState<BookingStatus | "all">("all")
   const [page, setPage] = useState(1)
@@ -62,6 +96,7 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
   const [confirmAction, setConfirmAction] = useState<{ bookingId: string; bookingIdShort: string; action: BookingStatus; label: string } | null>(null)
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
+  const [receiptOpen, setReceiptOpen] = useState(false)
 
   const filtered = filter === "all" ? bookings : bookings.filter((b) => b.status === filter)
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
@@ -295,7 +330,13 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
       </div>
 
       {/* ── Booking Detail Modal ──────────────────────────────── */}
-      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
+      <Dialog
+        open={modalOpen}
+        onOpenChange={(open) => {
+          setModalOpen(open)
+          if (!open) setReceiptOpen(false)
+        }}
+      >
         <DialogContent className="!rounded-[16px] !max-w-[460px] !p-0 overflow-hidden">
           {selectedBooking && (
             <>
@@ -369,6 +410,14 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
                     <DetailRow icon={<CreditCard className="h-4 w-4" />} label="Method" value={formatPaymentLabel(selectedBooking.payment_method || "")} />
                     <DetailRow icon={<PhilippinePeso className="h-4 w-4" />} label="Amount" value={`₱${selectedBooking.amount.toLocaleString()}`} valueClass="font-bold text-[#82285f]" />
                     <DetailRow icon={<Clock className="h-4 w-4" />} label="Status" value={paymentNote(selectedBooking.status)} />
+                    <button
+                      type="button"
+                      onClick={() => setReceiptOpen(true)}
+                      className="mt-1 flex w-full cursor-pointer items-center justify-center gap-2 rounded-[8px] border border-[#e2e4e8] bg-white py-2 text-[12px] font-semibold text-[#82285f] transition-colors hover:border-[#82285f]/40 hover:bg-[#f8f0f5]"
+                    >
+                      <Receipt className="h-4 w-4" />
+                      View Receipt
+                    </button>
                   </div>
                 </div>
 
@@ -387,6 +436,15 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
           )}
         </DialogContent>
       </Dialog>
+
+      {/* ── Official receipt for the open booking ────────────────────── */}
+      {selectedBooking && (
+        <ReceiptDialog
+          open={receiptOpen}
+          onClose={() => setReceiptOpen(false)}
+          data={receiptFor(selectedBooking)}
+        />
+      )}
 
       {/* Confirmation Dialog — matches system Dialog */}
       <Dialog
