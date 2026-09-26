@@ -2,13 +2,14 @@ import { useState, useEffect, useCallback } from "react"
 import { useNavigate, useSearchParams } from "react-router"
 import { CalendarDays, Users, Clock, X, ChevronRight, SlidersHorizontal, ChevronLeft, LayoutGrid, CheckCircle, BadgeCheck, XCircle, Receipt, CreditCard, MapPin, FileText } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { userBookingsApi, type UserBookingData } from "@/services/api"
+import { userBookingsApi, ApiError, type UserBookingData } from "@/services/api"
 import { bookingsApi } from "@/services/api"
 import { useToast } from "@/contexts/ToastContext"
 import LoadingDots from "@/components/LoadingDots"
 import ConfirmDialog from "@/components/ui/confirm-dialog"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { usePolling } from "@/hooks/usePolling"
+import { formatPaymentMethod } from "@/lib/payment"
 
 const PRIMARY = "#82285f"
 const CANVAS = "#FBF9F8"
@@ -43,6 +44,15 @@ function formatDateRange(checkIn: string, checkOut: string, stayType?: string) {
 
 type BookingDetail = UserBookingData & { full_name: string; email: string; phone: string; special_requests: string }
 
+type SuggestedRoom = { id: string; name: string; type: string; price: number; image: string }
+
+function formatTimeLabel(iso: string | null | undefined): string {
+  if (!iso) return ""
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ""
+  return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })
+}
+
 export default function MyBookings() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -60,11 +70,51 @@ export default function MyBookings() {
   const [detailOpen, setDetailOpen] = useState(false)
   const [detailLoading, setDetailLoading] = useState(false)
 
+  // Extend stay state
+  const [extendDialog, setExtendDialog] = useState<{ id: string | null; hours: number }>({ id: null, hours: 1 })
+  const [extending, setExtending] = useState<string | null>(null)
+  const [conflictDialog, setConflictDialog] = useState<{ open: boolean; error: string; next?: string; rooms: SuggestedRoom[] }>({ open: false, error: "", rooms: [] })
+
   useEffect(() => {
     if (searchParams.get("payment") === "cancelled") {
       toast({ title: "Payment cancelled", description: "You can retry payment from My Bookings.", variant: "error" })
       window.history.replaceState({}, "", "/my-bookings")
     }
+  }, [])
+
+  // Returned from PayMongo after paying for an extension
+  useEffect(() => {
+    const extendPaid = searchParams.get("extend_paid")
+    if (!extendPaid) return
+    ;(async () => {
+      try {
+        const res = await userBookingsApi.extendConfirm(extendPaid)
+        if (res.status === "extended") {
+          const h = res.hours ?? 1
+          toast({ title: "Stay extended", description: `Your stay was extended by ${h} hour${h === 1 ? "" : "s"}.`, variant: "success" })
+          const fresh = await userBookingsApi.getMine()
+          setBookings(fresh)
+        } else if (res.status === "pending_payment") {
+          toast({ title: "Extension pending", description: "We haven't confirmed your extension payment yet — this page will update shortly.", variant: "error" })
+        } else {
+          toast({ title: "No extension found", description: "There was no pending extension for this booking.", variant: "error" })
+        }
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 409) {
+          const body = err.body as { error?: string; next_booking_start?: string; suggested_rooms?: SuggestedRoom[] }
+          setConflictDialog({
+            open: true,
+            error: body.error || "Extending would conflict with another booking.",
+            next: body.next_booking_start,
+            rooms: body.suggested_rooms || [],
+          })
+        } else {
+          toast({ title: "Extension failed", description: err instanceof Error ? err.message : "Could not confirm the extension.", variant: "error" })
+        }
+      } finally {
+        window.history.replaceState({}, "", "/my-bookings")
+      }
+    })()
   }, [])
 
   // Poll bookings every 15 seconds for live updates
@@ -79,9 +129,14 @@ export default function MyBookings() {
     bookingsApi.autoComplete().catch(() => {})
   }, [])
 
+  const orderedBookings = [
+    ...bookings.filter((b) => b.status === "pending" || b.status === "confirmed"),
+    ...bookings.filter((b) => b.status !== "pending" && b.status !== "confirmed"),
+  ]
+
   const filteredBookings = activeTab === "all"
-    ? bookings
-    : bookings.filter((b) => b.status.toLowerCase() === activeTab)
+    ? orderedBookings
+    : orderedBookings.filter((b) => b.status.toLowerCase() === activeTab)
 
   const totalPages = Math.ceil(filteredBookings.length / PER_PAGE)
   const pagedBookings = filteredBookings.slice((page - 1) * PER_PAGE, page * PER_PAGE)
@@ -129,6 +184,35 @@ export default function MyBookings() {
       toast({ title: "Payment failed", description: msg, variant: "error" })
     } finally {
       setPaying(null)
+    }
+  }
+
+  const handleExtend = async () => {
+    const id = extendDialog.id
+    if (!id) return
+    setExtending(id)
+    try {
+      const data = await userBookingsApi.extend(id, extendDialog.hours)
+      if (data.checkout_url) {
+        window.location.href = data.checkout_url
+      }
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 409) {
+        const body = err.body as { error?: string; next_booking_start?: string; suggested_rooms?: SuggestedRoom[] }
+        setConflictDialog({
+          open: true,
+          error: body.error || "Extending would conflict with another booking.",
+          next: body.next_booking_start,
+          rooms: body.suggested_rooms || [],
+        })
+        setExtendDialog({ id: null, hours: 1 })
+        setDetailOpen(false)
+      } else {
+        const msg = err instanceof Error ? err.message : "Failed to start extension"
+        toast({ title: "Extension failed", description: msg, variant: "error" })
+      }
+    } finally {
+      setExtending(null)
     }
   }
 
@@ -396,10 +480,7 @@ export default function MyBookings() {
         <DialogContent className="!rounded-[16px] !max-w-[520px] !p-0 overflow-hidden">
           {/* Header */}
           <DialogHeader className="px-6 pt-6 pb-4 border-b border-hairline">
-            <DialogTitle className="flex items-center gap-2">
-              <Receipt className="h-5 w-5" style={{ color: PRIMARY }} />
-              Booking Details
-            </DialogTitle>
+            <DialogTitle>Booking Details</DialogTitle>
           </DialogHeader>
 
           {detailLoading ? (
@@ -486,7 +567,7 @@ export default function MyBookings() {
                   <DetailRow
                     icon={<CreditCard className="h-4 w-4" />}
                     label="Payment Method"
-                    value={detailBooking.payment_method ? detailBooking.payment_method.charAt(0).toUpperCase() + detailBooking.payment_method.slice(1) : "N/A"}
+                    value={formatPaymentMethod(detailBooking.payment_method, "N/A")}
                   />
                   <DetailRow
                     icon={<Receipt className="h-4 w-4" />}
@@ -535,9 +616,151 @@ export default function MyBookings() {
                     Cancel Booking
                   </Button>
                 )}
+                {detailBooking.status.toLowerCase() === "confirmed" &&
+                  detailBooking.end_time &&
+                  new Date(detailBooking.end_time).getTime() > Date.now() && (
+                    <Button
+                      variant="outline"
+                      onClick={() => { setDetailOpen(false); setExtendDialog({ id: detailBooking.id, hours: 1 }) }}
+                      className="flex-1 !rounded-[8px]"
+                      style={{ borderColor: PRIMARY, color: PRIMARY }}
+                    >
+                      Extend Stay
+                    </Button>
+                  )}
               </div>
             </div>
           ) : null}
+        </DialogContent>
+      </Dialog>
+
+      {/* Extend stay: pick hours → PayMongo checkout */}
+      <Dialog open={!!extendDialog.id} onOpenChange={(open) => { if (!open) setExtendDialog({ id: null, hours: 1 }) }}>
+        <DialogContent className="!rounded-[16px] !max-w-[440px] !p-0 overflow-hidden">
+          <DialogHeader className="px-6 pt-6 pb-4 border-b border-hairline">
+            <DialogTitle>Extend Your Stay</DialogTitle>
+          </DialogHeader>
+          <div className="p-6 space-y-5">
+            {(() => {
+              const bk = detailBooking?.id === extendDialog.id ? detailBooking : bookings.find((b) => b.id === extendDialog.id)
+              const price = Math.max(1, Math.round(((bk?.room_price ?? 0) * extendDialog.hours) / 24))
+              const endIso = bk?.end_time ?? null
+              const newEnd = endIso ? new Date(new Date(endIso).getTime() + extendDialog.hours * 3600000) : null
+              return (
+                <>
+                  <p className="text-sm text-muted">
+                    Add hours to {bk?.room_name || "your room"}
+                    {endIso ? ` — stay currently ends ${formatTimeLabel(endIso)}.` : "."}
+                  </p>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wider text-muted mb-2">How many hours?</p>
+                    <div className="grid grid-cols-4 gap-2">
+                      {[1, 2, 3, 4].map((h) => (
+                        <button
+                          key={h}
+                          type="button"
+                          onClick={() => setExtendDialog((p) => ({ ...p, hours: h }))}
+                          className={`py-2 rounded-[8px] text-sm font-medium border transition ${
+                            extendDialog.hours === h ? "text-white border-transparent" : "bg-white text-ink border-hairline hover:border-gray-300"
+                          }`}
+                          style={extendDialog.hours === h ? { backgroundColor: PRIMARY } : undefined}
+                        >
+                          +{h}h
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="bg-gray-50 rounded-[10px] p-4 space-y-2 text-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted">New end time</span>
+                      <span className="font-medium text-ink">{newEnd ? formatTimeLabel(newEnd.toISOString()) : "—"}</span>
+                    </div>
+                    <div className="flex items-center justify-between pt-2 border-t border-gray-200">
+                      <span className="font-semibold text-ink">Extension fee</span>
+                      <span className="text-lg font-display font-bold" style={{ color: PRIMARY }}>
+                        ₱{price.toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+                  <Button
+                    onClick={handleExtend}
+                    disabled={extending === extendDialog.id}
+                    className="w-full !rounded-[8px]"
+                    style={{ backgroundColor: PRIMARY, color: CANVAS }}
+                  >
+                    {extending === extendDialog.id ? (
+                      <LoadingDots size="sm" className="mr-2" />
+                    ) : (
+                      <CreditCard className="h-4 w-4 mr-2" />
+                    )}
+                    {extending === extendDialog.id ? "Redirecting..." : "Continue to Payment"}
+                  </Button>
+                </>
+              )
+            })()}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Extension blocked: next booking too close → suggest other rooms */}
+      <Dialog open={conflictDialog.open} onOpenChange={(open) => setConflictDialog((p) => ({ ...p, open }))}>
+        <DialogContent className="!rounded-[16px] !max-w-[460px] !p-0 overflow-hidden">
+          <DialogHeader className="px-6 pt-6 pb-4 border-b border-hairline">
+            <DialogTitle>Can't Extend This Stay</DialogTitle>
+          </DialogHeader>
+          <div className="p-6 space-y-4">
+            <p className="text-sm text-muted">{conflictDialog.error}</p>
+            {conflictDialog.next && (
+              <p className="text-sm text-ink">
+                The next booking for this room starts{" "}
+                <span className="font-medium">
+                  {new Date(conflictDialog.next).toLocaleString("en-US", {
+                    month: "short",
+                    day: "numeric",
+                    hour: "numeric",
+                    minute: "2-digit",
+                    hour12: true,
+                  })}
+                </span>
+                .
+              </p>
+            )}
+            {conflictDialog.rooms.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted">Rooms available instead</p>
+                {conflictDialog.rooms.map((r) => (
+                  <div key={r.id} className="flex items-center gap-3 bg-gray-50 rounded-[10px] p-3">
+                    <img
+                      src={r.image || "https://images.unsplash.com/photo-1631049307264-da0ec9d70304?w=400&h=300&fit=crop"}
+                      alt={r.name}
+                      className="w-12 h-12 rounded-[8px] object-cover shrink-0"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-ink truncate">{r.name}</p>
+                      <p className="text-xs text-muted">
+                        {r.type} · ₱{Number(r.price || 0).toLocaleString()}/night
+                      </p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="!rounded-[8px] shrink-0"
+                      onClick={() => { setConflictDialog({ open: false, error: "", rooms: [] }); navigate(`/rooms/${r.id}`) }}
+                    >
+                      View
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <Button
+              variant="outline"
+              className="w-full !rounded-[8px]"
+              onClick={() => setConflictDialog({ open: false, error: "", rooms: [] })}
+            >
+              Close
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
 

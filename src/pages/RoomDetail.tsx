@@ -16,6 +16,7 @@ import GuestSelector, { type GuestCount } from "@/components/ui/guest-selector"
 import { publicRoomsApi, type PublicRoomData } from "@/services/api"
 import { getAmenityIcon, rooms as fallbackRooms, type Room } from "@/data/rooms"
 import { getCached, setCache } from "@/lib/cache"
+import { formatDate as toISODate, parseDateParam } from "@/lib/dates"
 import PhotoGallery from "@/components/rooms/PhotoGallery"
 import { useAuth } from "@/contexts/AuthContext"
 import { getRoomDiscount } from "@/lib/discountEngine"
@@ -107,11 +108,11 @@ export default function RoomDetail() {
   )
   const [checkIn, setCheckIn] = useState<Date | null>(() => {
     const v = searchParams.get("checkIn")
-    return v ? new Date(v) : null
+    return v ? parseDateParam(v) : null
   })
   const [checkOut, setCheckOut] = useState<Date | null>(() => {
     const v = searchParams.get("checkOut")
-    return v ? new Date(v) : null
+    return v ? parseDateParam(v) : null
   })
   const [guests, setGuests] = useState<GuestCount>(() => ({
     adults: Number(searchParams.get("adults")) || 2,
@@ -173,8 +174,8 @@ export default function RoomDetail() {
       }
     }
 
-    setCheckIn(checkInDate ? new Date(checkInDate) : null)
-    setCheckOut(checkOutDate ? new Date(checkOutDate) : null)
+    setCheckIn(checkInDate ? parseDateParam(checkInDate) : null)
+    setCheckOut(checkOutDate ? parseDateParam(checkOutDate) : null)
     setGuests({
       adults: adultsValue ? Number(adultsValue) : 2,
       children: childrenValue ? Number(childrenValue) : 0,
@@ -185,9 +186,9 @@ export default function RoomDetail() {
   useEffect(() => {
     if (stayType !== "overnight" || !checkIn || !checkOut) return
     const minCheckOut = new Date(checkIn.getTime() + 86400000)
-    // Compare as date strings to avoid timezone issues
-    const checkOutStr = checkOut.toISOString().split("T")[0]
-    const minCheckOutStr = minCheckOut.toISOString().split("T")[0]
+    // Compare as local date strings to avoid timezone issues
+    const checkOutStr = toISODate(checkOut)
+    const minCheckOutStr = toISODate(minCheckOut)
     if (checkOutStr <= minCheckOutStr) {
       setCheckOut(null)
     }
@@ -314,12 +315,11 @@ export default function RoomDetail() {
     }
 
     setCheckingAvailability(true)
-    const formatDate = (d: Date) => d.toISOString().split("T")[0]
 
     publicRoomsApi.checkAvailability({
       room_id: room.id,
-      check_in: formatDate(checkIn!),
-      check_out: stayType === "overnight" && checkOut ? formatDate(checkOut) : undefined,
+      check_in: toISODate(checkIn!),
+      check_out: stayType === "overnight" && checkOut ? toISODate(checkOut) : undefined,
       stay_type: stayType,
       start_time: stayType === "day" ? startTime : overnightStartTime || undefined,
       duration: stayType === "day" ? dayDuration : undefined,

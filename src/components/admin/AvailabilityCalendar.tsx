@@ -5,6 +5,7 @@ import { getBookings } from "@/services/adminService"
 import type { Booking } from "@/data/admin"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { usePolling } from "@/hooks/usePolling"
+import { formatPaymentMethod } from "@/lib/payment"
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
@@ -289,8 +290,8 @@ export default function AvailabilityCalendar() {
                       label="Payment Method"
                       value={
                         selectedBooking.payment_method
-                          ? selectedBooking.payment_method.charAt(0).toUpperCase() + selectedBooking.payment_method.slice(1)
-                          : selectedBooking.status === "confirmed" ? "GCash" : selectedBooking.status === "cancelled" ? "Refunded" : "Pending"
+                          ? formatPaymentMethod(selectedBooking.payment_method)
+                          : selectedBooking.status === "confirmed" ? "Paid" : selectedBooking.status === "cancelled" ? "Refunded" : "Pending"
                       }
                     />
                     <DetailRow

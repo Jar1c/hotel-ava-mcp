@@ -825,6 +825,41 @@ input[type="number"] {
   animation: toast-slide 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
+@keyframes toast-exit {
+  to { opacity: 0; transform: translateX(32px) scale(0.95); }
+}
+
+.animate-toast-exit {
+  animation: toast-exit 0.24s ease-in forwards;
+}
+
+/* Notification bell ring - triggered when a new notification arrives */
+@keyframes bell-ring {
+  0% { transform: rotate(0) scale(1); }
+  15% { transform: rotate(16deg) scale(1.18); }
+  30% { transform: rotate(-13deg) scale(1.15); }
+  45% { transform: rotate(10deg) scale(1.11); }
+  60% { transform: rotate(-7deg) scale(1.07); }
+  75% { transform: rotate(4deg) scale(1.04); }
+  90% { transform: rotate(-2deg) scale(1.01); }
+  100% { transform: rotate(0) scale(1); }
+}
+
+.animate-bell-ring {
+  animation: bell-ring 0.9s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+  transform-origin: 50% 15%;
+}
+
+@keyframes bell-badge-pop {
+  0% { transform: scale(0.4); opacity: 0; }
+  60% { transform: scale(1.35); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.animate-bell-badge-pop {
+  animation: bell-badge-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
 /* Safe area for iPhone notch - bottom navigation */
 .safe-area-bottom {
   padding-bottom: env(safe-area-inset-bottom, 0px);

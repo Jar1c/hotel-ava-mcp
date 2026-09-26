@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { publicRoomsApi, type PublicRoomData } from "@/services/api"
 import { rooms as fallbackRooms, type Room } from "@/data/rooms"
 import { getCached, setCache } from "@/lib/cache"
+import { formatDate as toISODate, parseDateParam } from "@/lib/dates"
 import { useAuth } from "@/contexts/AuthContext"
 import LoadingDots from "@/components/LoadingDots"
 
@@ -48,8 +49,8 @@ export default function Booking() {
   const [googleLoading, setGoogleLoading] = useState(false)
 
   // All booking params come from URL — read-only, no state needed
-  const checkIn = searchParams.get("checkIn") ? new Date(searchParams.get("checkIn")!) : null
-  const checkOut = searchParams.get("checkOut") ? new Date(searchParams.get("checkOut")!) : null
+  const checkIn = searchParams.get("checkIn") ? parseDateParam(searchParams.get("checkIn")!) : null
+  const checkOut = searchParams.get("checkOut") ? parseDateParam(searchParams.get("checkOut")!) : null
   const guests = {
     adults: Number(searchParams.get("adults")) || 2,
     children: Number(searchParams.get("children")) || 0,
@@ -124,8 +125,8 @@ export default function Booking() {
       // Check availability first
       const availRes = await publicRoomsApi.checkAvailability({
         room_id: room.id,
-        check_in: checkIn!.toISOString().split("T")[0],
-        check_out: isOvernight && checkOut ? checkOut.toISOString().split("T")[0] : undefined,
+        check_in: toISODate(checkIn!),
+        check_out: isOvernight && checkOut ? toISODate(checkOut) : undefined,
         stay_type: stayType,
         start_time: isOvernight ? overnightStartTime : startTime,
         duration: !isOvernight ? dayDuration : undefined,
@@ -146,8 +147,8 @@ export default function Booking() {
         },
         body: JSON.stringify({
           room_id: room.id,
-          check_in: checkIn!.toISOString().split("T")[0],
-          check_out: isOvernight ? checkOut!.toISOString().split("T")[0] : checkIn!.toISOString().split("T")[0],
+          check_in: toISODate(checkIn!),
+          check_out: isOvernight ? toISODate(checkOut!) : toISODate(checkIn!),
           guests: guests.adults + guests.children,
           stays: isOvernight ? `${nights} Night${nights > 1 ? "s" : ""}` : `${dayDuration} Hours`,
           stay_type: stayType,

@@ -128,8 +128,13 @@ def recommend_discount(months_data: list[dict], room_type: str, base_price: floa
     if not months_data:
         return {"discountPercent": 0, "confidence": 0, "method": "no_data"}
 
-    # Find low-demand months from clustering result
-    future_months = [m for m in months_data if m.get("demandSegment") == "low_demand"]
+    # Find low-demand months from clustering result (monthIdx is 0-based,
+    # so >= current month = still upcoming — past months can't be discounted).
+    now_idx = datetime.now().month - 1
+    future_months = [
+        m for m in months_data
+        if m.get("demandSegment") == "low_demand" and m.get("monthIdx", 0) >= now_idx
+    ]
     if not future_months:
         return {
             "discountPercent": 0,
@@ -139,13 +144,14 @@ def recommend_discount(months_data: list[dict], room_type: str, base_price: floa
         }
 
     target_month = future_months[0]
-    # Normalize occupancy: if > 1 treat as percentage, else as decimal
-    occ = target_month.get("occupancy", target_month.get("predictedOccupancy", 0))
-    if isinstance(occ, (int, float)) and occ > 1:
-        target_month_occ = occ / 100.0
-    else:
-        target_month_occ = occ
-    target_month_occ = max(0, min(100, target_month_occ))
+    # Occupancy from both builders is a percentage (0-100).
+    try:
+        target_month_occ = float(
+            target_month.get("occupancy", target_month.get("predictedOccupancy", 0)) or 0
+        )
+    except (TypeError, ValueError):
+        target_month_occ = 0.0
+    target_month_occ = max(0.0, min(100.0, target_month_occ))
 
     # Heuristic discount based on occupancy %
     if target_month_occ < 40:
@@ -259,7 +265,8 @@ def generate_demand_insights(
         for t in room_types:
             t_rooms = [r for r in rooms if r["type"] == t]
             base_price = min(r["price"] for r in t_rooms) if t_rooms else 2000
-            rec = recommend_discount(months_data, t, base_price)
+            # clustered (not months_data) carries demandSegment from K-Means
+            rec = recommend_discount(clustered, t, base_price)
             recos.append({**rec, "roomType": t, "basePrice": base_price})
 
         # Take median discount across room types as headline
@@ -331,7 +338,9 @@ def generate_discount_offers(
         days_in_month = (datetime(current_year, m_idx + 2, 1) - datetime(current_year, m_idx + 1, 1)).days if m_idx < 11 else 31
 
         for t, base_price in room_type_map.items():
-            rec = recommend_discount(months_data, t, base_price)
+            # clustered carries demandSegment; months_data never had it, so
+            # every offer was silently skipped (discount always 0).
+            rec = recommend_discount(clustered, t, base_price)
             discount = rec["discountPercent"]
             if discount == 0:
                 continue

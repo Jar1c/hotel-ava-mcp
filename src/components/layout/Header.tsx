@@ -17,6 +17,7 @@ import { publicNavItems, guestNavItems } from "@/data/navigation"
 import hotelAvaLogo from "@/assets/images/Hotel Ava logo.png"
 import { formatDistanceToNow } from "date-fns"
 import GoogleSignInModal from "@/components/GoogleSignInModal"
+import { useBellRing } from "@/hooks/useBellRing"
 
 const notifTypeStyles: Record<string, { bg: string; icon: React.ReactNode }> = {
   booking: { bg: "bg-gray-100 dark:bg-surface-strong", icon: <CalendarDays className="size-4 text-ink" /> },
@@ -35,6 +36,7 @@ export default function Header() {
   const [isLoggingOut, setIsLoggingOut] = useState(false)
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [showGoogleModal, setShowGoogleModal] = useState(false)
+  useBellRing()
 
   const handleDropdownOpenChange = useCallback((open: boolean) => {
     setDropdownOpen(open)
@@ -160,15 +162,15 @@ export default function Header() {
             <>
               {/* Notification bell */}
               <DropdownMenu open={dropdownOpen} onOpenChange={handleDropdownOpenChange}>
-                <DropdownMenuTrigger className="relative flex size-9 items-center justify-center rounded-full bg-[#f0f1f3] dark:bg-surface-strong hover:bg-[#e2e4e8] dark:hover:bg-surface-strong text-[#6b7280] dark:text-muted transition-all duration-200 cursor-pointer">
+                <DropdownMenuTrigger data-notification-bell className="relative flex size-9 items-center justify-center rounded-full bg-[#f0f1f3] dark:bg-surface-strong hover:bg-[#e2e4e8] dark:hover:bg-surface-strong text-[#6b7280] dark:text-muted transition-all duration-200 cursor-pointer">
                   <Bell className="size-[18px]" />
                   {unreadCount > 0 && (
-                    <span className="absolute -top-0.5 -right-0.5 flex items-center justify-center size-4 rounded-full bg-[#A4423A] text-white text-[10px] font-bold">
+                    <span data-notification-badge className="absolute -top-0.5 -right-0.5 flex items-center justify-center size-4 rounded-full bg-[#A4423A] text-white text-[10px] font-bold">
                       {unreadCount > 9 ? "9+" : unreadCount}
                     </span>
                   )}
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" sideOffset={8} positionMethod="fixed" className="w-80 !rounded-[12px] p-0 overflow-hidden dark:bg-surface-soft dark:border-hairline/50">
+                <DropdownMenuContent align="end" sideOffset={8} positionMethod="fixed" className="w-80 !rounded-[12px] p-0 overflow-hidden origin-top-right dark:bg-surface-soft dark:border-hairline/50">
                   {/* Header */}
                   <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-hairline/50">
                     <span className="text-sm font-semibold text-ink dark:text-ink-dark">Notifications</span>

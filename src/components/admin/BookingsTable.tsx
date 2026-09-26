@@ -6,6 +6,7 @@ import LoadingDots from "@/components/LoadingDots"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Mail, Phone, CalendarDays, PhilippinePeso, User, Clock, BedDouble, CreditCard, FileText } from "lucide-react"
 import { getDiceBearUrl } from "@/lib/dicebear"
+import { formatPaymentMethod } from "@/lib/payment"
 import Pagination from "@/components/admin/Pagination"
 
 type BookingStatus = "confirmed" | "pending" | "completed" | "cancelled" | "checked-out"
@@ -43,12 +44,7 @@ function formatBookingDate(dateStr: string) {
 }
 
 function formatPaymentLabel(method: string) {
-  if (!method) return "Not set"
-  const m = method.toLowerCase()
-  if (m === "gcash") return "GCash"
-  if (m === "paymaya") return "PayMaya"
-  if (m === "card") return "Credit / Debit Card"
-  return method
+  return formatPaymentMethod(method, "Not set")
 }
 
 function paymentNote(status: BookingStatus) {

@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react"
 import { useSearchParams } from "react-router"
-import { TrendingUp, Tag, Brain, BarChart3, Calendar, Star, AlertTriangle, PhilippinePeso, Lightbulb } from "lucide-react"
+import { TrendingUp, Tag, Brain, BarChart3, Calendar, Star, AlertTriangle } from "lucide-react"
 import { cn } from "@/lib/utils"
 import DemandForecastChart from "@/components/admin/DemandForecastChart"
 import RevenueForecast from "@/components/admin/RevenueForecast"
@@ -9,6 +9,7 @@ import DiscountOffers from "@/components/admin/DiscountOffers"
 import SeasonalChart from "@/components/admin/SeasonalChart"
 import RoomPerformance from "@/components/admin/RoomPerformance"
 import InsightCard from "@/components/admin/InsightCard"
+import AIInsightCards from "@/components/admin/AIInsightCards"
 import {
   getSeasonalData,
   getRoomPerformance,
@@ -192,9 +193,6 @@ export default function AIAssistant() {
     [adminRooms]
   )
 
-  const hasRecoData = recommendations !== null && recommendations.confidence > 0
-  const topRec = hasRecoData ? recommendations!.recommendations[0] : undefined
-
   const retryForecast = () => { setLoaded((p) => { const n = new Set(p); n.delete("forecast"); return n }); loadTab("forecast") }
   const retryPricing = () => { setLoaded((p) => { const n = new Set(p); n.delete("pricing"); return n }); loadTab("pricing") }
   const retryDiscounts = () => { setLoaded((p) => { const n = new Set(p); n.delete("discounts"); return n }); loadTab("discounts") }
@@ -234,69 +232,16 @@ export default function AIAssistant() {
       {/* ── Tab: Smart Forecast ─────────────────────────────── */}
       {activeTab === "forecast" && (
         <div className="space-y-5">
-          {/* Summary strip */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            {fcLoading && !hasRecoData ? (
-              Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-28" />)
-            ) : fcError ? (
-              <div className="sm:col-span-3"><ErrorBox onRetry={retryForecast} /></div>
-            ) : (
-              <>
-                <div className="bg-white border border-[#e2e4e8] rounded-[8px] p-4 shadow-sm">
-                  <div className="flex items-center gap-2.5 mb-2">
-                    <Calendar className="w-5 h-5 text-[#82285f]" />
-                    <span className="text-[11px] font-medium text-[#7A7A70]">Next 30 days</span>
-                  </div>
-                  <p className="text-[13px] font-bold text-[#1a1d26]">How full we'll be</p>
-                  <p className="text-[20px] font-bold text-[#82285f] mt-1">
-                    {hasRecoData ? `${recommendations!.next30DaysOccupancy}%` : "—"}
-                  </p>
-                  <p className="text-[11px] text-[#7A7A70] mt-0.5">
-                    {hasRecoData
-                      ? recommendations!.occupancyTrend === "up"
-                        ? "Trending up"
-                        : recommendations!.occupancyTrend === "down"
-                        ? "Trending down"
-                        : "Staying steady"
-                      : "No data yet"}
-                  </p>
-                </div>
-
-                <div className="bg-white border border-[#e2e4e8] rounded-[8px] p-4 shadow-sm">
-                  <div className="flex items-center gap-2.5 mb-2">
-                    <PhilippinePeso className="w-5 h-5 text-[#82285f]" />
-                    <span className="text-[11px] font-medium text-[#7A7A70]">Next 30 days</span>
-                  </div>
-                  <p className="text-[13px] font-bold text-[#1a1d26]">Expected earnings</p>
-                  <p className="text-[20px] font-bold text-[#82285f] mt-1">
-                    {hasRecoData ? `₱${recommendations!.projectedRevenue.toLocaleString()}` : "—"}
-                  </p>
-                  <p className="text-[11px] text-[#7A7A70] mt-0.5">
-                    {hasRecoData
-                      ? `${recommendations!.revenueGrowth > 0 ? "+" : ""}${recommendations!.revenueGrowth}% vs last month`
-                      : "No data yet"}
-                  </p>
-                </div>
-
-                <div className="bg-white border border-[#e2e4e8] rounded-[8px] p-4 shadow-sm">
-                  <div className="flex items-center gap-2.5 mb-2">
-                    <Lightbulb className="w-5 h-5 text-[#82285f]" />
-                    <span className="text-[11px] font-medium text-[#7A7A70]">Top tip</span>
-                  </div>
-                  <p className="text-[13px] font-bold text-[#1a1d26] mb-1">
-                    {topRec ? topRec.title : "Nothing urgent"}
-                  </p>
-                  <p className="text-[11px] text-[#4a4f59] line-clamp-2">
-                    {topRec
-                      ? topRec.description
-                      : hasRecoData
-                      ? "Bookings look healthy — no changes needed right now."
-                      : "No data yet."}
-                  </p>
-                </div>
-              </>
-            )}
-          </div>
+          {/* Summary strip — same shared panel as the Dashboard */}
+          {fcError ? (
+            <ErrorBox onRetry={retryForecast} />
+          ) : (
+            <AIInsightCards
+              recommendations={recommendations}
+              loading={fcLoading}
+              linkBase="/admin/ai"
+            />
+          )}
 
           {/* Charts */}
           {fcLoading ? (

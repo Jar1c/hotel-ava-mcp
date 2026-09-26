@@ -4,6 +4,7 @@ import { motion } from "motion/react"
 import { publicRoomsApi, type PublicRoomData } from "@/services/api"
 import { type Room } from "@/data/rooms"
 import { setCache, getCached } from "@/lib/cache"
+import { formatDate as toISODate, parseDateParam } from "@/lib/dates"
 import RoomCard from "@/components/rooms/RoomCard"
 import type { DiscountRoom } from "@/lib/discountEngine"
 import { getRoomDiscount } from "@/lib/discountEngine"
@@ -121,9 +122,9 @@ export default function Rooms() {
           try {
             const res = await publicRoomsApi.checkAvailability({
               room_id: room.id,
-              check_in: new Date(filters.checkIn!).toISOString().split("T")[0],
+              check_in: toISODate(parseDateParam(filters.checkIn!)),
               check_out: filters.stayType === "overnight" && filters.checkOut
-                ? new Date(filters.checkOut).toISOString().split("T")[0]
+                ? toISODate(parseDateParam(filters.checkOut))
                 : undefined,
               stay_type: filters.stayType || "overnight",
               start_time: filters.stayType === "day" ? filters.startTime : undefined,

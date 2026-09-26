@@ -66,10 +66,21 @@ async function apiFetch<T>(path: string, options: RequestInit = {}, _isRetry = f
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
-    throw new Error(body.error || `API error ${res.status}`)
+    throw new ApiError(body.error || `API error ${res.status}`, res.status, body)
   }
 
   return res.json()
+}
+
+export class ApiError extends Error {
+  status: number
+  body: Record<string, unknown>
+  constructor(message: string, status: number, body: Record<string, unknown>) {
+    super(message)
+    this.name = "ApiError"
+    this.status = status
+    this.body = body
+  }
 }
 
 // ── Auth ───────────────────────────────────────────────────────────────────────
@@ -279,6 +290,24 @@ export interface UserBookingData {
   stays?: string
   duration?: number
   start_time?: string
+  end_time?: string | null
+  room_price?: number
+}
+
+export interface ExtendStartResponse {
+  checkout_url: string
+  hours: number
+  price: number
+  new_end: string
+}
+
+export interface ExtendConfirmResponse {
+  status: "extended" | "pending_payment" | "none"
+  hours?: number
+  payment_method?: string
+  stays?: string
+  duration?: number
+  end_time?: string
 }
 
 export const userBookingsApi = {
@@ -294,6 +323,12 @@ export const userBookingsApi = {
 
   retryPay: (id: string) =>
     apiFetch<{ checkout_url: string }>(`/bookings/${id}/pay`, { method: "POST" }),
+
+  extend: (id: string, hours: number) =>
+    apiFetch<ExtendStartResponse>(`/bookings/${id}/extend`, { method: "POST", body: JSON.stringify({ hours }) }),
+
+  extendConfirm: (id: string) =>
+    apiFetch<ExtendConfirmResponse>(`/bookings/${id}/extend/confirm`, { method: "POST" }),
 }
 
 // ── Bookings (admin) ──────────────────────────────────────────────────────────

@@ -1,6 +1,7 @@
 import { useState } from "react"
-import { Brain, TrendingUp, PhilippinePeso, Calendar } from "lucide-react"
+import { TrendingUp, PhilippinePeso, Calendar } from "lucide-react"
 import StatCard from "@/components/admin/StatCard"
+import AIInsightCards from "@/components/admin/AIInsightCards"
 import { getDashboardStats, type DashboardStats } from "@/services/adminService"
 import { getAIRecommendations, type RecommendationsData } from "@/services/adminService"
 import { usePolling } from "@/hooks/usePolling"
@@ -27,83 +28,13 @@ export default function Dashboard() {
         <h1 className="text-lg font-bold text-[#1a1d26]">Dashboard</h1>
       </div>
 
-      {/* AI Recommendations (3 cards) */}
-      <div className="bg-[#82285f]/5 rounded-[6px] border border-[#82285f]/20 p-5 shadow-sm">
-        <div className="flex items-center gap-2.5 mb-4">
-          <div className="flex items-center justify-center w-8 h-8 rounded-[6px] bg-[#82285f]/10">
-            <Brain className="w-4 h-4 text-[#82285f]" />
-          </div>
-          <div>
-            <h2 className="text-[14px] font-bold text-[#82285f]">AI-Powered Insights</h2>
-            <p className="text-[11px] text-[#82285f]/70">Forecasts and discount ideas from your booking history</p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          {loading ? (
-            Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="h-28 bg-white/50 rounded-[8px] animate-pulse" />
-            ))
-          ) : (
-            <>
-              <div className="rounded-[8px] bg-white border border-[#e2e4e8] p-4 shadow-sm">
-                <div className="flex items-center justify-between gap-2 mb-2">
-                  <Calendar className="w-5 h-5 text-[#82285f]" />
-                  <span className={`text-[11px] font-bold px-2 py-1 rounded-[4px] ${
-                    (recommendations?.occupancyTrend ?? "stable") === "up"
-                      ? "bg-green-100 text-green-700"
-                      : (recommendations?.occupancyTrend ?? "stable") === "down"
-                      ? "bg-red-100 text-red-700"
-                      : "bg-gray-100 text-gray-700"
-                  }`}>
-                    {(recommendations?.occupancyTrend ?? "stable") === "up"
-                      ? "TRENDING UP"
-                      : (recommendations?.occupancyTrend ?? "stable") === "down"
-                      ? "TRENDING DOWN"
-                      : "STEADY"}
-                  </span>
-                </div>
-                <p className="text-[13px] font-bold text-[#1a1d26] mb-1">How full we'll be</p>
-                <p className="text-[12px] text-[#4a4f59]">
-                  {recommendations && recommendations.confidence > 0
-                    ? `${recommendations.next30DaysOccupancy}% projected next 30 days`
-                    : "No forecast data yet"}
-                </p>
-              </div>
-
-              <div className="rounded-[8px] bg-white border border-[#e2e4e8] p-4 shadow-sm">
-                <div className="flex items-center justify-between gap-2 mb-2">
-                  <PhilippinePeso className="w-5 h-5 text-[#82285f]" />
-                  <span className="text-[11px] font-bold px-2 py-1 rounded-[4px] bg-[#455d58]/10 text-[#455d58]">
-                    {recommendations && recommendations.revenueGrowth !== 0
-                      ? `${recommendations.revenueGrowth > 0 ? "+" : ""}${recommendations.revenueGrowth}%`
-                      : "—"}
-                  </span>
-                </div>
-                <p className="text-[13px] font-bold text-[#1a1d26] mb-1">Expected earnings</p>
-                <p className="text-[12px] text-[#4a4f59]">
-                  {recommendations && recommendations.confidence > 0
-                    ? `₱${recommendations.projectedRevenue.toLocaleString()} next 30 days`
-                    : "No forecast data yet"}
-                </p>
-              </div>
-
-              <div className="rounded-[8px] bg-white border border-[#e2e4e8] p-4 shadow-sm">
-                <div className="flex items-center justify-between gap-2 mb-2">
-                  <TrendingUp className="w-5 h-5 text-[#82285f]" />
-                  <span className="text-[11px] font-bold px-2 py-1 rounded-[4px] bg-[#82285f]/10 text-[#82285f]">
-                    {recommendations?.activeDiscounts ?? 0} active
-                  </span>
-                </div>
-                <p className="text-[13px] font-bold text-[#1a1d26] mb-1">Discount ideas</p>
-                <p className="text-[12px] text-[#4a4f59]">
-                  {recommendations?.bestDiscountPeriod ?? "No price cuts needed right now."}
-                </p>
-              </div>
-            </>
-          )}
-        </div>
-      </div>
+      {/* AI Recommendations (3 cards) — shared with the AI Assistant page */}
+      <AIInsightCards
+        recommendations={recommendations}
+        loading={loading}
+        linkBase="/admin/ai"
+        showHeaderLink
+      />
 
       {/* Key Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -140,7 +71,7 @@ export default function Dashboard() {
             <StatCard
               label="Active Guests"
               value={stats?.activeGuests ?? 0}
-              icon={<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 5 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="8" r="4" /></svg>}
+              icon={<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="8" r="4" /></svg>}
               trendValue="—"
               trend="this month"
               trendUp

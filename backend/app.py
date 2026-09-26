@@ -2,10 +2,11 @@ from flask import Flask, request, jsonify, redirect
 from flask_cors import CORS
 from supabase import create_client, Client
 from config import SUPABASE_URL, SUPABASE_KEY, SUPABASE_SERVICE_KEY, PAYMONGO_SECRET_KEY, PAYMONGO_BASE_URL
-from datetime import datetime, date
+from datetime import datetime, date, timedelta, timezone
 from math import ceil
 import os
 import json
+import re
 import jwt as pyjwt
 import uuid
 import time
@@ -182,7 +183,9 @@ def get_notifications():
 
     try:
         limit = request.args.get("limit", default=30, type=int)
-        res = supabase.table("notifications").select("*").eq("user_id", user_id).order("created_at", desc=True).limit(limit).execute()
+        # Service-role: shared anon client has no auth context — RLS filtered every row (0 results).
+        # user_id already verified from JWT above, so scoping stays per-user.
+        res = supabase_admin.table("notifications").select("*").eq("user_id", user_id).order("created_at", desc=True).limit(limit).execute()
         return jsonify(res.data or []), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -196,7 +199,7 @@ def get_unread_count():
         return jsonify({"error": "Unauthorized"}), 401
 
     try:
-        res = supabase.table("notifications").select("id", count="exact").eq("user_id", user_id).eq("read", False).execute()
+        res = supabase_admin.table("notifications").select("id", count="exact").eq("user_id", user_id).eq("read", False).execute()
         return jsonify({"count": res.count or 0}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -210,7 +213,7 @@ def mark_notification_read(notif_id):
         return jsonify({"error": "Unauthorized"}), 401
 
     try:
-        supabase.table("notifications").update({"read": True}).eq("id", notif_id).eq("user_id", user_id).execute()
+        supabase_admin.table("notifications").update({"read": True}).eq("id", notif_id).eq("user_id", user_id).execute()
         return jsonify({"success": True}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -224,7 +227,7 @@ def mark_all_read():
         return jsonify({"error": "Unauthorized"}), 401
 
     try:
-        supabase.table("notifications").update({"read": True}).eq("user_id", user_id).eq("read", False).execute()
+        supabase_admin.table("notifications").update({"read": True}).eq("user_id", user_id).eq("read", False).execute()
         return jsonify({"success": True}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -238,7 +241,7 @@ def delete_notification(notif_id):
         return jsonify({"error": "Unauthorized"}), 401
 
     try:
-        supabase.table("notifications").delete().eq("id", notif_id).eq("user_id", user_id).execute()
+        supabase_admin.table("notifications").delete().eq("id", notif_id).eq("user_id", user_id).execute()
         return jsonify({"success": True}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -1056,18 +1059,24 @@ def delete_room(room_id):
 
 # ── PayMongo ────────────────────────────────────────────────────────────────────
 
-def create_paymongo_checkout(booking_id, amount, email, description):
-    """Create a PayMongo Checkout Session and return the checkout URL."""
+def create_paymongo_checkout(booking_id, amount, email, description, success_path=None, cancel_path=None):
+    """Create a PayMongo Checkout Session.
+
+    Returns (checkout_url, session_id). The session id is stored on the
+    booking so the real payment method (GCash / Maya / card) chosen inside
+    PayMongo's hosted page can be read back after payment.
+    Returns (None, None) on failure.
+    """
     if not PAYMONGO_SECRET_KEY:
-        return None
+        return None, None
 
     try:
         import base64
         encoded_key = base64.b64encode(PAYMONGO_SECRET_KEY.encode()).decode()
 
         frontend_url = os.getenv("FRONTEND_URL", "https://hotelava.vercel.app")
-        success_url = f"{frontend_url}/booking/confirmation/{booking_id}"
-        cancel_url = f"{frontend_url}/booking/failed?booking={booking_id}"
+        success_url = f"{frontend_url}{success_path or f'/booking/confirmation/{booking_id}'}"
+        cancel_url = f"{frontend_url}{cancel_path or f'/booking/failed?booking={booking_id}'}"
 
         res = http_requests.post(
             f"{PAYMONGO_BASE_URL}/checkout_sessions",
@@ -1101,13 +1110,251 @@ def create_paymongo_checkout(booking_id, amount, email, description):
         if res.status_code in (200, 201):
             data = res.json()
             checkout_url = data["data"]["attributes"]["checkout_url"]
-            return checkout_url
+            session_id = data["data"].get("id", "")
+            return checkout_url, session_id
         else:
             print(f"PayMongo error: {res.status_code} {res.text}")
-            return None
+            return None, None
     except Exception as e:
         print(f"PayMongo error: {e}")
+        return None, None
+
+
+# Canonical payment-method labels stored on the booking row
+_PAYMONGO_SOURCE_TYPES = {"gcash": "gcash", "paymaya": "paymaya", "card": "card", "qrph": "qrph"}
+
+
+def fetch_paymongo_session(session_id):
+    """GET a checkout session from PayMongo; returns its attributes dict or None."""
+    if not PAYMONGO_SECRET_KEY or not session_id:
         return None
+    try:
+        import base64
+        encoded_key = base64.b64encode(PAYMONGO_SECRET_KEY.encode()).decode()
+        res = http_requests.get(
+            f"{PAYMONGO_BASE_URL}/checkout_sessions/{session_id}",
+            headers={"Authorization": f"Basic {encoded_key}"},
+            timeout=15,
+        )
+        if res.status_code != 200:
+            print(f"PayMongo session fetch error: {res.status_code} {res.text}")
+            return None
+        return res.json().get("data", {}).get("attributes", {})
+    except Exception as e:
+        print(f"PayMongo session fetch error: {e}")
+        return None
+
+
+def session_payment_info(attrs):
+    """From checkout-session attrs, return (paid: bool, method: str|None).
+
+    PayMongo leaves the checkout-session status at 'active' even after an
+    attached payment is already 'paid' (webhooks flip it, but local dev never
+    receives them), so the payment rows are trusted too.
+    """
+    if not attrs:
+        return False, None
+    paid = attrs.get("status") in ("paid", "succeeded")
+    method = None
+    fallback = None
+    for p in attrs.get("payments") or []:
+        pa = p.get("attributes", {}) or {}
+        source_type = (pa.get("source") or {}).get("type")
+        label = _PAYMONGO_SOURCE_TYPES.get(source_type, source_type) if source_type else None
+        if label and fallback is None:
+            fallback = label
+        if pa.get("status") in ("paid", "succeeded"):
+            paid = True
+            if label:
+                method = label
+                break
+    if paid and not method:
+        method = fallback or "paymongo"
+    return paid, method
+
+
+def fetch_paymongo_payment_method(session_id):
+    """Read the payment method the customer actually used inside a checkout session."""
+    attrs = fetch_paymongo_session(session_id)
+    if not attrs:
+        return None
+    paid, method = session_payment_info(attrs)
+    return method if paid else None
+
+
+def resolve_pending_payment_method(booking_id, payment_method):
+    """Replace the 'awaiting:<session_id>' marker with the real method.
+
+    Returns the resolved method, or None if nothing to do / still unpaid.
+    """
+    if not payment_method or not payment_method.startswith("awaiting:"):
+        return None
+    method = fetch_paymongo_payment_method(payment_method.split(":", 1)[1])
+    if method:
+        supabase_admin.table("bookings").update({"payment_method": method}).eq("id", booking_id).execute()
+        invalidate_cache("bookings")
+        invalidate_cache("dash-")
+        return method
+    return None
+
+
+# ── Stay windows / extend helpers ──────────────────────────────────────────────
+
+EXTEND_MAX_HOURS = 4
+GAP_MINUTES = 60  # extending is blocked when the next booking is <= 1h away
+
+
+def _now_naive():
+    """UTC-naive now — same convention as auto_complete_bookings."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _parse_time12(value):
+    """'2:00 PM' / '14:00' / None -> (hour, minute). Defaults to 14:00."""
+    if not value:
+        return 14, 0
+    m = re.match(r"^\s*(\d{1,2}):(\d{2})\s*([AaPp])?[Mm]?\s*$", str(value))
+    if not m:
+        return 14, 0
+    h, mi = int(m.group(1)), int(m.group(2))
+    ap = (m.group(3) or "").upper()
+    if ap == "P" and h != 12:
+        h += 12
+    elif ap == "A" and h == 12:
+        h = 0
+    if h > 23 or mi > 59:
+        return 14, 0
+    return h, mi
+
+
+def _stay_window(b):
+    """(start_dt, end_dt) naive wall-clock window of a booking row.
+
+    day-use:  check_in@start_time + duration hours (duration = total hours)
+    overnight: check_out@start_time + extension hours stored in duration
+    """
+    check_in = datetime.strptime(b["check_in"], "%Y-%m-%d")
+    h, mi = _parse_time12(b.get("start_time"))
+    start = check_in.replace(hour=h, minute=mi)
+    if (b.get("stay_type") or "overnight") == "day":
+        end = start + timedelta(hours=int(b.get("duration") or 0))
+    else:
+        check_out = datetime.strptime(b["check_out"], "%Y-%m-%d")
+        end = check_out.replace(hour=h, minute=mi) + timedelta(hours=int(b.get("duration") or 0))
+    return start, end
+
+
+def _windows_conflict(a_start, a_end, b_start, b_end):
+    """True when two windows overlap or leave <= GAP_MINUTES between them."""
+    return not (a_end + timedelta(minutes=GAP_MINUTES) <= b_start or b_end + timedelta(minutes=GAP_MINUTES) <= a_start)
+
+
+def find_room_conflict(room_id, win_start, win_end, exclude_id=None):
+    """Earliest blocking booking start on this room, or None if free.
+
+    Scans pending + confirmed bookings' actual stay windows (all stay types).
+    """
+    q = supabase_admin.table("bookings").select("id, check_in, check_out, stay_type, start_time, duration") \
+        .eq("room_id", room_id).in_("status", ["pending", "confirmed"])
+    if exclude_id:
+        q = q.neq("id", exclude_id)
+    res = q.execute()
+    blocking = None
+    for other in res.data or []:
+        try:
+            o_start, o_end = _stay_window(other)
+        except Exception:
+            continue
+        if _windows_conflict(win_start, win_end, o_start, o_end):
+            if blocking is None or o_start < blocking:
+                blocking = o_start
+    return blocking
+
+
+def suggest_rooms_for_stay(b, win_start, win_end, limit=4):
+    """Rooms (excluding the booking's own) free over [win_start, win_end] + gap."""
+    try:
+        rooms_res = supabase_admin.table("rooms").select("id, name, type, price, images").neq("id", b.get("room_id") or "").execute()
+    except Exception:
+        return []
+    rooms = rooms_res.data or []
+    if not rooms:
+        return []
+    # One query: all candidate bookings whose date range touches the window
+    try:
+        q = supabase_admin.table("bookings").select("room_id, check_in, check_out, stay_type, start_time, duration") \
+            .in_("status", ["pending", "confirmed"]) \
+            .lte("check_in", win_end.strftime("%Y-%m-%d")) \
+            .gte("check_out", win_start.strftime("%Y-%m-%d"))
+        bookings = q.execute().data or []
+    except Exception:
+        bookings = []
+    by_room = {}
+    for ob in bookings:
+        by_room.setdefault(ob.get("room_id"), []).append(ob)
+
+    out = []
+    for r in rooms:
+        if len(out) >= limit:
+            break
+        conflict = False
+        for ob in by_room.get(r["id"], []):
+            try:
+                o_start, o_end = _stay_window(ob)
+            except Exception:
+                conflict = True
+                break
+            if _windows_conflict(win_start, win_end, o_start, o_end):
+                conflict = True
+                break
+        if not conflict:
+            images = r.get("images") or []
+            out.append({
+                "id": r["id"],
+                "name": r.get("name", ""),
+                "type": r.get("type", ""),
+                "price": r.get("price", 0),
+                "image": images[0] if images else "",
+            })
+    return out
+
+
+def gap_conflict_payload(b, win_start, new_end):
+    """409 body when extending would leave <= 1h before the next booking."""
+    next_start = find_room_conflict(b["room_id"], win_start, new_end, exclude_id=b["id"])
+    if next_start is None:
+        return None
+    return jsonify({
+        "error": "Extending would leave less than 1 hour before the next booking. Please choose a shorter extension or another room.",
+        "code": "gap_conflict",
+        "next_booking_start": next_start.isoformat(),
+        "suggested_rooms": suggest_rooms_for_stay(b, win_start, new_end),
+    }), 409
+
+
+def _parse_extend_marker(payment_method):
+    """'extend:<session_id>:<hours>[:<original_method>]' -> tuple or None."""
+    if not payment_method or not payment_method.startswith("extend:"):
+        return None
+    parts = payment_method.split(":", 3)
+    if len(parts) < 3:
+        return None
+    try:
+        hours = int(parts[2])
+    except ValueError:
+        return None
+    orig = parts[3] if len(parts) > 3 else ""
+    return parts[1], hours, orig
+
+
+def apply_extension_fields(b, hours):
+    """Field updates for a paid extension. check_out is never touched —
+    extension hours live in duration (day: total hours, overnight: extra hours)."""
+    new_duration = int(b.get("duration") or 0) + hours
+    fields = {"duration": new_duration}
+    if (b.get("stay_type") or "overnight") == "day":
+        fields["stays"] = f"{new_duration} Hours"
+    return fields
 
 
 # ── Bookings (user-facing) ──────────────────────────────────────────────────────
@@ -1126,6 +1373,9 @@ def check_room_availability():
     if not room_id or not check_in:
         return jsonify({"error": "room_id and check_in are required"}), 400
 
+    if stay_type == "overnight" and not check_out:
+        return jsonify({"error": "check_out is required for overnight bookings"}), 400
+
     try:
         # For day-use, set check_out to next day
         if stay_type == "day":
@@ -1133,16 +1383,27 @@ def check_room_availability():
             check_in_date = datetime.strptime(check_in, "%Y-%m-%d")
             check_out = (check_in_date + timedelta(days=1)).strftime("%Y-%m-%d")
 
-        # Check for overlapping bookings
+        # Check for overlapping bookings. bookings_no_overlap uses daterange
+        # [) bounds over pending + confirmed — mirror it exactly (strict < / >)
+        # so back-to-back stays (checkout day == next check-in day) are not
+        # falsely reported unavailable.
         if stay_type == "overnight":
-            overlap_res = supabase.table("bookings").select("id, check_in, check_out").eq("room_id", room_id).eq("status", "confirmed").or_(
-                f"and(check_in.lte.{check_out},check_out.gte.{check_in})"
+            overlap_res = supabase.table("bookings").select("id, check_in, check_out").eq("room_id", room_id).in_("status", ["pending", "confirmed"]).or_(
+                f"and(check_in.lt.{check_out},check_out.gt.{check_in})"
             ).execute()
+            available = not (overlap_res.data and len(overlap_res.data) > 0)
         else:
-            # Day-use: check same date overlaps
-            overlap_res = supabase.table("bookings").select("id, check_in, start_time, duration").eq("room_id", room_id).eq("status", "confirmed").eq("check_in", check_in).eq("stay_type", "day").execute()
-
-        available = not (overlap_res.data and len(overlap_res.data) > 0)
+            # Day-use: window check (with 1h gap) vs all pending/confirmed stays...
+            h, mi = _parse_time12(start_time)
+            win_start = datetime.strptime(check_in, "%Y-%m-%d").replace(hour=h, minute=mi)
+            win_end = win_start + timedelta(hours=int(duration or 0))
+            available = find_room_conflict(room_id, win_start, win_end) is None
+            # ...plus: the DB bookings_no_overlap constraint blocks any other
+            # pending/confirmed booking with the same date range entirely.
+            if available:
+                same_res = supabase.table("bookings").select("id").eq("room_id", room_id) \
+                    .in_("status", ["pending", "confirmed"]).eq("check_in", check_in).execute()
+                available = not (same_res.data and len(same_res.data) > 0)
 
         return jsonify({
             "available": available,
@@ -1200,17 +1461,27 @@ def create_booking():
 
         room = room_res.data[0]
 
-        # Check for overlapping bookings
+        # Check for overlapping bookings — same [) bounds + statuses as the
+        # bookings_no_overlap exclusion constraint (pending + confirmed).
         if stay_type == "overnight":
-            overlap_res = supabase.table("bookings").select("id").eq("room_id", room_id).eq("status", "confirmed").or_(
-                f"and(check_in.lte.{check_out},check_out.gte.{check_in})"
+            overlap_res = supabase.table("bookings").select("id").eq("room_id", room_id).in_("status", ["pending", "confirmed"]).or_(
+                f"and(check_in.lt.{check_out},check_out.gt.{check_in})"
             ).execute()
+            if overlap_res.data and len(overlap_res.data) > 0:
+                return jsonify({"error": "Room is not available for the selected dates"}), 409
         else:
-            # Day-use: check same date overlaps
-            overlap_res = supabase.table("bookings").select("id").eq("room_id", room_id).eq("status", "confirmed").eq("check_in", check_in).eq("stay_type", "day").execute()
-
-        if overlap_res.data and len(overlap_res.data) > 0:
-            return jsonify({"error": "Room is not available for the selected dates"}), 409
+            # Day-use: window check (with 1h gap) vs all pending/confirmed stays...
+            h, mi = _parse_time12(start_time)
+            win_start = datetime.strptime(check_in, "%Y-%m-%d").replace(hour=h, minute=mi)
+            win_end = win_start + timedelta(hours=int(duration or 0))
+            if find_room_conflict(room_id, win_start, win_end) is not None:
+                return jsonify({"error": "Room is not available for the selected dates"}), 409
+            # ...plus: the DB bookings_no_overlap constraint blocks any other
+            # pending/confirmed booking with the same date range entirely.
+            same_res = supabase.table("bookings").select("id").eq("room_id", room_id) \
+                .in_("status", ["pending", "confirmed"]).eq("check_in", check_in).execute()
+            if same_res.data and len(same_res.data) > 0:
+                return jsonify({"error": "Room is not available for the selected dates"}), 409
 
         # Create booking with pending status
         booking_insert = {
@@ -1246,12 +1517,17 @@ def create_booking():
         booking_id = booking["id"]
 
         # Create PayMongo checkout session
-        checkout_url = create_paymongo_checkout(
+        checkout_url, session_id = create_paymongo_checkout(
             booking_id=booking_id,
             amount=total_price,
             email=email,
             description=f"Booking: {booking_id}",
         )
+
+        # Remember the session so we can read back the real payment method
+        # (GCash / Maya / card) once PayMongo redirects the guest back.
+        if checkout_url and session_id:
+            supabase_admin.table("bookings").update({"payment_method": f"awaiting:{session_id}"}).eq("id", booking_id).execute()
 
         guest_label = full_name or email or "A guest"
         invalidate_cache("dash-")
@@ -1304,11 +1580,24 @@ def get_my_bookings():
         bookings_res = supabase.table("bookings").select("*").eq("user_id", user_id).order("created_at", desc=True).execute()
         bookings = bookings_res.data or []
 
+        # Heal confirmed bookings still holding the awaiting:<session_id>
+        # marker (payment landed but the read-back was missed). One PayMongo
+        # call per stuck row; the marker disappears once resolved.
+        for b in bookings:
+            pm = b.get("payment_method") or ""
+            if b.get("status") == "confirmed" and pm.startswith("awaiting:"):
+                try:
+                    resolved = resolve_pending_payment_method(b["id"], pm)
+                    if resolved:
+                        b["payment_method"] = resolved
+                except Exception as e:
+                    print(f"payment method heal error: {e}")
+
         # Batch-fetch room info
         room_ids = list({b["room_id"] for b in bookings if b.get("room_id")})
         rooms_map = {}
         if room_ids:
-            rooms_res = supabase.table("rooms").select("id, name, type, images").in_("id", room_ids).execute()
+            rooms_res = supabase.table("rooms").select("id, name, type, images, price").in_("id", room_ids).execute()
             rooms_map = {r["id"]: r for r in (rooms_res.data or [])}
 
         result = []
@@ -1316,12 +1605,18 @@ def get_my_bookings():
             room = rooms_map.get(b.get("room_id"), {})
             nights = days_between(b["check_in"], b["check_out"])
             images = room.get("images", [])
+            try:
+                _s, _e = _stay_window(b)
+                end_time = _e.isoformat()
+            except Exception:
+                end_time = None
             booking_data = {
                 "id": b["id"],
                 "room_id": b.get("room_id"),
                 "room_name": room.get("name", "Unknown"),
                 "room_type": room.get("type", ""),
                 "room_image": images[0] if images else "",
+                "room_price": room.get("price", 0),
                 "check_in": b["check_in"],
                 "check_out": b["check_out"],
                 "nights": nights,
@@ -1334,6 +1629,7 @@ def get_my_bookings():
                 "stays": b.get("stays", "24 Hours"),
                 "duration": b.get("duration"),
                 "start_time": b.get("start_time"),
+                "end_time": end_time,
             }
             result.append(booking_data)
 
@@ -1359,14 +1655,30 @@ def get_booking(booking_id):
         if b["user_id"] != user_id:
             return jsonify({"error": "Forbidden"}), 403
 
-        room_res = supabase_admin.table("rooms").select("name, type, images").eq("id", b["room_id"]).execute()
+        # Same heal as get_my_bookings: confirmed + unresolved awaiting marker.
+        pm = b.get("payment_method") or ""
+        if b.get("status") == "confirmed" and pm.startswith("awaiting:"):
+            try:
+                resolved = resolve_pending_payment_method(booking_id, pm)
+                if resolved:
+                    b["payment_method"] = resolved
+            except Exception as e:
+                print(f"payment method heal error: {e}")
+
+        room_res = supabase_admin.table("rooms").select("name, type, images, price").eq("id", b["room_id"]).execute()
         room = room_res.data[0] if room_res.data else {}
         nights = days_between(b["check_in"], b["check_out"])
+        try:
+            _s, _e = _stay_window(b)
+            end_time = _e.isoformat()
+        except Exception:
+            end_time = None
 
         return jsonify({
             "id": b["id"],
             "room_name": room.get("name", "Unknown"),
             "room_type": room.get("type", ""),
+            "room_price": room.get("price", 0),
             "check_in": b["check_in"],
             "check_out": b["check_out"],
             "nights": nights,
@@ -1383,6 +1695,7 @@ def get_booking(booking_id):
             "stays": b.get("stays", "24 Hours"),
             "duration": b.get("duration"),
             "start_time": b.get("start_time"),
+            "end_time": end_time,
         }), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -1437,7 +1750,7 @@ def retry_booking_payment(booking_id):
 
         email = b.get("email", "")
 
-        checkout_url = create_paymongo_checkout(
+        checkout_url, session_id = create_paymongo_checkout(
             booking_id,
             b["total_price"],
             email,
@@ -1447,9 +1760,158 @@ def retry_booking_payment(booking_id):
         if not checkout_url:
             return jsonify({"error": "Failed to create checkout session"}), 500
 
+        if session_id:
+            supabase_admin.table("bookings").update({"payment_method": f"awaiting:{session_id}"}).eq("id", booking_id).execute()
+
         return jsonify({"checkout_url": checkout_url}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/bookings/<booking_id>/extend", methods=["POST"])
+def extend_booking(booking_id):
+    """Start a paid stay extension: validate the gap, create a PayMongo checkout.
+
+    Body: {"hours": 1..4}. Stores 'extend:<session>:<hours>:<orig_method>' in
+    payment_method until /extend/confirm sees the payment.
+    """
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    user_id = get_user_from_token(token)
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+    set_auth(token)
+
+    data = request.get_json() or {}
+    hours = data.get("hours")
+    if not isinstance(hours, int) or isinstance(hours, bool) or not (1 <= hours <= EXTEND_MAX_HOURS):
+        return jsonify({"error": f"hours must be a whole number between 1 and {EXTEND_MAX_HOURS}"}), 400
+
+    try:
+        b_res = supabase_admin.table("bookings").select("*").eq("id", booking_id).execute()
+        if not b_res.data:
+            return jsonify({"error": "Booking not found"}), 404
+        b = b_res.data[0]
+        if b["user_id"] != user_id:
+            return jsonify({"error": "Forbidden"}), 403
+        if b["status"] != "confirmed":
+            return jsonify({"error": "Only confirmed bookings can be extended"}), 400
+
+        start, end = _stay_window(b)
+        if _now_naive() >= end:
+            return jsonify({"error": "This stay has already ended — it can no longer be extended"}), 400
+
+        new_end = end + timedelta(hours=hours)
+        conflict = gap_conflict_payload(b, start, new_end)
+        if conflict:
+            return conflict
+
+        room_res = supabase_admin.table("rooms").select("id, name, price").eq("id", b["room_id"]).execute()
+        if not room_res.data:
+            return jsonify({"error": "Room not found"}), 404
+        room = room_res.data[0]
+        # half-up to match the frontend's Math.round (Python round() is banker's)
+        price = max(1, int((room.get("price") or 0) / 24 * hours + 0.5))
+
+        marker = _parse_extend_marker(b.get("payment_method"))
+        orig_pm = marker[2] if marker else (b.get("payment_method") or "")
+
+        checkout_url, session_id = create_paymongo_checkout(
+            booking_id,
+            price,
+            b.get("email") or "",
+            f"Extend: {booking_id}",
+            success_path=f"/my-bookings?extend_paid={booking_id}",
+            cancel_path="/my-bookings?payment=cancelled",
+        )
+        if not checkout_url or not session_id:
+            return jsonify({"error": "Failed to create payment session"}), 500
+
+        supabase_admin.table("bookings").update({
+            "payment_method": f"extend:{session_id}:{hours}:{orig_pm}",
+        }).eq("id", booking_id).execute()
+
+        return jsonify({
+            "checkout_url": checkout_url,
+            "hours": hours,
+            "price": price,
+            "new_end": new_end.isoformat(),
+        }), 200
+    except Exception as e:
+        err = str(e)
+        if "row-level security" in err or "42501" in err:
+            return jsonify({"error": "Unable to start the extension due to a permissions issue. Please try again."}), 500
+        return jsonify({"error": err}), 500
+
+
+@app.route("/api/bookings/<booking_id>/extend/confirm", methods=["POST"])
+def confirm_booking_extension(booking_id):
+    """Called by the frontend after PayMongo redirects back.
+
+    Applies the extension only when PayMongo reports the session paid.
+    """
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    user_id = get_user_from_token(token)
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+    set_auth(token)
+
+    try:
+        b_res = supabase_admin.table("bookings").select("*").eq("id", booking_id).execute()
+        if not b_res.data:
+            return jsonify({"error": "Booking not found"}), 404
+        b = b_res.data[0]
+        if b["user_id"] != user_id:
+            return jsonify({"error": "Forbidden"}), 403
+
+        marker = _parse_extend_marker(b.get("payment_method"))
+        if not marker:
+            return jsonify({"status": "none"}), 200
+        session_id, hours, orig_pm = marker
+
+        if b["status"] != "confirmed":
+            return jsonify({"error": "This booking is no longer confirmed, so the extension cannot be applied."}), 400
+
+        paid, method = session_payment_info(fetch_paymongo_session(session_id))
+        if not paid:
+            return jsonify({"status": "pending_payment"}), 200
+
+        start, end = _stay_window(b)
+        new_end = end + timedelta(hours=hours)
+
+        # Re-check the gap — a booking may have appeared while paying
+        conflict = gap_conflict_payload(b, start, new_end)
+        if conflict:
+            return conflict
+
+        fields = apply_extension_fields(b, hours)
+        fields["payment_method"] = method or orig_pm or "paymongo"
+        supabase_admin.table("bookings").update(fields).eq("id", booking_id).execute()
+
+        invalidate_cache("bookings")
+        invalidate_cache("dash-")
+        invalidate_cache("analytics-")
+        invalidate_cache("ai-reco")
+
+        room_res = supabase_admin.table("rooms").select("name").eq("id", b["room_id"]).execute()
+        room_name = room_res.data[0]["name"] if room_res.data else "your room"
+        create_notification(user_id, "booking", "Stay Extended",
+            f"Your stay at {room_name} has been extended by {hours} hour{'s' if hours > 1 else ''}.",
+            booking_id=booking_id)
+
+        updated_end = end + timedelta(hours=hours)
+        return jsonify({
+            "status": "extended",
+            "hours": hours,
+            "payment_method": fields["payment_method"],
+            "stays": fields.get("stays"),
+            "duration": fields.get("duration"),
+            "end_time": updated_end.isoformat(),
+        }), 200
+    except Exception as e:
+        err = str(e)
+        if "row-level security" in err or "42501" in err:
+            return jsonify({"error": "Unable to apply the extension due to a permissions issue. Please try again."}), 500
+        return jsonify({"error": err}), 500
 
 
 # ── Bookings (admin) ──────────────────────────────────────────────────────────
@@ -2165,89 +2627,15 @@ def get_demand_insights():
 
 
 def _build_demand_insights():
+        # Single source of truth: the scikit-learn pipeline (K-Means demand
+        # segments + Gradient Boosting discounts) — the same one that feeds
+        # the dashboard cards, so every AI surface agrees.
+        from predictive_analytics import generate_demand_insights
+
         rooms = supabase.table("rooms").select("id, type, price").execute().data or []
         bookings = supabase.table("bookings").select("room_id, check_in, check_out, status, total_price").neq("status", "cancelled").execute().data or []
 
-        if not rooms:
-            return []
-
-        months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-        current_year = datetime.now().year
-        current_month = datetime.now().month
-        total_rooms = len(rooms)
-
-        month_occ = []
-        for i in range(12):
-            mb = [b for b in bookings if datetime.strptime(b["check_in"][:10], "%Y-%m-%d").year == current_year and datetime.strptime(b["check_in"][:10], "%Y-%m-%d").month == i]
-            nights = sum(days_between(b["check_in"], b["check_out"]) for b in mb)
-            days = (datetime(current_year, i + 2, 1) - datetime(current_year, i + 1, 1)).days if i < 11 else 31
-            total_nights = total_rooms * days
-            occ = round((nights / total_nights) * 100) if total_nights > 0 else 0
-            month_occ.append({"month": months[i], "monthIdx": i, "occupancy": occ})
-
-        low_months = [m for m in month_occ if m["occupancy"] < 70 and m["monthIdx"] >= current_month]
-        room_types = list(set(r["type"] for r in rooms))
-
-        insights = []
-        if low_months:
-            # Group consecutive months
-            periods = []
-            start = low_months[0]["monthIdx"]
-            end = start
-            total_occ = low_months[0]["occupancy"]
-            for lm in low_months[1:]:
-                if lm["monthIdx"] == end + 1:
-                    end = lm["monthIdx"]
-                    total_occ += lm["occupancy"]
-                else:
-                    periods.append({"start": start, "end": end, "avg": round(total_occ / (end - start + 1))})
-                    start = lm["monthIdx"]
-                    end = start
-                    total_occ = lm["occupancy"]
-            periods.append({"start": start, "end": end, "avg": round(total_occ / (end - start + 1))})
-
-            for p in periods:
-                label = f"{months[p['start']]}"
-                if p["start"] != p["end"]:
-                    label += f"–{months[p['end']]}"
-                label += f" {current_year}"
-
-                discount = 10
-                if p["avg"] < 50:
-                    discount = 20
-                elif p["avg"] < 60:
-                    discount = 15
-
-                affected = [t for t in room_types if any(r["type"] == t and r["price"] <= 3200 for r in rooms)]
-                confidence = min(90, 60 + len(bookings))
-                projected = round((p["avg"] / 100) * total_rooms * 30 * (1 + discount / 100))
-
-                insights.append({
-                    "id": f"DI-{len(insights) + 1}",
-                    "period": label,
-                    "predictedOccupancy": p["avg"],
-                    "reason": f"Historically low occupancy period. Based on {len(bookings)} booking records.",
-                    "recommendation": f"{discount}% discount on {' & '.join(affected)} to stimulate demand",
-                    "discountPercent": discount,
-                    "affectedRooms": affected,
-                    "confidence": confidence,
-                    "projectedImpact": f"+{round(discount * 0.8)}% revenue lift vs no action, +{projected} projected bookings",
-                    "applied": False,
-                })
-
-        if not insights:
-            insights.append({
-                "id": "DI-1",
-                "period": f"{months[current_month % 12]} {current_year if current_month < 12 else current_year + 1}",
-                "predictedOccupancy": 75,
-                "reason": "No significant low-demand periods detected. Occupancy is stable.",
-                "recommendation": "Maintain current pricing. Consider promotional rates for weekdays.",
-                "discountPercent": 5,
-                "affectedRooms": room_types,
-                "confidence": 65,
-                "projectedImpact": "+3% weekday occupancy",
-                "applied": False,
-            })
+        insights = generate_demand_insights(bookings, rooms, shared=True)
 
         saved = _load_json_file(_demand_status_file, {})
         out = []
@@ -2277,58 +2665,13 @@ def get_discount_offers():
 
 
 def _build_discount_offers():
-        rooms = supabase.table("rooms").select("type, price").execute().data or []
-        bookings = supabase.table("bookings").select("room_id, check_in, check_out, status").execute().data or []
+        # Same sklearn pipeline as demand insights / dashboard cards.
+        from predictive_analytics import generate_discount_offers
 
-        if not rooms:
-            return []
+        rooms = supabase.table("rooms").select("id, type, price").execute().data or []
+        bookings = supabase.table("bookings").select("room_id, check_in, check_out, status").neq("status", "cancelled").execute().data or []
 
-        current_year = datetime.now().year
-        current_month = datetime.now().month
-        months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-        total_rooms = len(rooms)
-
-        room_type_map = {}
-        for r in rooms:
-            if r["type"] not in room_type_map or r["price"] < room_type_map[r["type"]]:
-                room_type_map[r["type"]] = r["price"]
-
-        month_occ = []
-        for i in range(12):
-            mb = [b for b in bookings if datetime.strptime(b["check_in"][:10], "%Y-%m-%d").year == current_year and datetime.strptime(b["check_in"][:10], "%Y-%m-%d").month == i]
-            nights = sum(days_between(b["check_in"], b["check_out"]) for b in mb)
-            days = (datetime(current_year, i + 2, 1) - datetime(current_year, i + 1, 1)).days if i < 11 else 31
-            total_nights = total_rooms * days
-            occ = round((nights / total_nights) * 100) if total_nights > 0 else 0
-            month_occ.append({"month": months[i], "monthIdx": i, "occupancy": occ})
-
-        low_months = [m for m in month_occ if m["occupancy"] < 70 and m["monthIdx"] >= current_month]
-        offers = []
-
-        for lm in low_months[:3]:
-            discount = 20 if lm["occupancy"] < 50 else 15
-            valid_from = f"{current_year}-{lm['monthIdx'] + 1:02d}-01"
-            m_idx = lm["monthIdx"]
-            days_in_month = (datetime(current_year, m_idx + 2, 1) - datetime(current_year, m_idx + 1, 1)).days if m_idx < 11 else 31
-            valid_to = f"{current_year}-{lm['monthIdx'] + 1:02d}-{days_in_month}"
-
-            for t, price in room_type_map.items():
-                discounted = round(price * (1 - discount / 100))
-                projected = round(lm["occupancy"] / 100 * total_rooms * 0.3)
-                offers.append({
-                    "id": f"DO-{len(offers) + 1}",
-                    "roomType": t,
-                    "discountPercent": discount,
-                    "validFrom": valid_from,
-                    "validTo": valid_to,
-                    "baseRate": price,
-                    "discountedRate": discounted,
-                    "projectedBookings": projected,
-                    "projectedRevenue": projected * discounted,
-                    "status": "scheduled",
-                    "method": "kmeans+gradient_boosting",
-                    "confidence": min(95, 60 + len(bookings) // 2),
-                })
+        offers = generate_discount_offers(bookings, rooms, shared=True)
 
         saved = _load_json_file(_offer_status_file, {})
         out = []
@@ -2401,7 +2744,11 @@ def paymongo_webhook():
             if booking_id:
                 # Update booking status to confirmed (only if still pending)
                 # Service-role: webhooks have no user JWT for RLS.
-                result = supabase_admin.table("bookings").update({"status": "confirmed"}).eq("id", booking_id).eq("status", "pending").execute()
+                update = {"status": "confirmed"}
+                source_type = (payment_data.get("source") or {}).get("type")
+                if source_type:
+                    update["payment_method"] = _PAYMONGO_SOURCE_TYPES.get(source_type, source_type)
+                result = supabase_admin.table("bookings").update(update).eq("id", booking_id).eq("status", "pending").execute()
                 print(f"Booking {booking_id} confirmed via webhook")
 
                 # Only notify if the status actually changed
@@ -2438,12 +2785,29 @@ def confirm_booking_after_payment(booking_id):
     try:
         # Service-role: this endpoint never set_auth()'d — ran as anon and
         # RLS filtered the SELECT (404) / blocked the UPDATE.
-        booking_res = supabase_admin.table("bookings").select("user_id, room_id, check_in, status").eq("id", booking_id).execute()
+        booking_res = supabase_admin.table("bookings").select("user_id, room_id, check_in, status, payment_method").eq("id", booking_id).execute()
 
         if not booking_res.data:
             return jsonify({"error": "Booking not found"}), 404
 
         b = booking_res.data[0]
+
+        # Replace the awaiting:<session_id> marker with the method actually
+        # used inside PayMongo (gcash / paymaya / card). Never fails confirm.
+        # PayMongo may not have attached the payment to the session yet when
+        # the redirect lands, so retry briefly before giving up.
+        pm = b.get("payment_method") or ""
+        if pm.startswith("awaiting:"):
+            for attempt in range(3):
+                try:
+                    if resolve_pending_payment_method(booking_id, pm):
+                        break
+                except Exception as e:
+                    print(f"payment method resolve error: {e}")
+                    break
+                if attempt < 2:
+                    time.sleep(1)
+
         if b["status"] == "confirmed":
             return jsonify({"booking_id": booking_id, "status": "confirmed"}), 200
 
@@ -2527,16 +2891,17 @@ def ai_recommendations():
 
 def _ai_reco_fallback():
     return {
-        "next30DaysOccupancy": 75,
+        "next30DaysOccupancy": 0,
         "occupancyTrend": "stable",
         "projectedRevenue": 0,
-        "revenueGrowth": 5,
+        "revenueGrowth": 0,
         "activeDiscounts": 0,
-        "confidence": 50,
+        "bestDiscountPeriod": None,
+        "confidence": 0,
         "recommendations": [
-            {"id": "AI-1", "title": "Occupancy Forecast", "description": "Unable to compute predictions. Using standard projections.", "priority": "medium", "action": "Monitor performance manually."},
-            {"id": "AI-2", "title": "Revenue Projection", "description": "Using baseline projections.", "priority": "medium", "action": "Review historical data."},
-            {"id": "AI-3", "title": "Discount Recommendation", "description": "Standard pricing recommended.", "priority": "low", "action": "Maintain current rates."},
+            {"id": "AI-1", "title": "Occupancy Forecast", "description": "Unable to compute predictions right now.", "priority": "medium", "action": "Try again in a moment."},
+            {"id": "AI-2", "title": "Revenue Projection", "description": "Unable to compute projections right now.", "priority": "medium", "action": "Try again in a moment."},
+            {"id": "AI-3", "title": "Discount Recommendation", "description": "Unable to compute discount ideas right now.", "priority": "low", "action": "Try again in a moment."},
         ]
     }
 
@@ -2545,78 +2910,117 @@ def _build_ai_recommendations():
     from predictive_analytics import generate_demand_insights, generate_discount_offers
 
     rooms = supabase.table("rooms").select("id, type, price").execute().data or []
-    bookings = supabase.table("bookings").select("room_id, check_in, check_out, status, total_price").execute().data or []
+    # Cancelled bookings must not inflate forecasts (parity with the other
+    # analytics builders).
+    bookings = supabase.table("bookings").select(
+        "room_id, check_in, check_out, status, total_price"
+    ).neq("status", "cancelled").execute().data or []
 
     if not rooms:
         return {
-            "next30DaysOccupancy": 75,
+            "next30DaysOccupancy": 0,
             "occupancyTrend": "stable",
             "projectedRevenue": 0,
-            "revenueGrowth": 5,
+            "revenueGrowth": 0,
             "activeDiscounts": 0,
-            "confidence": 80,
+            "bestDiscountPeriod": None,
+            "confidence": 0,
             "recommendations": [
-                {"id": "AI-1", "title": "Occupancy Forecast", "description": "No room data available yet. Using standard projections.", "priority": "medium", "action": "Add rooms to start generating insights."},
-                {"id": "AI-2", "title": "Revenue Projection", "description": "Using baseline projections until booking data is available.", "priority": "medium", "action": "Monitor performance."},
-                {"id": "AI-3", "title": "Discount Recommendation", "description": "Standard pricing recommended until demand patterns emerge.", "priority": "low", "action": "Maintain current rates."},
+                {"id": "AI-1", "title": "Occupancy Forecast", "description": "No room data available yet.", "priority": "medium", "action": "Add rooms to start generating insights."},
+                {"id": "AI-2", "title": "Revenue Projection", "description": "No bookings to project from yet.", "priority": "medium", "action": "Monitor performance."},
+                {"id": "AI-3", "title": "Discount Recommendation", "description": "Not enough data for discount ideas.", "priority": "low", "action": "Maintain current rates."},
             ]
         }
 
-    # Build months + cluster ONCE, share across insights & offers (was 2× KMeans).
+    # sklearn: K-Means demand segments + Gradient Boosting discounts. One
+    # shared feature build + KMeans fit across insights & offers.
     insights = generate_demand_insights(bookings, rooms, shared=True)
     offers = generate_discount_offers(bookings, rooms, shared=True)
 
-    if insights and len(insights) > 0:
-        first = insights[0]
-        projected_revenue = 0
-        if first.get("predictedOccupancy") and first.get("predictedOccupancy", 0) > 0:
-            avg_price = sum(r.get("price", 0) for r in rooms) / len(rooms) if rooms else 2000
-            projected_revenue = round(first["predictedOccupancy"] / 100 * len(rooms) * avg_price * 30)
+    # ── Real rolling 30-day forecast straight from actual bookings ──
+    # upcoming window: today .. +30d, compared against the 30d before today.
+    total_rooms = max(len(rooms), 1)
+    today = datetime.now().date()
+    window_end = today + timedelta(days=30)
+    prev_start = today - timedelta(days=30)
+    capacity = total_rooms * 30
 
-        active_discounts = sum(1 for i in insights if i.get("discountPercent", 0) > 0)
-        confidence = min(95, 60 + len(bookings) // 2)
+    up_nights = up_revenue = up_count = 0
+    prev_nights = prev_revenue = 0
+    for b in bookings:
+        try:
+            ci = datetime.strptime(b["check_in"][:10], "%Y-%m-%d").date()
+            co = datetime.strptime(b["check_out"][:10], "%Y-%m-%d").date()
+        except (ValueError, KeyError, TypeError):
+            continue
+        if co <= ci:
+            co = ci + timedelta(days=1)
+        price = b.get("total_price") or 0
+        if ci < window_end and co > today:
+            up_nights += max((min(co, window_end) - max(ci, today)).days, 0)
+            up_revenue += price
+            up_count += 1
+        if ci < today and co > prev_start:
+            prev_nights += max((min(co, today) - max(ci, prev_start)).days, 0)
+            prev_revenue += price
 
-        recommendations = [
-            {
-                "id": "AI-1",
-                "title": "Occupancy Forecast",
-                "description": f"Projected occupancy of {first.get('predictedOccupancy', 72)}% for the next 30 days based on historical patterns.",
-                "priority": "high",
-                "action": "Review pricing strategy and consider targeted promotions."
-            },
-            {
-                "id": "AI-2",
-                "title": "Revenue Projection",
-                "description": f"Estimated ₱{projected_revenue:,} revenue over the next 30 days based on current occupancy trends.",
-                "priority": "medium",
-                "action": "Monitor weekly and adjust pricing if needed."
-            },
-            {
-                "id": "AI-3",
-                "title": "Discount Recommendation",
-                "description": f"{first.get('discountPercent', 0)}% discount on {', '.join(first.get('affectedRooms', ['all rooms'])) or 'all room types'} to stimulate demand during low periods.",
-                "priority": "high",
-                "action": "Implement discount during identified low-demand periods."
-            }
-        ]
+    occupancy = round(up_nights / capacity * 100) if capacity else 0
+    prev_occupancy = round(prev_nights / capacity * 100) if capacity else 0
+    if occupancy > prev_occupancy + 2:
+        trend = "up"
+    elif occupancy < prev_occupancy - 2:
+        trend = "down"
     else:
-        projected_revenue = 0
-        active_discounts = 0
-        confidence = 80
-        recommendations = [
-            {"id": "AI-1", "title": "Occupancy Forecast", "description": "Standard occupancy forecast: 72% projected for next 30 days.", "priority": "high", "action": "Maintain current pricing strategy."},
-            {"id": "AI-2", "title": "Revenue Projection", "description": "Estimated ₱500K+ projected revenue over the next 30 days.", "priority": "medium", "action": "Monitor weekly performance."},
-            {"id": "AI-3", "title": "Discount Recommendation", "description": "No specific discount recommended at this time.", "priority": "low", "action": "Maintain current rates."},
-        ]
+        trend = "stable"
+    if prev_revenue:
+        growth = round((up_revenue - prev_revenue) / prev_revenue * 100)
+    else:
+        growth = 100 if up_revenue else 0
+
+    # Discount ideas: live (scheduled/active, non-dismissed) sklearn offers.
+    live_offers = [o for o in offers if o.get("status") in ("active", "scheduled")]
+    best_period = None
+    # Only real low-demand segments (not the "stable demand" fallback insight).
+    if insights and insights[0].get("method") == "kmeans+gradient_boosting" and (insights[0].get("discountPercent") or 0) > 0:
+        first = insights[0]
+        affected = ", ".join(first.get("affectedRooms") or []) or "all rooms"
+        best_period = f"{first.get('period', 'Upcoming period')}: {first['discountPercent']}% off {affected}"
+
+    confidence = min(95, 60 + len(bookings) // 2)
+
+    recommendations = [
+        {
+            "id": "AI-1",
+            "title": "Occupancy Forecast",
+            "description": f"{occupancy}% of room-nights booked for the next 30 days ({up_count} booking{'' if up_count == 1 else 's'} · {up_nights} of {capacity} room-nights).",
+            "priority": "high" if occupancy < prev_occupancy else "medium",
+            "action": "Review pricing strategy and consider targeted promotions." if occupancy < prev_occupancy else "Maintain current pricing strategy.",
+        },
+        {
+            "id": "AI-2",
+            "title": "Revenue Projection",
+            "description": f"₱{up_revenue:,} expected over the next 30 days ({growth:+d}% vs the previous 30 days).",
+            "priority": "medium",
+            "action": "Monitor weekly and adjust pricing if needed.",
+        },
+        {
+            "id": "AI-3",
+            "title": "Discount Recommendation",
+            "description": best_period or "No price cuts needed — demand looks healthy for the coming weeks.",
+            "priority": "high" if best_period else "low",
+            "action": "Implement discount during identified low-demand periods." if best_period else "Maintain current rates.",
+        },
+    ]
 
     return {
-        "next30DaysOccupancy": insights[0].get("predictedOccupancy", 72) if insights else 72,
-        "occupancyTrend": "stable",
-        "projectedRevenue": projected_revenue,
-        "revenueGrowth": round((projected_revenue / 450000 - 1) * 100) if projected_revenue else 5,
-        "activeDiscounts": active_discounts,
+        "next30DaysOccupancy": occupancy,
+        "occupancyTrend": trend,
+        "projectedRevenue": up_revenue,
+        "revenueGrowth": growth,
+        "activeDiscounts": len(live_offers),
+        "bestDiscountPeriod": best_period,
         "confidence": confidence,
-        "recommendations": recommendations
+        "recommendations": recommendations,
     }
 
 

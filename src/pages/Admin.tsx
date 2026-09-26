@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { formatDistanceToNow } from "date-fns"
 import type { NotificationData } from "@/services/api"
+import { useBellRing } from "@/hooks/useBellRing"
 
 const searchSuggestions = [
   { icon: <Calendar className="w-4 h-4" />, label: "Bookings", description: "Search by guest name or booking ID", category: "bookings" },
@@ -44,6 +45,7 @@ export default function Admin() {
   const [showDropdown, setShowDropdown] = useState(false)
   const [notifOpen, setNotifOpen] = useState(false)
   const searchRef = useRef<HTMLDivElement>(null)
+  useBellRing()
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -142,15 +144,15 @@ export default function Admin() {
           <div className="flex items-center gap-4">
             {/* Notification bell — live unread + dropdown */}
             <DropdownMenu open={notifOpen} onOpenChange={handleNotifOpenChange}>
-              <DropdownMenuTrigger className="relative flex size-9 items-center justify-center rounded-[5px] text-[#6b7280] hover:bg-[#f5f6f8] transition-colors cursor-pointer">
+              <DropdownMenuTrigger data-notification-bell className="relative flex size-9 items-center justify-center rounded-[5px] text-[#6b7280] hover:bg-[#f5f6f8] transition-colors cursor-pointer">
                 <Bell className="size-[18px]" />
                 {unreadCount > 0 && (
-                  <span className="absolute -top-0.5 -right-0.5 flex items-center justify-center min-w-4 h-4 px-1 rounded-full bg-[#A4423A] text-white text-[10px] font-bold">
+                  <span data-notification-badge className="absolute -top-0.5 -right-0.5 flex items-center justify-center min-w-4 h-4 px-1 rounded-full bg-[#A4423A] text-white text-[10px] font-bold">
                     {unreadCount > 9 ? "9+" : unreadCount}
                   </span>
                 )}
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" sideOffset={8} positionMethod="fixed" className="w-80 !rounded-[12px] p-0 overflow-hidden dark:bg-surface-soft dark:border-hairline/50">
+              <DropdownMenuContent align="end" sideOffset={8} positionMethod="fixed" className="w-80 !rounded-[12px] p-0 overflow-hidden origin-top-right dark:bg-surface-soft dark:border-hairline/50">
                 <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-hairline/50">
                   <span className="text-sm font-semibold text-ink dark:text-ink-dark">Notifications</span>
                   {unreadCount > 0 && (

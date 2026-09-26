@@ -9,6 +9,7 @@ interface NotificationContextValue {
   notifications: NotificationData[]
   unreadCount: number
   loading: boolean
+  ringNonce: number
   fetchNotifications: () => Promise<void>
   fetchUnreadCount: () => Promise<void>
   markRead: (id: string) => Promise<void>
@@ -41,6 +42,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   const [notifications, setNotifications] = useState<NotificationData[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
   const [loading, setLoading] = useState(false)
+  const [ringNonce, setRingNonce] = useState(0)
   const seenIdsRef = useRef<Set<string>>(new Set())
   const seededRef = useRef(false)
 
@@ -74,11 +76,15 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       return
     }
     seenIdsRef.current.add(notif.id)
+    const bell = document.querySelector<HTMLElement>("[data-notification-bell]")
+    const rect = bell?.getBoundingClientRect()
+    setRingNonce((n) => n + 1)
     toastRef.current({
       title: notif.title,
       description: notif.message,
       variant: "default",
       duration: 7000,
+      origin: rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } : undefined,
       onClick: () => {
         void markReadRef.current(notif.id)
         navigateRef.current(notifTarget(isAdminRef.current, notif))
@@ -145,6 +151,10 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   // Supabase Realtime — INSERT only (new events, not history replay)
   useEffect(() => {
     if (!isAuthenticated || !user?.id) return
+
+    // Realtime runs RLS with the socket's JWT — without this it connects anon
+    // and every postgres_changes event on notifications is filtered out.
+    supabase.realtime.setAuth(sessionStorage.getItem("access_token"))
 
     const channel = supabase
       .channel(`notifications:${user.id}`)
@@ -219,6 +229,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         notifications,
         unreadCount,
         loading,
+        ringNonce,
         fetchNotifications,
         fetchUnreadCount,
         markRead,
