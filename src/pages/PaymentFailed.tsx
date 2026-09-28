@@ -14,7 +14,7 @@ export default function PaymentFailed() {
   useEffect(() => {
     if (!bookingId || reportedRef.current) return
     reportedRef.current = true
-    const apiBase = import.meta.env.VITE_API_URL || "http://localhost:5000/api"
+    const apiBase = import.meta.env.VITE_API_URL || "/api"
     const token = sessionStorage.getItem("access_token")
     fetch(`${apiBase}/bookings/${bookingId}/payment-failed`, {
       method: "POST",

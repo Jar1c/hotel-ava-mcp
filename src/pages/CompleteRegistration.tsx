@@ -35,7 +35,7 @@ export default function CompleteRegistration() {
     setError("")
     try {
       const fullName = `${firstName.trim()} ${lastName.trim()}`
-      const apiBase = import.meta.env.VITE_API_URL || "http://localhost:5000/api"
+      const apiBase = import.meta.env.VITE_API_URL || "/api"
       const token = sessionStorage.getItem("access_token")
 
       const res = await fetch(`${apiBase}/auth/complete-registration`, {
