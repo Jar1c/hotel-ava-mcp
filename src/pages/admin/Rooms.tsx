@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Plus } from "lucide-react"
 import AdminRoomTable from "@/components/admin/AdminRoomTable"
 import RoomFormSheet from "@/components/admin/RoomFormSheet"
@@ -15,13 +15,26 @@ export default function Rooms() {
   const [editRoom, setEditRoom] = useState<AdminRoom | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<AdminRoom | null>(null)
   const [highlightId, setHighlightId] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const loadRooms = useCallback(() => {
+    setLoading(true)
+    setError(null)
+    getRooms()
+      .then((data) => {
+        setRooms(data)
+        setLoading(false)
+      })
+      .catch((err: unknown) => {
+        // Honest failure — never swap in demo rooms.
+        setLoading(false)
+        setError(err instanceof Error && err.message ? err.message : "Please try again.")
+      })
+  }, [])
 
   useEffect(() => {
-    getRooms().then((data) => {
-      setRooms(data)
-      setLoading(false)
-    })
-  }, [])
+    loadRooms()
+  }, [loadRooms])
 
   const handleAdd = () => {
     setEditRoom(null)
@@ -85,6 +98,14 @@ export default function Rooms() {
           {Array.from({ length: 5 }).map((_, i) => (
             <div key={i} className="h-10 bg-[#f0f1f3] rounded" />
           ))}
+        </div>
+      ) : error ? (
+        <div className="rounded-[12px] border border-rose-200 bg-rose-50 px-6 py-8 text-center">
+          <p className="text-sm font-semibold text-rose-800">Couldn't load rooms</p>
+          <p className="mt-1 text-sm text-rose-700">{error}</p>
+          <Button type="button" variant="outline" onClick={loadRooms} className="mt-4 !rounded-[8px]">
+            Try again
+          </Button>
         </div>
       ) : (
         <AdminRoomTable

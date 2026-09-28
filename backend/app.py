@@ -1553,9 +1553,14 @@ def check_room_availability():
         # so back-to-back stays (checkout day == next check-in day) are not
         # falsely reported unavailable.
         if stay_type == "overnight":
-            overlap_res = supabase.table("bookings").select("id, check_in, check_out").eq("room_id", room_id).in_("status", ["pending", "confirmed"]).or_(
-                f"and(check_in.lt.{check_out},check_out.gt.{check_in})"
-            ).execute()
+            # Two chained filters are ANDed by PostgREST: check_in < check_out
+            # AND check_out > check_in. (Nesting and(...) inside or=(...) never
+            # matched, so every overnight stay reported "available".)
+            # admin client: RLS on bookings hides other guests' rows from the
+            # anon client, which made every overnight stay look available.
+            overlap_res = supabase_admin.table("bookings").select("id, check_in, check_out") \
+                .eq("room_id", room_id).in_("status", ["pending", "confirmed"]) \
+                .lt("check_in", check_out).gt("check_out", check_in).execute()
             available = not (overlap_res.data and len(overlap_res.data) > 0)
         else:
             # Day-use: window check (with 1h gap) vs all pending/confirmed stays...
@@ -1629,9 +1634,11 @@ def create_booking():
         # Check for overlapping bookings — same [) bounds + statuses as the
         # bookings_no_overlap exclusion constraint (pending + confirmed).
         if stay_type == "overnight":
-            overlap_res = supabase.table("bookings").select("id").eq("room_id", room_id).in_("status", ["pending", "confirmed"]).or_(
-                f"and(check_in.lt.{check_out},check_out.gt.{check_in})"
-            ).execute()
+            # Same two-chained-filters overlap check as check_room_availability:
+            # check_in < check_out AND check_out > check_in (see that function).
+            overlap_res = supabase_admin.table("bookings").select("id").eq("room_id", room_id) \
+                .in_("status", ["pending", "confirmed"]) \
+                .lt("check_in", check_out).gt("check_out", check_in).execute()
             if overlap_res.data and len(overlap_res.data) > 0:
                 return jsonify({"error": "Room is not available for the selected dates"}), 409
         else:
@@ -1874,6 +1881,79 @@ def get_booking(booking_id):
             "duration": b.get("duration"),
             "start_time": b.get("start_time"),
             "end_time": end_time,
+        }), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/bookings/verify/<booking_code>", methods=["GET"])
+def verify_booking(booking_code):
+    """Public, front-desk endpoint: resolve a guest's QR code to a booking.
+
+    The QR encodes the full booking UUID; the short #ABC12345 code printed on
+    receipts also works (matched by prefix). Returns only what staff need to
+    match the person in front of them — no contact details, no money.
+    """
+    code = (booking_code or "").strip().lower().lstrip("#")
+    if not code:
+        return jsonify({"error": "Missing booking code"}), 400
+
+    HEX = set("0123456789abcdef")
+    is_uuid = len(code) == 36 and code.count("-") == 4 and all(c in HEX or c == "-" for c in code)
+    is_ref = 6 <= len(code) <= 8 and all(c in HEX for c in code)
+
+    try:
+        q = supabase_admin.table("bookings").select(
+            "id, status, check_in, check_out, stay_type, start_time, duration,"
+            " guests, full_name, email, phone, total_price, payment_method,"
+            " room_id, created_at"
+        )
+        if is_uuid:
+            res = q.eq("id", code).execute()
+        elif is_ref:
+            # id is a uuid column — Postgres has no LIKE for uuid, so scan the
+            # first segment as a range (ref 6d8ed17e → that 8-hex window).
+            segment = (code + "00000000")[:8]
+            lower = f"{segment}-0000-0000-0000-000000000000"
+            nxt = int(segment, 16) + 1
+            res = (
+                q.gte("id", lower)
+                .lt("id", f"{nxt:08x}-0000-0000-0000-000000000000")
+                .limit(1)
+                .execute()
+                if nxt <= 0xFFFFFFFF
+                else q.gte("id", lower).limit(1).execute()
+            )
+        else:
+            return jsonify({"error": "Booking not found"}), 404
+
+        rows = res.data or []
+        if not rows:
+            return jsonify({"error": "Booking not found"}), 404
+
+        b = rows[0]
+        room_res = supabase_admin.table("rooms").select("name, type") \
+            .eq("id", b.get("room_id") or "").execute()
+        room = room_res.data[0] if room_res.data else {}
+
+        return jsonify({
+            "id": b["id"],
+            "reference": (b["id"] or "")[:8].upper(),
+            "status": b.get("status") or "",
+            "guest_name": b.get("full_name") or "",
+            "room_name": room.get("name", "Unknown"),
+            "room_type": room.get("type", ""),
+            "check_in": b.get("check_in"),
+            "check_out": b.get("check_out"),
+            "stay_type": b.get("stay_type") or "overnight",
+            "start_time": b.get("start_time"),
+            "duration": b.get("duration"),
+            "guests": b.get("guests", 1),
+            "email": b.get("email") or "",
+            "phone": b.get("phone") or "",
+            "total_price": b.get("total_price") or 0,
+            "payment_method": b.get("payment_method") or "",
+            "created_at": b.get("created_at"),
         }), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -2311,7 +2391,15 @@ def update_booking_status(booking_id):
 
         return jsonify({"message": f"Booking status updated to {new_status}", "status": new_status}), 200
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        raw = str(e)
+        # bookings_status_check doesn't know 'checked-out' yet — say so plainly
+        # instead of leaking the raw Postgres error into the UI.
+        if "'23514'" in raw or "bookings_status_check" in raw:
+            return jsonify({
+                "error": "That status isn't allowed by the database yet. Run "
+                         "migrate-checked-out-status.sql in the Supabase SQL editor, then try again."
+            }), 500
+        return jsonify({"error": raw}), 500
 
 
 # ── Reviews ────────────────────────────────────────────────────────────────────
@@ -2557,12 +2645,190 @@ def get_reviews():
         return jsonify({"error": err}), 500
 
 
+@app.route("/api/reviews/mine", methods=["GET"])
+def get_my_reviews():
+    """Guest: the reviews they wrote, joined with the stay and room they belong to."""
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    set_auth(token)
+    user_id = get_user_from_token(token)
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    try:
+        rows = _select_reviews(lambda cols: supabase_admin.table("reviews")
+                               .select(cols).eq("user_id", user_id)
+                               .order("created_at", desc=True).limit(100))
+
+        booking_ids = list({r["booking_id"] for r in rows if r.get("booking_id")})
+        bookings_map = {}
+        if booking_ids:
+            bres = supabase_admin.table("bookings") \
+                .select("id, room_id, check_in, check_out, status") \
+                .in_("id", booking_ids).execute().data or []
+            bookings_map = {b["id"]: b for b in bres}
+
+        room_ids = []
+        for r in rows:
+            rid = r.get("room_id") or bookings_map.get(r.get("booking_id"), {}).get("room_id")
+            if rid and rid not in room_ids:
+                room_ids.append(rid)
+        rooms_map = {}
+        if room_ids:
+            rres = supabase_admin.table("rooms") \
+                .select("id, name, type, images").in_("id", room_ids).execute().data or []
+            rooms_map = {rm["id"]: rm for rm in rres}
+
+        items = []
+        for r in rows:
+            b = bookings_map.get(r.get("booking_id"), {})
+            room = rooms_map.get(r.get("room_id") or b.get("room_id"), {})
+            photos = room.get("images") or []
+            items.append({
+                "id": r["id"],
+                "booking_id": r.get("booking_id"),
+                "room_id": r.get("room_id") or b.get("room_id"),
+                "room_name": room.get("name", "Room"),
+                "room_type": room.get("type", ""),
+                "room_image": photos[0] if photos else "",
+                "rating": r.get("rating"),
+                "comment": r.get("comment") or "",
+                "images": r.get("images") or [],
+                "admin_reply": r.get("admin_reply") or "",
+                "admin_replied_at": r.get("admin_replied_at"),
+                "check_in": b.get("check_in"),
+                "check_out": b.get("check_out"),
+                "created_at": r.get("created_at"),
+            })
+
+        given = [float(i["rating"]) for i in items if i.get("rating")]
+        return jsonify({
+            "reviews": items,
+            "count": len(items),
+            "average": round(sum(given) / len(given), 1) if given else 0,
+        }), 200
+    except Exception as e:
+        if _reviews_table_missing(str(e)):
+            return jsonify({"reviews": [], "count": 0, "average": 0}), 200
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/reviews/<review_id>", methods=["PUT"])
+def update_review(review_id):
+    """Guest edits their own review — rating, comment and photos."""
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    set_auth(token)
+    user_id = get_user_from_token(token)
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.form.to_dict() if (request.content_type or "").startswith("multipart/form-data") else (request.get_json() or {})
+    comment = (data.get("comment") or "").strip()
+    if len(comment) > REVIEW_MAX_CHARS:
+        return jsonify({"error": f"Please keep your review to {REVIEW_MAX_CHARS} characters or less."}), 400
+    try:
+        rating = int(data.get("rating"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "rating must be between 1 and 5"}), 400
+    if not 1 <= rating <= 5:
+        return jsonify({"error": "rating must be between 1 and 5"}), 400
+
+    files = [f for f in (request.files.getlist("images") if request.files else []) if f and f.filename]
+    if len(files) > REVIEW_MAX_IMAGES:
+        return jsonify({"error": f"You can attach up to {REVIEW_MAX_IMAGES} photos."}), 400
+
+    # Type/size-check the new photos before anything touches storage.
+    photos = []
+    for f in files:
+        if f.content_type not in REVIEW_IMAGE_TYPES:
+            return jsonify({"error": "Only JPG, PNG, WebP or GIF photos are allowed."}), 400
+        raw = f.read()
+        if len(raw) > REVIEW_IMAGE_MAX_BYTES:
+            return jsonify({"error": "Each photo must be 5 MB or smaller."}), 400
+        ext = f.filename.rsplit(".", 1)[-1].lower() if "." in f.filename else "jpg"
+        photos.append((raw, f.content_type, "jpg" if ext == "jpeg" else ext))
+
+    try:
+        try:
+            existing = supabase_admin.table("reviews") \
+                .select("id, user_id, images").eq("id", review_id).execute()
+        except Exception:
+            # migrate-reviews-images-reply.sql not run yet — no images column to read.
+            existing = supabase_admin.table("reviews").select("id, user_id").eq("id", review_id).execute()
+        if not existing.data:
+            return jsonify({"error": "Review not found"}), 404
+
+        row = existing.data[0]
+        if row.get("user_id") != user_id:
+            return jsonify({"error": "You can only edit your own review."}), 403
+
+        old_images = row.get("images") or []
+        try:
+            keep = json.loads(data.get("keep_images") or "[]")
+            if not isinstance(keep, list):
+                keep = []
+        except Exception:
+            keep = []
+        # Only photos already stored on this review can be kept — never trust the client.
+        keep = [u for u in keep if u in old_images]
+        if len(keep) + len(photos) > REVIEW_MAX_IMAGES:
+            return jsonify({"error": f"You can attach up to {REVIEW_MAX_IMAGES} photos."}), 400
+
+        # Upload the new photos first, so a failed update never leaves orphan files.
+        uploaded = []
+        try:
+            for raw, ctype, ext in photos:
+                uploaded.append(_upload_review_image(raw, ctype, user_id, ext))
+        except Exception as e:
+            return jsonify({"error": f"Couldn't upload your photos: {e}"}), 500
+
+        final_images = keep + uploaded
+        update = {"rating": rating, "comment": comment, "images": final_images}
+        try:
+            res = supabase_admin.table("reviews").update(update).eq("id", review_id).execute()
+        except Exception as e:
+            _delete_review_images(uploaded)
+            if _review_columns_missing(str(e)):
+                # images column missing — keep the text review without photos.
+                update.pop("images", None)
+                res = supabase_admin.table("reviews").update(update).eq("id", review_id).execute()
+            else:
+                raise
+        if not res.data:
+            _delete_review_images(uploaded)
+            return jsonify({"error": "Failed to save your review"}), 500
+
+        # Photos the guest removed — only dropped once the row no longer points at them.
+        dropped = [u for u in old_images if u not in final_images]
+        if dropped:
+            _delete_review_images(dropped)
+
+        return jsonify(res.data[0]), 200
+    except Exception as e:
+        err = str(e)
+        if _reviews_table_missing(err):
+            return jsonify({"error": REVIEWS_NOT_SETUP}), 503
+        return jsonify({"error": err}), 500
+
+
 @app.route("/api/reviews/<review_id>", methods=["DELETE"])
 def delete_review(review_id):
-    """Admin moderation — remove a review (and its stored photos)."""
+    """Admin moderation, or the guest removing their own review."""
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
+
     if not require_admin(token):
-        return jsonify({"error": "Admin access required"}), 403
+        # Not an admin — allow the review's own author to delete it.
+        set_auth(token)
+        user_id = get_user_from_token(token)
+        if not user_id:
+            return jsonify({"error": "Unauthorized"}), 401
+        try:
+            owner = supabase_admin.table("reviews").select("user_id").eq("id", review_id).execute()
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+        if not owner.data:
+            return jsonify({"error": "Review not found"}), 404
+        if owner.data[0].get("user_id") != user_id:
+            return jsonify({"error": "Admin access required"}), 403
 
     try:
         try:

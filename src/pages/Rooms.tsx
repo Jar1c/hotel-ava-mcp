@@ -1,10 +1,12 @@
 import { useState, useEffect, useMemo } from "react"
 import { useSearchParams } from "react-router"
 import { motion } from "motion/react"
+import { Sparkles } from "lucide-react"
 import { publicRoomsApi, type PublicRoomData } from "@/services/api"
 import { type Room } from "@/data/rooms"
 import { setCache, getCached } from "@/lib/cache"
 import { formatDate as toISODate, parseDateParam } from "@/lib/dates"
+import { rankRooms } from "@/lib/roomRanking"
 import RoomCard from "@/components/rooms/RoomCard"
 import type { DiscountRoom } from "@/lib/discountEngine"
 import { getRoomDiscount } from "@/lib/discountEngine"
@@ -75,6 +77,7 @@ export default function Rooms() {
   const [roomsData, setRoomsData] = useState<Room[]>([])
   const [loading, setLoading] = useState(true)
   const [availabilityMap, setAvailabilityMap] = useState<Record<string, boolean>>({})
+  const [checkingAvailability, setCheckingAvailability] = useState(false)
   const { isApproved } = useDiscountApproval()
 
   const filters = {
@@ -110,12 +113,18 @@ export default function Rooms() {
       .finally(() => setLoading(false))
   }, [])
 
-  // Check availability for all rooms when date filters are present
+  // Check availability for all rooms when date filters are present.
+  // checkingAvailability stays true until every room answered, so the grid
+  // shows skeletons instead of rooms that may turn out to be booked.
   useEffect(() => {
     if (!hasDateFilter || roomsData.length === 0) {
       setAvailabilityMap({})
+      setCheckingAvailability(false)
       return
     }
+
+    let cancelled = false
+    setCheckingAvailability(true)
 
     const checkAll = async () => {
       const results: Record<string, boolean> = {}
@@ -138,15 +147,18 @@ export default function Rooms() {
           }
         })
       )
+      if (cancelled) return
       setAvailabilityMap(results)
+      setCheckingAvailability(false)
     }
 
     checkAll()
+    return () => { cancelled = true }
   }, [roomsData, hasDateFilter, filters.checkIn, filters.checkOut, filters.stayType, filters.startTime, filters.duration])
 
-  // Filter rooms by availability and budget
+  // Only rooms the backend confirmed free (strict — an unanswered id is not "available")
   const filteredRooms = hasDateFilter
-    ? roomsData.filter((room) => availabilityMap[room.id] !== false && room.price <= filters.budgetMax)
+    ? roomsData.filter((room) => availabilityMap[room.id] === true && room.price <= filters.budgetMax)
     : roomsData.filter((room) => room.price <= filters.budgetMax)
 
   const discountRooms: DiscountRoom[] = useMemo(
@@ -171,15 +183,27 @@ export default function Rooms() {
     })
   }, [filteredRooms, discountRooms])
 
+  // AI ranking: the 3 best matches for this search, the rest follow below
+  const guests = (filters.adults ?? 0) + (filters.children ?? 0)
+  const rankedRooms = useMemo(
+    () => rankRooms(sortedRooms, { guests, budgetMax: filters.budgetMax, discountRooms }),
+    [sortedRooms, guests, filters.budgetMax, discountRooms]
+  )
+  const aiPicks = rankedRooms.slice(0, 3)
+  const otherRooms = rankedRooms.slice(3)
+  // Suggestions only make sense for a real search — hidden while browsing
+  const showAiSuggestions = Boolean(hasDateFilter) && aiPicks.length > 0
+  const belowRooms = showAiSuggestions ? otherRooms : sortedRooms
+
   // Suggested rooms: when no exact match, show closest alternatives
   const suggestedRooms = useMemo(() => {
     if (sortedRooms.length > 0 || !hasDateFilter) return []
 
     const budget = filters.budgetMax || 99999
 
-    // Available rooms only (if availability was checked)
+    // Available rooms only (availability was already checked)
     const available = hasDateFilter
-      ? roomsData.filter((r) => availabilityMap[r.id] !== false)
+      ? roomsData.filter((r) => availabilityMap[r.id] === true)
       : roomsData
 
     if (available.length === 0) return []
@@ -219,38 +243,89 @@ export default function Rooms() {
 
         <div className="mb-md">
           <p className="typo-caption-sm text-muted">
-            {loading ? "Loading..." : hasDateFilter
-              ? sortedRooms.length > 0
-                ? `${sortedRooms.length} ${sortedRooms.length === 1 ? "room" : "rooms"} available for selected dates`
-                : suggestedRooms.length > 0
-                  ? `${suggestedRooms.length} ${suggestedRooms.length === 1 ? "room" : "rooms"} suggested — no exact match`
-                  : "No rooms available for selected dates"
-              : `${roomsData.length} ${roomsData.length === 1 ? "room" : "rooms"} available`}
+            {loading ? "Loading..."
+              : hasDateFilter && checkingAvailability
+                ? "Checking availability for your dates..."
+                : hasDateFilter
+                  ? sortedRooms.length > 0
+                    ? `${sortedRooms.length} ${sortedRooms.length === 1 ? "room" : "rooms"} available for selected dates`
+                    : suggestedRooms.length > 0
+                      ? `${suggestedRooms.length} ${suggestedRooms.length === 1 ? "room" : "rooms"} suggested — no exact match`
+                      : "No rooms available for selected dates"
+                  : `${roomsData.length} ${roomsData.length === 1 ? "room" : "rooms"} available`}
           </p>
         </div>
 
         <div className="border-b border-hairline/50 mb-xl" />
 
-        {loading ? (
+        {loading || (hasDateFilter && checkingAvailability) ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-lg">
             {Array.from({ length: 8 }).map((_, i) => (
               <RoomCardSkeleton key={i} />
             ))}
           </div>
         ) : sortedRooms.length > 0 ? (
-          <motion.div
-            className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-lg"
-            variants={cardContainer}
-            initial="hidden"
-            animate="visible"
-            key={sortedRooms.length}
-          >
-            {sortedRooms.map((room, index) => (
-              <motion.div key={room.id} variants={cardItem} custom={index}>
-                <RoomCard room={room} filters={filters} discountRooms={discountRooms} isApproved={isApproved} />
-              </motion.div>
-            ))}
-          </motion.div>
+          <div>
+            {/* ── AI picks (only after a search) ─────────────────────── */}
+            {showAiSuggestions && (
+              <section className="mb-xl">
+                <div className="flex flex-wrap items-end justify-between gap-sm mb-lg">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="h-5 w-5 text-primary" />
+                      <h2 className="typo-display-md text-ink">AI Room Suggestions</h2>
+                    </div>
+                    <p className="typo-body-sm text-muted mt-xs">
+                      Top 3 best matches for your dates, guests and budget
+                    </p>
+                  </div>
+                  <span className="typo-caption-sm font-semibold text-primary">Top {aiPicks.length}</span>
+                </div>
+
+                <motion.div
+                  className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-lg"
+                  variants={cardContainer}
+                  initial="hidden"
+                  animate="visible"
+                  key={`picks-${aiPicks.length}`}
+                >
+                  {aiPicks.map((room, index) => (
+                    <motion.div key={room.id} variants={cardItem} custom={index}>
+                      <RoomCard room={room} filters={filters} discountRooms={discountRooms} isApproved={isApproved} />
+                    </motion.div>
+                  ))}
+                </motion.div>
+              </section>
+            )}
+
+            {/* ── The rest — or the full list when just browsing ───────── */}
+            {belowRooms.length > 0 && (
+              <section>
+                {showAiSuggestions && (
+                  <div className="mb-lg">
+                    <h2 className="typo-display-md text-ink">Other Available Rooms</h2>
+                    <p className="typo-body-sm text-muted mt-xs">
+                      {otherRooms.length} more {otherRooms.length === 1 ? "room" : "rooms"} you can book
+                    </p>
+                  </div>
+                )}
+
+                <motion.div
+                  className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-lg"
+                  variants={cardContainer}
+                  initial="hidden"
+                  animate="visible"
+                  key={`${showAiSuggestions ? "search" : "browse"}-${belowRooms.length}`}
+                >
+                  {belowRooms.map((room, index) => (
+                    <motion.div key={room.id} variants={cardItem} custom={index}>
+                      <RoomCard room={room} filters={filters} discountRooms={discountRooms} isApproved={isApproved} />
+                    </motion.div>
+                  ))}
+                </motion.div>
+              </section>
+            )}
+          </div>
         ) : (
           <div>
             <motion.div

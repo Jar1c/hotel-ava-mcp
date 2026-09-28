@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router"
-import { Brain, TrendingUp, PhilippinePeso, Calendar, ArrowRight } from "lucide-react"
+import { Brain, TrendingUp, Calendar, ArrowRight } from "lucide-react"
 import type { RecommendationsData } from "@/services/adminService"
 
 type Props = {
@@ -79,7 +79,11 @@ export default function AIInsightCards({ recommendations, loading, linkBase, sho
               className={`rounded-[8px] bg-white border border-[#e2e4e8] p-4 shadow-sm ${linkBase ? "cursor-pointer hover:border-[#82285f]/40 transition-colors" : ""}`}
             >
               <div className="flex items-center justify-between gap-2 mb-2">
-                <PhilippinePeso className="w-5 h-5 text-[#82285f]" />
+                <span className="text-[15px] font-bold text-[#82285f]">
+                  {recommendations && recommendations.confidence > 0
+                    ? `₱${recommendations.projectedRevenue.toLocaleString()}`
+                    : "—"}
+                </span>
                 <span className="text-[11px] font-bold px-2 py-1 rounded-[4px] bg-[#455d58]/10 text-[#455d58]">
                   {recommendations && recommendations.revenueGrowth !== 0
                     ? `${recommendations.revenueGrowth > 0 ? "+" : ""}${recommendations.revenueGrowth}%`
@@ -89,7 +93,7 @@ export default function AIInsightCards({ recommendations, loading, linkBase, sho
               <p className="text-[13px] font-bold text-[#1a1d26] mb-1">Expected earnings</p>
               <p className="text-[12px] text-[#4a4f59]">
                 {recommendations && recommendations.confidence > 0
-                  ? `₱${recommendations.projectedRevenue.toLocaleString()} next 30 days`
+                  ? "next 30 days"
                   : "No forecast data yet"}
               </p>
             </div>

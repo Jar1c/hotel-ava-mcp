@@ -296,6 +296,13 @@ export default function Header() {
                   <CalendarDays className="size-4 text-muted" />
                   <span className="text-sm">My Bookings</span>
                 </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => navigate(isAdmin ? "/admin/reviews" : "/my-reviews")}
+                  className="flex items-center gap-2.5 cursor-pointer"
+                >
+                  <Star className="size-4 text-muted" />
+                  <span className="text-sm">{isAdmin ? "Reviews" : "My Reviews"}</span>
+                </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => navigate("/settings")} className="flex items-center gap-2.5 cursor-pointer">
                   <Settings className="size-4 text-muted" />
                   <span className="text-sm">Settings</span>

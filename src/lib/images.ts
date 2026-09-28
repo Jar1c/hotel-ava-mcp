@@ -54,16 +54,21 @@ export interface PickedImages {
   rejected: string
 }
 
-/** Enforce the type/size/count limits, then compress what's left. */
+/** Enforce the type/size/count limits, then compress what's left.
+ *
+ * `reserved` counts photos already kept elsewhere (e.g. on a review being
+ * edited) so the combined total never exceeds MAX_REVIEW_IMAGES. */
 export async function pickReviewImages(
   current: File[],
   incoming: FileList | File[],
+  reserved = 0,
 ): Promise<PickedImages> {
   const files = [...current]
+  const limit = Math.max(0, MAX_REVIEW_IMAGES - reserved)
   let rejected = ""
 
   for (const file of Array.from(incoming)) {
-    if (files.length >= MAX_REVIEW_IMAGES) {
+    if (files.length >= limit) {
       rejected = `You can attach up to ${MAX_REVIEW_IMAGES} photos.`
       break
     }

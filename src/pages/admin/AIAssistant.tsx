@@ -1,10 +1,9 @@
 import { useState, useEffect, useMemo } from "react"
 import { useSearchParams } from "react-router"
-import { TrendingUp, Tag, Brain, BarChart3, Calendar, Star, AlertTriangle } from "lucide-react"
+import { TrendingUp, Brain, BarChart3, Calendar, Star, AlertTriangle } from "lucide-react"
 import { cn } from "@/lib/utils"
 import DemandForecastChart from "@/components/admin/DemandForecastChart"
 import RevenueForecast from "@/components/admin/RevenueForecast"
-import DemandInsight from "@/components/admin/DemandInsight"
 import DiscountOffers from "@/components/admin/DiscountOffers"
 import SeasonalChart from "@/components/admin/SeasonalChart"
 import RoomPerformance from "@/components/admin/RoomPerformance"
@@ -16,7 +15,6 @@ import {
   getInsights,
   getOccupancyForecast,
   getRevenueForecast,
-  getDemandInsights,
   getDiscountOffers,
   getAIRecommendations,
   getRooms,
@@ -24,16 +22,15 @@ import {
   type RoomPerformanceData,
   type Insight,
   type ForecastPoint,
-  type DemandInsightData,
   type DiscountOfferData,
   type RecommendationsData,
 } from "@/services/adminService"
 import type { AdminRoom } from "@/data/admin"
 import type { DiscountRoom } from "@/lib/discountEngine"
 
-type TabId = "forecast" | "pricing" | "discounts" | "stats"
+type TabId = "forecast" | "discounts" | "stats"
 
-const TAB_IDS: TabId[] = ["forecast", "pricing", "discounts", "stats"]
+const TAB_IDS: TabId[] = ["forecast", "discounts", "stats"]
 
 const tabs: { id: TabId; label: string; icon: React.ReactNode; desc: string }[] = [
   {
@@ -41,12 +38,6 @@ const tabs: { id: TabId; label: string; icon: React.ReactNode; desc: string }[] 
     label: "Smart Forecast",
     icon: <TrendingUp className="h-4 w-4" />,
     desc: "See how full the hotel will be and expected revenue for the coming months.",
-  },
-  {
-    id: "pricing",
-    label: "Price Suggestions",
-    icon: <Tag className="h-4 w-4" />,
-    desc: "Discount ideas for dates when bookings are low — accept to activate, or dismiss.",
   },
   {
     id: "discounts",
@@ -104,10 +95,6 @@ export default function AIAssistant() {
   const [revForecast, setRevForecast] = useState<ForecastPoint[]>([])
   const [recommendations, setRecommendations] = useState<RecommendationsData | null>(null)
 
-  const [pricingLoading, setPricingLoading] = useState(false)
-  const [pricingError, setPricingError] = useState(false)
-  const [demandInsights, setDemandInsights] = useState<DemandInsightData[]>([])
-
   const [discLoading, setDiscLoading] = useState(false)
   const [discError, setDiscError] = useState(false)
   const [discountOffers, setDiscountOffers] = useState<DiscountOfferData[]>([])
@@ -141,15 +128,6 @@ export default function AIAssistant() {
         })
         .catch(() => setFcError(true))
         .finally(() => setFcLoading(false))
-    }
-
-    if (tab === "pricing" && !loaded.has("pricing")) {
-      setPricingLoading(true)
-      setPricingError(false)
-      void getDemandInsights()
-        .then(setDemandInsights)
-        .catch(() => setPricingError(true))
-        .finally(() => setPricingLoading(false))
     }
 
     if (tab === "discounts" && !loaded.has("discounts")) {
@@ -194,7 +172,6 @@ export default function AIAssistant() {
   )
 
   const retryForecast = () => { setLoaded((p) => { const n = new Set(p); n.delete("forecast"); return n }); loadTab("forecast") }
-  const retryPricing = () => { setLoaded((p) => { const n = new Set(p); n.delete("pricing"); return n }); loadTab("pricing") }
   const retryDiscounts = () => { setLoaded((p) => { const n = new Set(p); n.delete("discounts"); return n }); loadTab("discounts") }
   const retryStats = () => { setLoaded((p) => { const n = new Set(p); n.delete("stats"); return n }); loadTab("stats") }
 
@@ -255,27 +232,6 @@ export default function AIAssistant() {
               <RevenueForecast data={revForecast} loading={false} />
             </div>
           ) : null}
-        </div>
-      )}
-
-      {/* ── Tab: Price Suggestions ──────────────────────────── */}
-      {activeTab === "pricing" && (
-        <div className="space-y-3">
-          {pricingLoading ? (
-            Array.from({ length: 2 }).map((_, i) => <Skeleton key={i} className="h-40" />)
-          ) : pricingError ? (
-            <ErrorBox onRetry={retryPricing} />
-          ) : demandInsights.length === 0 ? (
-            <div className="bg-white rounded-[6px] border border-[#e2e4e8] p-8 text-center">
-              <Tag className="w-8 h-8 text-[#9ca3af] mx-auto mb-2" />
-              <p className="text-sm text-muted">No price suggestions right now.</p>
-              <p className="text-xs text-[#9ca3af] mt-1">Suggestions appear when slow periods are detected.</p>
-            </div>
-          ) : (
-            demandInsights.map((insight) => (
-              <DemandInsight key={insight.id} insight={insight} />
-            ))
-          )}
         </div>
       )}
 

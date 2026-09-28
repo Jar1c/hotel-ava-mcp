@@ -1,11 +1,12 @@
 import { useState, useEffect, useMemo } from "react"
 import { cn } from "@/lib/utils"
-import { bookingsApi } from "@/services/api"
+import { bookingsApi, ApiError } from "@/services/api"
+import { useToast } from "@/contexts/ToastContext"
 import type { Booking } from "@/data/admin"
 import LoadingDots from "@/components/LoadingDots"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import ReceiptDialog, { type ReceiptData } from "@/components/ReceiptDialog"
-import { Mail, Phone, CalendarDays, PhilippinePeso, User, Clock, BedDouble, CreditCard, FileText, Receipt } from "lucide-react"
+import { Mail, Phone, CalendarDays, PhilippinePeso, User, Clock, BedDouble, CreditCard, FileText } from "lucide-react"
 import { getDiceBearUrl } from "@/lib/dicebear"
 import { formatPaymentMethod } from "@/lib/payment"
 import Pagination from "@/components/admin/Pagination"
@@ -97,6 +98,7 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [receiptOpen, setReceiptOpen] = useState(false)
+  const { toast } = useToast()
 
   const filtered = filter === "all" ? bookings : bookings.filter((b) => b.status === filter)
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
@@ -125,8 +127,12 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
     try {
       await bookingsApi.updateStatus(bookingId, newStatus)
       onStatusChange?.()
-    } catch {
-      // silently fail
+    } catch (err) {
+      toast({
+        title: "Couldn't update this booking",
+        description: err instanceof ApiError ? err.message : "Please try again.",
+        variant: "error",
+      })
     } finally {
       setActingId(null)
       setConfirmAction(null)
@@ -415,7 +421,6 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
                       onClick={() => setReceiptOpen(true)}
                       className="mt-1 flex w-full cursor-pointer items-center justify-center gap-2 rounded-[8px] border border-[#e2e4e8] bg-white py-2 text-[12px] font-semibold text-[#82285f] transition-colors hover:border-[#82285f]/40 hover:bg-[#f8f0f5]"
                     >
-                      <Receipt className="h-4 w-4" />
                       View Receipt
                     </button>
                   </div>

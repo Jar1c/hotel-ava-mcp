@@ -3,6 +3,7 @@ import { useEffect } from "react"
 import Header from "@/components/layout/Header"
 import Footer from "@/components/layout/Footer"
 import BottomNav from "@/components/layout/BottomNav"
+import InactivityGuard from "@/components/InactivityGuard"
 import { useAuth } from "@/contexts/AuthContext"
 
 const hideHeaderFooter = ["/login", "/register", "/forgot-password", "/reset-password", "/verify-email"]
@@ -50,6 +51,7 @@ export default function RootLayout() {
       </main>
       {!isAuthPage && <Footer />}
       {!isAuthPage && <BottomNav />}
+      <InactivityGuard />
     </div>
   )
 }

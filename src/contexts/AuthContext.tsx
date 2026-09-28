@@ -352,7 +352,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (hasSbSession) {
         if (restoreFromCache()) {
           const cacheAge = Date.now() - (cachedProfile!.timestamp || 0)
-          if (cacheAge >= PROFILE_CACHE_TTL) {
+          // An EMPTY avatar must always re-verify, even when the cache is fresh.
+          // Email/password logins create no Supabase session, so onAuthStateChange
+          // never fires — without this the header keeps the placeholder forever.
+          const missingAvatar = !(cachedProfile!.user.avatar || "").trim()
+          if (cacheAge >= PROFILE_CACHE_TTL || missingAvatar) {
             supabase.auth.getSession().then(({ data: { session } }) => {
               verifySession(session?.user)
             }).catch(() => verifySession())
@@ -423,6 +427,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     sessionStorage.setItem("access_token", res.access_token)
     sessionStorage.setItem("refresh_token", res.refresh_token)
+
+    // Also open a Supabase session in the browser (best-effort). Without it an
+    // email/password login leaves no persisted session, so onAuthStateChange
+    // never fires and the header can never re-verify name/avatar later — the
+    // avatar placeholder would stick until the next manual login.
+    supabase.auth
+      .signInWithPassword({ email, password })
+      .then(({ error }) => {
+        if (error) console.debug("[auth] no browser Supabase session:", error.message)
+      })
+      .catch(() => {
+        /* Flask session above already works on its own */
+      })
 
     const userObj: User = {
       id: res.user.id,

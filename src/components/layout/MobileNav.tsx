@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { NavLink, Link } from "react-router"
-import { Menu, X, CalendarDays, User, Home, BedDouble, Info, Phone } from "lucide-react"
+import { Menu, X, CalendarDays, User, Home, BedDouble, Info, Phone, Star } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/contexts/AuthContext"
@@ -14,7 +14,8 @@ const publicItems = [
 ]
 
 const guestItems = [
-  { label: "My Bookings", path: "/bookings", icon: CalendarDays },
+  { label: "My Bookings", path: "/my-bookings", icon: CalendarDays },
+  { label: "My Reviews", path: "/my-reviews", icon: Star },
   { label: "Profile", path: "/profile", icon: User },
 ]
 
@@ -23,7 +24,8 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   "/rooms": BedDouble,
   "/about": Info,
   "/contact": Phone,
-  "/bookings": CalendarDays,
+  "/my-bookings": CalendarDays,
+  "/my-reviews": Star,
   "/profile": User,
 }
 

@@ -16,6 +16,8 @@ const Booking = lazy(() => import("./pages/Booking"))
 const BookingConfirmation = lazy(() => import("./pages/BookingConfirmation"))
 const PaymentFailed = lazy(() => import("./pages/PaymentFailed"))
 const MyBookings = lazy(() => import("./pages/MyBookings"))
+const VerifyBooking = lazy(() => import("./pages/VerifyBooking"))
+const MyReviews = lazy(() => import("./pages/MyReviews"))
 const Settings = lazy(() => import("./pages/Settings"))
 const ForgotPassword = lazy(() => import("./pages/ForgotPassword"))
 const ResetPassword = lazy(() => import("./pages/ResetPassword"))
@@ -61,6 +63,7 @@ export default function App() {
             <Route path="rooms" element={<Rooms />} />
             <Route path="rooms/:id" element={<RoomDetail />} />
             <Route path="booking/failed" element={<PaymentFailed />} />
+            <Route path="verify/:id" element={<VerifyBooking />} />
             <Route path="*" element={<NotFound />} />
 
             {/* Authenticated user routes */}
@@ -68,6 +71,7 @@ export default function App() {
               <Route path="booking/:id" element={<Booking />} />
               <Route path="booking/confirmation/:id" element={<BookingConfirmation />} />
               <Route path="my-bookings" element={<MyBookings />} />
+              <Route path="my-reviews" element={<MyReviews />} />
               <Route path="settings" element={<Settings />} />
               <Route path="profile" element={<Profile />} />
             </Route>

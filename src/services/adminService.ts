@@ -22,8 +22,6 @@ import {
 import { getStale, isStale, setCache, clearCache } from "@/lib/cache"
 import type { Booking, Guest, AdminRoom } from "@/data/admin"
 import type { BookingStatus } from "@/data/admin"
-import { adminRooms as mockAdminRooms } from "@/data/admin"
-import { bookings as mockBookings } from "@/data/admin"
 
 type Revalidatable<T> = { data: T; revalidate?: Promise<T> }
 
@@ -53,29 +51,28 @@ export async function getRooms(): Promise<AdminRoom[]> {
 }
 
 async function fetchRooms(): Promise<AdminRoom[]> {
-  try {
-    const rooms = await roomsApi.getAll()
-    const result = rooms.map((r: RoomData) => ({
-      id: r.id,
-      name: r.name,
-      type: r.type,
-      price: r.price,
-      capacity: r.capacity,
-      max_adults: r.max_adults,
-      max_children: r.max_children,
-      allows_children: r.allows_children,
-      amenities: r.amenities || [],
-      images: r.images || [],
-      description: r.description || "",
-      status: r.status,
-      bookings: r.bookings,
-      revenue: r.revenue,
-    }))
-    setCache("rooms", result)
-    return result.length > 0 ? result : mockAdminRooms
-  } catch {
-    return mockAdminRooms
-  }
+  // Errors propagate on purpose: falling back to demo rooms here made the admin
+  // UI show fake inventory whenever the API was unreachable (expired session,
+  // backend restarting). A real, empty list still returns [].
+  const rooms = await roomsApi.getAll()
+  const result = rooms.map((r: RoomData) => ({
+    id: r.id,
+    name: r.name,
+    type: r.type,
+    price: r.price,
+    capacity: r.capacity,
+    max_adults: r.max_adults,
+    max_children: r.max_children,
+    allows_children: r.allows_children,
+    amenities: r.amenities || [],
+    images: r.images || [],
+    description: r.description || "",
+    status: r.status,
+    bookings: r.bookings,
+    revenue: r.revenue,
+  }))
+  setCache("rooms", result)
+  return result
 }
 
 export async function addRoom(room: Omit<AdminRoom, "id" | "bookings" | "revenue">): Promise<AdminRoom | null> {
@@ -164,43 +161,46 @@ export async function deleteRoom(roomId: string): Promise<boolean> {
 
 // ── Bookings ─────────────────────────────────────────────────────────────────
 
-export async function getBookings(): Promise<Booking[]> {
+export async function getBookings(opts: { force?: boolean } = {}): Promise<Booking[]> {
+  // After a status change the cached copy is already wrong — skip the
+  // stale-while-revalidate window and go straight to the API.
+  if (opts.force) return fetchBookings()
   const rv = revalidate<Booking[]>("bookings", fetchBookings)
   if (rv) { rv.revalidate?.catch(() => {}); return rv.data }
   return fetchBookings()
 }
 
 async function fetchBookings(): Promise<Booking[]> {
-  try {
-    const bookings = await bookingsApi.getAll()
-    const result = bookings.map((b: BookingData) => ({
-      id: b.id,
-      fullId: b.fullId,
-      guestName: b.guestName,
-      guestEmail: b.guestEmail,
-      guestAvatar: b.guestAvatar || "",
-      guestId: b.guestId || "",
-      roomType: b.roomType,
-      roomNumber: b.roomNumber,
-      checkIn: b.checkIn,
-      checkOut: b.checkOut,
-      nights: b.nights,
-      amount: b.amount,
-      status: b.status as BookingStatus,
-      guests: b.guests ?? 1,
-      phone: b.phone || "",
-      specialRequests: b.specialRequests || "",
-      stay_type: b.stay_type,
-      duration: b.duration,
-      start_time: b.start_time,
-      createdAt: b.createdAt,
-      payment_method: b.payment_method || "",
-    }))
-    setCache("bookings", result)
-    return result.length > 0 ? result : mockBookings
-  } catch {
-    return mockBookings
-  }
+  // Errors propagate on purpose: the old `catch → mockBookings` fallback made
+  // the admin table render DEMO rows (Maria Santos, #BK-001…) whenever the API
+  // failed — typically an expired session after leaving the tab idle. The pages
+  // surface the failure instead of showing invented reservations.
+  const bookings = await bookingsApi.getAll()
+  const result = bookings.map((b: BookingData) => ({
+    id: b.id,
+    fullId: b.fullId,
+    guestName: b.guestName,
+    guestEmail: b.guestEmail,
+    guestAvatar: b.guestAvatar || "",
+    guestId: b.guestId || "",
+    roomType: b.roomType,
+    roomNumber: b.roomNumber,
+    checkIn: b.checkIn,
+    checkOut: b.checkOut,
+    nights: b.nights,
+    amount: b.amount,
+    status: b.status as BookingStatus,
+    guests: b.guests ?? 1,
+    phone: b.phone || "",
+    specialRequests: b.specialRequests || "",
+    stay_type: b.stay_type,
+    duration: b.duration,
+    start_time: b.start_time,
+    createdAt: b.createdAt,
+    payment_method: b.payment_method || "",
+  }))
+  setCache("bookings", result)
+  return result
 }
 
 export async function getRecentBookings(limit = 5): Promise<Booking[]> {

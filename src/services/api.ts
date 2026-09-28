@@ -337,6 +337,34 @@ export const userBookingsApi = {
     apiFetch<ExtendConfirmResponse>(`/bookings/${id}/extend/confirm`, { method: "POST" }),
 }
 
+// ── Booking verification (public — the QR code a guest shows at check-in) ────
+
+export interface VerifyBookingData {
+  id: string
+  reference: string
+  status: string
+  guest_name: string
+  room_name: string
+  room_type: string
+  check_in: string
+  check_out: string
+  stay_type: string
+  start_time?: string | null
+  duration?: number | null
+  guests: number
+  email?: string
+  phone?: string
+  total_price?: number
+  payment_method?: string
+  created_at?: string
+}
+
+export const verifyApi = {
+  /** Accepts the full UUID or the short #ABC12345 code. */
+  get: (code: string) =>
+    apiFetch<VerifyBookingData>(`/bookings/verify/${encodeURIComponent(code)}`),
+}
+
 // ── Bookings (admin) ──────────────────────────────────────────────────────────
 
 export interface BookingData {
@@ -580,6 +608,30 @@ export interface AdminReviewsResponse {
   totals: { reviews: number; average: number }
 }
 
+/** A review written by the signed-in guest, with the stay it belongs to */
+export interface MyReview {
+  id: string
+  booking_id: string | null
+  room_id: string | null
+  room_name: string
+  room_type: string
+  room_image: string
+  rating: number
+  comment: string
+  images: string[]
+  admin_reply: string
+  admin_replied_at: string | null
+  check_in: string | null
+  check_out: string | null
+  created_at: string
+}
+
+export interface MyReviewsResponse {
+  reviews: MyReview[]
+  count: number
+  average: number
+}
+
 export const reviewsApi = {
   /** Guest submits a review for a completed booking (one per booking, ≤5 photos) */
   create: async (payload: { booking_id: string; rating: number; comment: string; images?: File[] }): Promise<{ id: string }> => {
@@ -603,6 +655,34 @@ export const reviewsApi = {
     return res.json()
   },
 
+  /** Guest — the reviews they wrote, with the stay they came from */
+  mine: () => apiFetch<MyReviewsResponse>("/reviews/mine"),
+
+  /** Guest edits their own review: kept photo URLs stay, new Files are uploaded */
+  update: async (
+    id: string,
+    payload: { rating: number; comment: string; images?: File[]; keepImages?: string[] },
+  ): Promise<MyReview> => {
+    const token = sessionStorage.getItem("access_token")
+    const form = new FormData()
+    form.append("rating", String(payload.rating))
+    form.append("comment", payload.comment)
+    form.append("keep_images", JSON.stringify(payload.keepImages || []))
+    ;(payload.images || []).forEach((file) => form.append("images", file))
+
+    const res = await fetch(`${API_BASE}/reviews/${id}`, {
+      method: "PUT",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: form,
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      if (res.status === 401) throw new Error("Unauthorized")
+      throw new ApiError(body.error || `API error ${res.status}`, res.status, body)
+    }
+    return res.json()
+  },
+
   /** Public — shown inside the room page */
   getRoom: (roomId: string) => apiFetch<RoomReviewsResponse>(`/reviews/room/${roomId}`),
 
@@ -610,7 +690,7 @@ export const reviewsApi = {
   getAll: (roomId?: string) =>
     apiFetch<AdminReviewsResponse>(`/reviews${roomId ? `?room_id=${encodeURIComponent(roomId)}` : ""}`),
 
-  /** Admin moderation */
+  /** Admin moderation — or the guest removing their own review */
   remove: (id: string) => apiFetch<{ message: string }>(`/reviews/${id}`, { method: "DELETE" }),
 
   /** Admin — public reply/feedback under a review */

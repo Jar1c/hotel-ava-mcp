@@ -2,6 +2,7 @@ import { useState, useEffect } from "react"
 import { useParams, useNavigate } from "react-router"
 import { ArrowRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import BookingQr from "@/components/BookingQr"
 
 const PRIMARY = "#82285f"
 
@@ -57,7 +58,7 @@ export default function BookingConfirmation() {
        return
      }
 
-     const apiBase = import.meta.env.VITE_API_URL || "http://localhost:5000/api"
+     const apiBase = import.meta.env.VITE_API_URL || "/api"
      const token = sessionStorage.getItem("access_token")
      const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {}
 
@@ -193,6 +194,25 @@ export default function BookingConfirmation() {
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {/* QR immediately after a successful booking — save it or show it at check-in */}
+        {booking && id && id !== "success" && (
+          <div className="bg-white border border-hairline rounded-[12px] p-lg mb-lg text-left">
+            <h2 className="typo-display-sm text-ink mb-xs">Check-in QR Code</h2>
+            {booking.status === "confirmed" ? (
+              <>
+                <p className="typo-body-sm text-muted mb-md">
+                  Save this QR code and show it at the front desk when you arrive.
+                </p>
+                <BookingQr bookingId={id} />
+              </>
+            ) : (
+              <p className="typo-body-sm text-muted">
+                Your QR code will appear here and in My Bookings as soon as your booking is confirmed.
+              </p>
+            )}
           </div>
         )}
 

@@ -8,7 +8,8 @@ import {
   TreePine, Coffee, Sunrise, Bath, UserCheck, Sofa,
   Baby, Waves, Fence, Droplets, Monitor, Armchair,
   Shirt, Fish, Sunset, UtensilsCrossed, Tv, Sparkles, Music, Clock, Tag, Mail,
-  ChevronDown, ChevronLeft, ChevronRight
+  ChevronDown, ChevronLeft, ChevronRight,
+  MapPin, Landmark, ShoppingBag, Trees, TrainFront, FerrisWheel,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
@@ -16,6 +17,7 @@ import DateInput from "@/components/ui/date-input"
 import GuestSelector, { type GuestCount } from "@/components/ui/guest-selector"
 import { publicRoomsApi, reviewsApi, type PublicRoomData, type RoomReviewsResponse } from "@/services/api"
 import { getAmenityIcon, rooms as fallbackRooms, type Room } from "@/data/rooms"
+import { nearbyPlaces, travelLabel, type NearbyCategory } from "@/data/nearbyPlaces"
 import { getCached, setCache } from "@/lib/cache"
 import { formatDate as toISODate, parseDateParam } from "@/lib/dates"
 import { getDiceBearUrl } from "@/lib/dicebear"
@@ -105,6 +107,15 @@ function DetailSkeleton() {
   )
 }
 
+/** Category → icon for the "Nearby Places" list on this page. */
+const nearbyIcons: Record<NearbyCategory, typeof MapPin> = {
+  Landmark,
+  Shopping: ShoppingBag,
+  Nature: Trees,
+  Transport: TrainFront,
+  Attraction: FerrisWheel,
+}
+
 export default function RoomDetail() {
   const { id } = useParams<{ id: string }>()
   const [searchParams] = useSearchParams()
@@ -140,6 +151,7 @@ export default function RoomDetail() {
   const [checkingAvailability, setCheckingAvailability] = useState(false)
   const [showMoreDetails, setShowMoreDetails] = useState(false)
   // Live guest reviews for this room (average + list shown below)
+  const [showAllNearby, setShowAllNearby] = useState(false)
   const [reviewSummary, setReviewSummary] = useState<RoomReviewsResponse | null>(null)
   const [reviewsLoading, setReviewsLoading] = useState(false)
   // Shopee-style rating filter ("All" + 5★…1★) and the photo lightbox
@@ -489,6 +501,69 @@ export default function RoomDetail() {
                   Show more details
                   <ChevronDown className="h-4 w-4" />
                 </button>
+              </div>
+
+              {/* Nearby Places — 3 highlighted cards, "Show more" reveals the rest */}
+              <div className="border-t border-hairline pt-lg mt-lg">
+                <div className="mb-md flex items-center justify-between gap-3">
+                  <h2 className="typo-display-sm text-ink">Nearby Places</h2>
+                  <span className="typo-caption-sm text-muted">Malate, Manila</span>
+                </div>
+
+                <div className="grid grid-cols-1 gap-sm sm:grid-cols-2 lg:grid-cols-3">
+                  {(showAllNearby ? nearbyPlaces : nearbyPlaces.slice(0, 3)).map((place) => {
+                    const Icon = nearbyIcons[place.category]
+                    return (
+                      <a
+                        key={place.name}
+                        href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                          `${place.name}, Manila, Philippines`,
+                        )}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="group overflow-hidden rounded-[12px] border border-hairline bg-white transition-colors hover:border-primary/40"
+                      >
+                        <div className="relative aspect-[16/10] overflow-hidden">
+                          <img
+                            src={place.image}
+                            alt={place.name}
+                            loading="lazy"
+                            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                          />
+                          <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-white/95 px-2 py-0.5 typo-caption-sm text-ink shadow-sm">
+                            <MapPin className="h-3 w-3 text-primary" />
+                            {travelLabel(place.km)}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between gap-2 px-3 py-2.5">
+                          <span className="min-w-0 truncate typo-body-sm font-semibold text-ink transition-colors group-hover:text-primary">
+                            {place.name}
+                          </span>
+                          <span className="inline-flex shrink-0 items-center gap-1 typo-caption-sm text-muted">
+                            <Icon className="h-3.5 w-3.5" />
+                            {place.category}
+                          </span>
+                        </div>
+                      </a>
+                    )
+                  })}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowAllNearby((open) => !open)}
+                  className="mt-3 inline-flex cursor-pointer items-center gap-1.5 text-sm font-semibold text-primary transition-colors hover:text-primary-active"
+                >
+                  {showAllNearby ? "Show less" : `Show more (${nearbyPlaces.length - 3} more)`}
+                  <ChevronDown
+                    className={`h-4 w-4 transition-transform ${showAllNearby ? "rotate-180" : ""}`}
+                  />
+                </button>
+
+                <p className="mt-2 typo-caption-sm text-muted">
+                  Distances are approximate, measured from Hotel Ava (2184 Carolina St., cor. Quirino Ave., Malate,
+                  Manila). Tap a place for directions. Photos: Wikimedia Commons.
+                </p>
               </div>
 
               {/* Guest Reviews — live ratings from completed stays */}

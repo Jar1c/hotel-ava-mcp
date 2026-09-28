@@ -20,6 +20,14 @@ interface ReviewModalProps {
   roomName: string
   /** Called after a successful save so the list can refresh instantly */
   onSaved?: (rating: number) => void
+  /** When set, the modal edits this review instead of creating a new one */
+  editing?: {
+    id: string
+    rating: number
+    comment: string
+    /** Already-hosted photo URLs carried over from the saved review */
+    images: string[]
+  }
 }
 
 const RATING_LABELS = ["", "Poor", "Fair", "Good", "Very Good", "Excellent"]
@@ -27,18 +35,22 @@ const RATING_LABELS = ["", "Poor", "Fair", "Good", "Very Good", "Excellent"]
 /** Matches REVIEW_MAX_CHARS on the backend. */
 const REVIEW_MAX_CHARS = 250
 
-export default function ReviewModal({ open, onClose, bookingId, roomName, onSaved }: ReviewModalProps) {
+export default function ReviewModal({ open, onClose, bookingId, roomName, onSaved, editing }: ReviewModalProps) {
   const [rating, setRating] = useState(0)
   const [hovered, setHovered] = useState(0)
   const [comment, setComment] = useState("")
   const [images, setImages] = useState<File[]>([])
+  /** Photos already stored on the review being edited */
+  const [keptImages, setKeptImages] = useState<string[]>([])
   const [photoError, setPhotoError] = useState("")
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState("")
   const fileRef = useRef<HTMLInputElement>(null)
+  const commentRef = useRef<HTMLTextAreaElement>(null)
   const { toast } = useToast()
 
   const shown = hovered || rating
+  const photoCount = keptImages.length + images.length
 
   // Object URLs for the thumbnails — revoked whenever the set changes.
   const [previews, setPreviews] = useState<string[]>([])
@@ -48,11 +60,31 @@ export default function ReviewModal({ open, onClose, bookingId, roomName, onSave
     return () => urls.forEach((url) => URL.revokeObjectURL(url))
   }, [images])
 
+  // Latest props, without letting parent re-renders wipe what the guest typed.
+  const editingRef = useRef(editing)
+  useEffect(() => { editingRef.current = editing })
+
+  const editingId = editing?.id ?? null
+
+  // Prefill the form when the modal opens for an existing review.
+  useEffect(() => {
+    if (!open) return
+    const existing = editingRef.current
+    setRating(existing?.rating ?? 0)
+    setComment(existing?.comment ?? "")
+    setKeptImages(existing?.images ?? [])
+    setImages([])
+    setHovered(0)
+    setPhotoError("")
+    setError("")
+  }, [open, editingId])
+
   const resetForm = () => {
     setRating(0)
     setHovered(0)
     setComment("")
     setImages([])
+    setKeptImages([])
     setPhotoError("")
     setError("")
   }
@@ -65,7 +97,8 @@ export default function ReviewModal({ open, onClose, bookingId, roomName, onSave
 
   const handleFiles = async (list: FileList | null) => {
     if (!list || list.length === 0) return
-    const { files, rejected } = await pickReviewImages(images, list)
+    // Photos kept from the saved review still count toward the 5-photo cap.
+    const { files, rejected } = await pickReviewImages(images, list, keptImages.length)
     setImages(files)
     setPhotoError(rejected)
   }
@@ -84,17 +117,31 @@ export default function ReviewModal({ open, onClose, bookingId, roomName, onSave
     setError("")
     setPhotoError("")
     try {
-      await reviewsApi.create({
-        booking_id: bookingId,
-        rating,
-        comment: text,
-        images,
-      })
-      toast({
-        title: "Thanks for your review!",
-        description: `Your review of ${roomName} is now live.`,
-        variant: "default",
-      })
+      if (editing) {
+        await reviewsApi.update(editing.id, {
+          rating,
+          comment: text,
+          images,
+          keepImages: keptImages,
+        })
+        toast({
+          title: "Review updated",
+          description: `Your review of ${roomName} was saved.`,
+          variant: "default",
+        })
+      } else {
+        await reviewsApi.create({
+          booking_id: bookingId,
+          rating,
+          comment: text,
+          images,
+        })
+        toast({
+          title: "Thanks for your review!",
+          description: `Your review of ${roomName} is now live.`,
+          variant: "default",
+        })
+      }
       onSaved?.(rating)
       resetForm()
       onClose()
@@ -111,11 +158,28 @@ export default function ReviewModal({ open, onClose, bookingId, roomName, onSave
 
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!next) handleClose() }}>
-      <DialogContent className="!rounded-[16px] !max-w-[460px] bg-white">
+      {/* Focus lands on the comment box — focusing the first star instead would
+          preview "1 star" and hide the saved rating when the modal opens. */}
+      <DialogContent
+        className="!rounded-[16px] !max-w-[460px] bg-white"
+        initialFocus={commentRef}
+      >
         <DialogHeader>
-          <DialogTitle className="font-display text-xl text-ink">Rate your stay</DialogTitle>
+          <DialogTitle className="font-display text-xl text-ink">
+            {editing ? "Edit your review" : "Rate your stay"}
+          </DialogTitle>
           <DialogDescription className="typo-body-sm text-muted">
-            How was your stay at <span className="font-semibold text-ink">{roomName}</span>?
+            {editing ? (
+              <>
+                Update what you shared about{" "}
+                <span className="font-semibold text-ink">{roomName}</span>.
+              </>
+            ) : (
+              <>
+                How was your stay at{" "}
+                <span className="font-semibold text-ink">{roomName}</span>?
+              </>
+            )}
           </DialogDescription>
         </DialogHeader>
 
@@ -155,6 +219,7 @@ export default function ReviewModal({ open, onClose, bookingId, roomName, onSave
             </label>
             <textarea
               id="review-comment"
+              ref={commentRef}
               value={comment}
               onChange={(e) => { setComment(e.target.value); if (error) setError("") }}
               maxLength={REVIEW_MAX_CHARS}
@@ -180,7 +245,7 @@ export default function ReviewModal({ open, onClose, bookingId, roomName, onSave
               <button
                 type="button"
                 onClick={() => fileRef.current?.click()}
-                disabled={images.length >= MAX_REVIEW_IMAGES}
+                disabled={photoCount >= MAX_REVIEW_IMAGES}
                 className="inline-flex items-center gap-1.5 rounded-[8px] border border-hairline bg-canvas px-3 py-1.5 typo-caption-sm font-semibold text-ink hover:border-primary hover:text-primary transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
               >
                 <ImagePlus className="h-4 w-4" />
@@ -188,10 +253,10 @@ export default function ReviewModal({ open, onClose, bookingId, roomName, onSave
               </button>
               <span
                 className={`typo-caption-sm tabular-nums ${
-                  images.length >= MAX_REVIEW_IMAGES ? "text-primary font-semibold" : "text-muted"
+                  photoCount >= MAX_REVIEW_IMAGES ? "text-primary font-semibold" : "text-muted"
                 }`}
               >
-                {images.length}/{MAX_REVIEW_IMAGES}
+                {photoCount}/{MAX_REVIEW_IMAGES}
               </span>
             </div>
 
@@ -209,8 +274,26 @@ export default function ReviewModal({ open, onClose, bookingId, roomName, onSave
 
             {photoError && <p className="typo-caption-sm text-[#A4423A] mt-1.5">{photoError}</p>}
 
-            {previews.length > 0 && (
+            {photoCount > 0 && (
               <div className="flex flex-wrap gap-2 mt-2">
+                {/* Photos already on the review being edited */}
+                {keptImages.map((src, index) => (
+                  <div
+                    key={`kept-${src}`}
+                    className="relative h-16 w-16 shrink-0 overflow-hidden rounded-[6px] border border-hairline"
+                  >
+                    <img src={src} alt={`Saved photo ${index + 1}`} className="h-full w-full object-cover" />
+                    <button
+                      type="button"
+                      aria-label="Remove photo"
+                      onClick={() => setKeptImages((prev) => prev.filter((_, i) => i !== index))}
+                      className="absolute right-0.5 top-0.5 rounded-full bg-ink/70 p-0.5 text-white transition-colors hover:bg-ink cursor-pointer"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+                {/* Newly picked, not uploaded yet */}
                 {previews.map((src, index) => (
                   <div
                     key={src}
@@ -253,7 +336,7 @@ export default function ReviewModal({ open, onClose, bookingId, roomName, onSave
                   Saving…
                 </span>
               ) : (
-                "Submit review"
+                editing ? "Save changes" : "Submit review"
               )}
             </Button>
           </div>

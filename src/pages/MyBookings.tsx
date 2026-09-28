@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react"
 import { useNavigate, useSearchParams } from "react-router"
-import { CalendarDays, Users, Clock, X, ChevronRight, SlidersHorizontal, ChevronLeft, LayoutGrid, CheckCircle, BadgeCheck, XCircle, Receipt, CreditCard, MapPin, FileText, Star } from "lucide-react"
+import { CalendarDays, Users, Clock, X, ChevronRight, SlidersHorizontal, ChevronLeft, LayoutGrid, CheckCircle, BadgeCheck, XCircle, CreditCard, MapPin, FileText, Star } from "lucide-react"
+import BookingQr from "@/components/BookingQr"
 import { Button } from "@/components/ui/button"
 import { userBookingsApi, ApiError, type UserBookingData } from "@/services/api"
 import { bookingsApi } from "@/services/api"
@@ -674,14 +675,14 @@ export default function MyBookings() {
                     value={formatPaymentMethod(detailBooking.payment_method, "N/A")}
                   />
                   <DetailRow
-                    icon={<Receipt className="h-4 w-4" />}
+                    icon={<CalendarDays className="h-4 w-4" />}
                     label="Booking Date"
                     value={new Date(detailBooking.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                   />
                   <div className="flex items-center justify-between pt-2 border-t border-gray-200">
                     <span className="text-sm font-semibold text-ink">Total Amount</span>
                     <span className="text-lg font-display font-bold" style={{ color: PRIMARY }}>
-                      ₱{detailBooking.total_price.toLocaleString()}
+                      {detailBooking.total_price.toLocaleString()}
                     </span>
                   </div>
                   <Button
@@ -689,11 +690,18 @@ export default function MyBookings() {
                     onClick={() => setReceiptOpen(true)}
                     className="mt-3 w-full !rounded-[8px] gap-2"
                   >
-                    <Receipt className="h-4 w-4" />
                     View Receipt
                   </Button>
                 </div>
               </div>
+
+              {/* Check-in QR code — what the guest shows at the front desk */}
+              {detailBooking.status === "confirmed" && (
+                <div className="space-y-3 mb-6">
+                  <h4 className="text-xs font-semibold uppercase tracking-wider text-muted">Check-in QR Code</h4>
+                  <BookingQr bookingId={detailBooking.id} />
+                </div>
+              )}
 
               {/* Special Requests */}
               {detailBooking.special_requests && (

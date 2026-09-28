@@ -42,8 +42,9 @@ export interface ReceiptDialogProps {
   data: ReceiptData
 }
 
-const peso = (n: number) =>
-  `₱${n.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+/** Plain number — the receipt prints no currency symbol. */
+const amount = (n: number) =>
+  n.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 function formatStamp(iso?: string | null, withTime = false): string {
   if (!iso) return "—"
@@ -141,15 +142,15 @@ export default function ReceiptDialog({ open, onClose, data }: ReceiptDialogProp
             <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-[#6b7280]">
               Charges
             </p>
-            <Row label={data.itemLabel} value={peso(gross)} />
-            {discount > 0 && <Row label="Discount" value={`-${peso(discount)}`} />}
-            <Row label="VAT (12%)" value={peso(vat)} />
+            <Row label={data.itemLabel} value={amount(gross)} />
+            {discount > 0 && <Row label="Discount" value={`-${amount(discount)}`} />}
+            <Row label="VAT (12%)" value={amount(vat)} />
 
             <Dashed />
 
             <div className="flex items-center justify-between gap-3 text-[13px] font-bold">
               <span>TOTAL</span>
-              <span>{peso(total)}</span>
+              <span>{amount(total)}</span>
             </div>
 
             <Dashed />
