@@ -3300,19 +3300,36 @@ _demand_status_file = os.path.join(os.path.dirname(__file__), ".demand_insight_s
 _offer_status_file = os.path.join(os.path.dirname(__file__), ".offer_status.json")
 
 
+def _status_file_candidates(path: str) -> list[str]:
+    """Primary path plus /tmp fallback (Vercel read-only bundle FS)."""
+    candidates = [path]
+    tmp = os.path.join("/tmp", os.path.basename(path))
+    if tmp != path:
+        candidates.append(tmp)
+    return candidates
+
+
 def _load_json_file(path: str, default):
-    if os.path.exists(path):
+    for p in _status_file_candidates(path):
         try:
-            with open(path, "r") as f:
-                return json.load(f)
+            if os.path.exists(p):
+                with open(p, "r") as f:
+                    return json.load(f)
         except Exception:
-            return default
+            continue
     return default
 
 
-def _save_json_file(path: str, data) -> None:
-    with open(path, "w") as f:
-        json.dump(data, f)
+def _save_json_file(path: str, data) -> bool:
+    for p in _status_file_candidates(path):
+        try:
+            with open(p, "w") as f:
+                json.dump(data, f)
+            return True
+        except OSError:
+            continue
+    print(f"_save_json_file failed for {path} (read-only FS)")
+    return False
 
 
 @app.route("/api/analytics/demand-insights/status", methods=["POST"])
@@ -3334,7 +3351,8 @@ def set_demand_insight_status():
         status[insight_id] = "accepted"
     else:
         status[insight_id] = "dismissed"
-    _save_json_file(_demand_status_file, status)
+    if not _save_json_file(_demand_status_file, status):
+        return jsonify({"error": "Could not save status"}), 500
     invalidate_cache("analytics-demand")
     return jsonify({"ok": True}), 200
 
@@ -3355,7 +3373,8 @@ def set_discount_offer_status():
 
     status = _load_json_file(_offer_status_file, {})
     status[offer_id] = status_val
-    _save_json_file(_offer_status_file, status)
+    if not _save_json_file(_offer_status_file, status):
+        return jsonify({"error": "Could not save status"}), 500
     invalidate_cache("analytics-discounts")
     return jsonify({"ok": True}), 200
 
@@ -3785,17 +3804,25 @@ _supabase_discounts_table_ok: bool | None = None  # None = untested, True/False 
 
 
 def _load_approved_cache() -> set[str]:
-    """Load approved keys from disk."""
-    if os.path.exists(_approved_discounts_file):
-        with open(_approved_discounts_file, "r") as f:
-            return set(json.load(f))
+    """Load approved keys from disk (best-effort)."""
+    try:
+        if os.path.exists(_approved_discounts_file):
+            with open(_approved_discounts_file, "r") as f:
+                return set(json.load(f))
+    except Exception as e:
+        print(f"_load_approved_cache error: {e}")
     return set()
 
 
-def _save_approved_cache(keys: set[str]) -> None:
-    """Persist approved keys to disk."""
-    with open(_approved_discounts_file, "w") as f:
-        json.dump(sorted(keys), f)
+def _save_approved_cache(keys: set[str]) -> bool:
+    """Persist approved keys to disk. Returns False on read-only FS (e.g. Vercel)."""
+    try:
+        with open(_approved_discounts_file, "w") as f:
+            json.dump(sorted(keys), f)
+        return True
+    except OSError as e:
+        print(f"_save_approved_cache skipped (read-only FS): {e}")
+        return False
 
 
 def _discounts_table_exists() -> bool:
@@ -3838,12 +3865,17 @@ def approve_discount():
     if not key:
         return jsonify({"error": "event_room_type_key required"}), 400
 
-    # Always save to file (source of truth)
-    keys = _load_approved_cache()
-    keys.add(key)
-    _save_approved_cache(keys)
+    # Best-effort local file cache (fails silently on read-only FS like Vercel)
+    file_ok = False
+    try:
+        keys = _load_approved_cache()
+        keys.add(key)
+        file_ok = _save_approved_cache(keys)
+    except Exception as e:
+        print(f"approve_discount file error: {e}")
 
-    # Also try Supabase (best effort)
+    # Durable store: Supabase (works on both local and Vercel)
+    supa_ok = False
     if _discounts_table_exists():
         try:
             try:
@@ -3853,9 +3885,12 @@ def approve_discount():
             supabase.table("approved_discounts").insert(
                 {"event_room_type_key": key}
             ).execute()
+            supa_ok = True
         except Exception as e:
-            print(f"approve_discount Supabase sync error (file saved): {e}")
+            print(f"approve_discount Supabase error: {e}")
 
+    if not file_ok and not supa_ok:
+        return jsonify({"error": "Could not save approval"}), 500
     return jsonify({"ok": True}), 200
 
 
@@ -3867,20 +3902,28 @@ def dismiss_discount():
     if not key:
         return jsonify({"error": "event_room_type_key required"}), 400
 
-    # Always remove from file (source of truth)
-    keys = _load_approved_cache()
-    keys.discard(key)
-    _save_approved_cache(keys)
+    # Best-effort local file cache (fails silently on read-only FS like Vercel)
+    file_ok = False
+    try:
+        keys = _load_approved_cache()
+        keys.discard(key)
+        file_ok = _save_approved_cache(keys)
+    except Exception as e:
+        print(f"dismiss_discount file error: {e}")
 
-    # Also try Supabase (best effort)
+    # Durable store: Supabase
+    supa_ok = False
     if _discounts_table_exists():
         try:
             supabase.table("approved_discounts").delete().eq(
                 "event_room_type_key", key
             ).execute()
+            supa_ok = True
         except Exception as e:
-            print(f"dismiss_discount Supabase sync error (file saved): {e}")
+            print(f"dismiss_discount Supabase error: {e}")
 
+    if not file_ok and not supa_ok:
+        return jsonify({"error": "Could not remove approval"}), 500
     return jsonify({"ok": True}), 200
 
 
