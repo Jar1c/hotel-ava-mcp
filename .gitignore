@@ -61,3 +61,11 @@ backend/.approved_discounts.json
 backend/.offer_status.json
 backend/.demand_insight_status.json
 ai-forecast-shared
+dash-ai-cards
+
+# Root screenshots / debug artifacts (test captures, never source)
+/*.png
+login-page.yml
+opencode-conversations/
+backend/err.log
+backend/out.log
