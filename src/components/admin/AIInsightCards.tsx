@@ -1,5 +1,6 @@
 import { useNavigate } from "react-router"
 import { Brain, TrendingUp, Calendar, ArrowRight } from "lucide-react"
+import AiAbout from "@/components/admin/AiAbout"
 import type { RecommendationsData } from "@/services/adminService"
 
 type Props = {
@@ -23,10 +24,11 @@ export default function AIInsightCards({ recommendations, loading, linkBase, sho
           <div className="flex items-center justify-center w-8 h-8 rounded-[6px] bg-[#82285f]/10">
             <Brain className="w-4 h-4 text-[#82285f]" />
           </div>
-          <div>
+          <div className="flex items-center gap-2">
             <h2 className="text-[14px] font-bold text-[#82285f]">AI-Powered Insights</h2>
-            <p className="text-[11px] text-[#82285f]/70">Forecasts and discount ideas from your booking history</p>
+            <AiAbout text="A 30-day snapshot from your booking history — occupancy, revenue, and discount ideas. Numbers refresh as new bookings come in." />
           </div>
+          <p className="text-[11px] text-[#82285f]/70">Forecasts and discount ideas from your booking history</p>
         </div>
         {showHeaderLink && linkBase && (
           <button
@@ -66,7 +68,10 @@ export default function AIInsightCards({ recommendations, loading, linkBase, sho
                     : "STEADY"}
                 </span>
               </div>
-              <p className="text-[13px] font-bold text-[#1a1d26] mb-1">How full we'll be</p>
+              <div className="flex items-center gap-1.5 mb-1">
+                <p className="text-[13px] font-bold text-[#1a1d26]">How full we'll be</p>
+                <AiAbout text="ML forecast of the % of rooms occupied over the next 30 days, based on seasonal patterns and your booking history." />
+              </div>
               <p className="text-[12px] text-[#4a4f59]">
                 {recommendations && recommendations.confidence > 0
                   ? `${recommendations.next30DaysOccupancy}% projected next 30 days`
@@ -90,7 +95,10 @@ export default function AIInsightCards({ recommendations, loading, linkBase, sho
                     : "—"}
                 </span>
               </div>
-              <p className="text-[13px] font-bold text-[#1a1d26] mb-1">Expected earnings</p>
+              <div className="flex items-center gap-1.5 mb-1">
+                <p className="text-[13px] font-bold text-[#1a1d26]">Expected earnings</p>
+                <AiAbout text="AI-projected room revenue for the next 30 days — forecasted occupancy combined with your current rates." />
+              </div>
               <p className="text-[12px] text-[#4a4f59]">
                 {recommendations && recommendations.confidence > 0
                   ? "next 30 days"
@@ -108,7 +116,10 @@ export default function AIInsightCards({ recommendations, loading, linkBase, sho
                   {recommendations?.activeDiscounts ?? 0} active
                 </span>
               </div>
-              <p className="text-[13px] font-bold text-[#1a1d26] mb-1">Discount ideas</p>
+              <div className="flex items-center gap-1.5 mb-1">
+                <p className="text-[13px] font-bold text-[#1a1d26]">Discount ideas</p>
+                <AiAbout text="AI finds low-demand periods where a price cut could boost bookings. Approve or dismiss each idea — nothing goes live until you approve it." />
+              </div>
               <p className="text-[12px] text-[#4a4f59]">
                 {recommendations?.bestDiscountPeriod ?? "No price cuts needed right now."}
               </p>

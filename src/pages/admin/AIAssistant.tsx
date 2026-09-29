@@ -9,6 +9,7 @@ import SeasonalChart from "@/components/admin/SeasonalChart"
 import RoomPerformance from "@/components/admin/RoomPerformance"
 import InsightCard from "@/components/admin/InsightCard"
 import AIInsightCards from "@/components/admin/AIInsightCards"
+import AiAbout from "@/components/admin/AiAbout"
 import {
   getSeasonalData,
   getRoomPerformance,
@@ -179,7 +180,13 @@ export default function AIAssistant() {
     <div className="space-y-5">
       {/* Header */}
       <div>
-        <h1 className="font-display text-2xl font-bold text-foreground">AI Assistant</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="font-display text-2xl font-bold text-foreground">AI Assistant</h1>
+          <AiAbout
+            size="lg"
+            text="Your AI operations hub. Machine learning studies your past bookings to forecast occupancy and revenue, suggest demand-based discounts, and highlight key hotel stats."
+          />
+        </div>
         <p className="text-muted text-sm mt-1">Forecasts, price ideas, and hotel stats — in one place</p>
       </div>
 

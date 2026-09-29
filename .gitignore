@@ -55,3 +55,9 @@ backend/venv/
 
 .vercel
 .env*
+
+# Backend runtime state (per-server, must never be committed)
+backend/.approved_discounts.json
+backend/.offer_status.json
+backend/.demand_insight_status.json
+ai-forecast-shared

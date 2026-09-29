@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react"
 import { Tag, Check, X, Brain, Calendar, Sparkles, Shield } from "lucide-react"
 import { cn, formatCurrency } from "@/lib/utils"
+import AiAbout from "@/components/admin/AiAbout"
 import type { DiscountOfferData } from "@/services/adminService"
 import { setDiscountOfferStatus } from "@/services/adminService"
 import { getActiveDiscounts, getUpcomingDiscounts, type ActiveDiscount, type DiscountRoom } from "@/lib/discountEngine"
@@ -99,7 +100,10 @@ export default function DiscountOffers({ offers: initialOffers, rooms, loading }
               <Brain className="w-4 h-4 text-[#82285f]" />
             </div>
             <div>
-              <h3 className="font-display text-lg font-semibold text-foreground">AI Holiday Suggestions</h3>
+              <div className="flex items-center gap-1.5">
+                <h3 className="font-display text-lg font-semibold text-foreground">AI Holiday Suggestions</h3>
+                <AiAbout text="AI-generated promo proposals for holidays and local events, based on past demand. Approved promos automatically apply to guest search." />
+              </div>
               <p className="text-sm text-muted mt-0.5">Promos for holidays and local events — approve to activate</p>
             </div>
           </div>

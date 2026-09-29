@@ -10,6 +10,7 @@ import {
   ReferenceLine,
 } from "recharts"
 import { seasonalEvents } from "@/data/admin"
+import AiAbout from "@/components/admin/AiAbout"
 import type { ForecastPoint } from "@/services/adminService"
 
 interface TooltipPayloadEntry {
@@ -65,7 +66,10 @@ export default function DemandForecastChart({ data, loading }: { data: ForecastP
   return (
     <div className="bg-white rounded-[6px] border border-[#e2e4e8] p-6">
       <div className="mb-4">
-        <h3 className="font-display text-lg font-semibold text-foreground">Demand Forecast</h3>
+        <div className="flex items-center gap-1.5">
+          <h3 className="font-display text-lg font-semibold text-foreground">Demand Forecast</h3>
+          <AiAbout text="Machine-learning occupancy forecast for the coming months, trained on your historical bookings and seasonal demand. The dashed line marks your peak-occupancy target." />
+        </div>
         <p className="text-sm text-muted mt-1">Predicted occupancy with seasonal events</p>
       </div>
       <div className="h-[320px]">
