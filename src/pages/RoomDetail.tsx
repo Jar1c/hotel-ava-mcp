@@ -126,11 +126,11 @@ export default function RoomDetail() {
     (searchParams.get("stayType") as "overnight" | "day") || "overnight"
   )
   const [checkIn, setCheckIn] = useState<Date | null>(() => {
-    const v = searchParams.get("checkIn")
+    const v = searchParams.get("checkIn") || searchParams.get("checkin")
     return v ? parseDateParam(v) : null
   })
   const [checkOut, setCheckOut] = useState<Date | null>(() => {
-    const v = searchParams.get("checkOut")
+    const v = searchParams.get("checkOut") || searchParams.get("checkout")
     return v ? parseDateParam(v) : null
   })
   const [guests, setGuests] = useState<GuestCount>(() => ({
@@ -176,8 +176,8 @@ export default function RoomDetail() {
   }, [room, allAmenities])
 
   useEffect(() => {
-    let checkInDate = searchParams.get("checkIn")
-    let checkOutDate = searchParams.get("checkOut")
+    let checkInDate = searchParams.get("checkIn") || searchParams.get("checkin")
+    let checkOutDate = searchParams.get("checkOut") || searchParams.get("checkout")
     let adultsValue = searchParams.get("adults")
     let childrenValue = searchParams.get("children")
     let petsValue = searchParams.get("pets")
@@ -195,8 +195,8 @@ export default function RoomDetail() {
           params = new URLSearchParams(returnTo.substring(hashIndex + 1))
         }
 
-        checkInDate = params.get("checkIn")
-        checkOutDate = params.get("checkOut")
+        checkInDate = params.get("checkIn") || params.get("checkin")
+        checkOutDate = params.get("checkOut") || params.get("checkout")
         adultsValue = params.get("adults")
         childrenValue = params.get("children")
         petsValue = params.get("pets")

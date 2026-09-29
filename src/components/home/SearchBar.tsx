@@ -159,6 +159,7 @@ export default function SearchBar() {
     }
     searchParams.set("adults", String(guests.adults))
     searchParams.set("children", String(guests.children))
+    if (guests.pets > 0) searchParams.set("pets", String(guests.pets))
     if (budget < BUDGET_MAX) searchParams.set("budgetMax", String(budget))
     navigate({
       pathname: "/rooms",

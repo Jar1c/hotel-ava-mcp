@@ -82,8 +82,8 @@ export default function Rooms() {
 
   const filters = {
     stayType: searchParams.get("stayType") || undefined,
-    checkIn: searchParams.get("checkIn") || undefined,
-    checkOut: searchParams.get("checkOut") || undefined,
+    checkIn: searchParams.get("checkIn") || searchParams.get("checkin") || undefined,
+    checkOut: searchParams.get("checkOut") || searchParams.get("checkout") || undefined,
     startTime: searchParams.get("startTime") || undefined,
     duration: searchParams.get("duration") || undefined,
     adults: Number(searchParams.get("adults")) || undefined,

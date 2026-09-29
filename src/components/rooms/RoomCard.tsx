@@ -12,6 +12,7 @@ interface RoomFilters {
   duration?: string
   adults?: number
   children?: number
+  pets?: number
 }
 
 interface RoomCardProps {
@@ -81,6 +82,7 @@ export default function RoomCard({ room, filters, discountRooms, isApproved }: R
     if (filters?.duration) params.set("duration", filters.duration)
     if (filters?.adults && filters.adults > 0) params.set("adults", String(filters.adults))
     if (filters?.children && filters.children > 0) params.set("children", String(filters.children))
+    if (filters?.pets && filters.pets > 0) params.set("pets", String(filters.pets))
     const qs = params.toString()
     return `/rooms/${room.id}${qs ? `?${qs}` : ""}`
   })()
