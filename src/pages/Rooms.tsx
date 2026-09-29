@@ -88,12 +88,41 @@ export default function Rooms() {
     duration: searchParams.get("duration") || undefined,
     adults: Number(searchParams.get("adults")) || undefined,
     children: Number(searchParams.get("children")) || undefined,
+    pets: Number(searchParams.get("pets")) || undefined,
     budgetMax: Number(searchParams.get("budgetMax")) || 99999,
   }
 
   const hasDateFilter = filters.checkIn && (
     filters.stayType === "overnight" ? filters.checkOut : filters.startTime
   )
+
+  // AI Smart Filter - filter by guest preferences BEFORE budget check
+  const filteredRooms = useMemo(() => {
+    let result = roomsData
+    
+    // Filter 1: If pets > 0, show ONLY pet-friendly rooms
+    if (filters.pets && filters.pets > 0) {
+      result = result.filter(room => 
+        room.amenities?.some(a => a.includes('Pet')) || false
+      )
+    }
+    
+    // Filter 2: If children > 0, show ONLY rooms that allow children
+    if (filters.children && filters.children > 0) {
+      result = result.filter(room => 
+        room.allows_children === true
+      )
+    }
+    
+    // Filter 3: Budget check (if specified)
+    if (filters.budgetMax && filters.budgetMax < 99999) {
+      result = result.filter(room => 
+        room.price <= filters.budgetMax!
+      )
+    }
+    
+    return result
+  }, [roomsData, filters])
 
   useEffect(() => {
     const cached = getCached<PublicRoomData[]>("public_rooms")
@@ -156,10 +185,37 @@ export default function Rooms() {
     return () => { cancelled = true }
   }, [roomsData, hasDateFilter, filters.checkIn, filters.checkOut, filters.stayType, filters.startTime, filters.duration])
 
-  // Only rooms the backend confirmed free (strict — an unanswered id is not "available")
-  const filteredRooms = hasDateFilter
-    ? roomsData.filter((room) => availabilityMap[room.id] === true && room.price <= filters.budgetMax)
-    : roomsData.filter((room) => room.price <= filters.budgetMax)
+  // Smart Filter: guests preference > date availability > budget
+  // Pass pets/children in URL params but filter frontend after availability check
+  const smartFilteredRooms = useMemo(() => {
+    let result = roomsData
+    
+    // 1. Guests filter FIRST (pets/children - most important!)
+    if (filters.pets && filters.pets > 0) {
+      result = result.filter(room => 
+        room.amenities?.some(a => a.includes('Pet')) || false
+      )
+    }
+    if (filters.children && filters.children > 0) {
+      result = result.filter(room => 
+        room.allows_children === true
+      )
+    }
+    
+    // 2. Date availability (if dates specified)
+    if (hasDateFilter) {
+      result = result.filter(room => availabilityMap[room.id] === true)
+    }
+    
+    // 3. Budget (final filter)
+    if (filters.budgetMax && filters.budgetMax < 99999) {
+      result = result.filter(room => 
+        room.price <= filters.budgetMax!
+      )
+    }
+    
+    return result
+  }, [roomsData, availabilityMap, filters, hasDateFilter])
 
   const discountRooms: DiscountRoom[] = useMemo(
     () => roomsData.map((r) => ({ id: r.id, name: r.name, type: r.type, price: r.price })),
@@ -168,7 +224,7 @@ export default function Rooms() {
 
   // Sort: discounted rooms first, then by effective price (cheapest first)
   const sortedRooms = useMemo(() => {
-    return [...filteredRooms].sort((a, b) => {
+    return [...smartFilteredRooms].sort((a, b) => {
       const dA = getRoomDiscount(discountRooms, a.id)
       const dB = getRoomDiscount(discountRooms, b.id)
       const priceA = dA ? dA.discountedPrice : a.price
@@ -364,3 +420,4 @@ export default function Rooms() {
     </div>
   )
 }
+

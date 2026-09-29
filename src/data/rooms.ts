@@ -138,6 +138,7 @@ export const getAmenityIcon = (amenity: string): string => {
     "Hairdryer": "Wind",
     "Personal Care Kit": "Sparkles",
     "Private Garage": "Building2",
+    "Parking": "Car",
     "Bathtub": "Bath",
     "Jacuzzi": "Bath",
     "KTV": "Music",

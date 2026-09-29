@@ -243,6 +243,7 @@ export interface AdminRoom {
   max_adults: number
   max_children: number
   allows_children: boolean
+  allows_pets?: boolean
   amenities: string[]
   images: string[]
   description: string

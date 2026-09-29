@@ -40,7 +40,7 @@ export const footerLinkGroups: FooterLinkGroup[] = [
       { label: "Standard Room", path: "/rooms/standard-room" },
       { label: "Deluxe Room", path: "/rooms/deluxe-room" },
       { label: "Executive Deluxe", path: "/rooms/executive-deluxe" },
-      { label: "Regular Suite", path: "/rooms/regular-suite" },
+      { label: "Junior Suite", path: "/rooms/junior-suite" },
       { label: "Superior Suite", path: "/rooms/superior-suite" },
     ],
   },

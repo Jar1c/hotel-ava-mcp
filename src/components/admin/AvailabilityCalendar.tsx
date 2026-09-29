@@ -15,7 +15,7 @@ const roomRates: Record<string, number> = {
   "Deluxe Room": 2800,
   "Deluxe": 2800,
   "Executive Deluxe": 3200,
-  "Regular Suite": 3800,
+  "Junior Suite": 3800,
   "Suite": 3800,
   "Superior Suite": 4800,
 }
@@ -34,7 +34,7 @@ const roomTypeColors: Record<string, { bg: string; text: string; border: string 
   "Deluxe Room": { bg: "bg-[#455d58]/10", text: "text-[#455d58]", border: "border-[#455d58]/30" },
   "Deluxe": { bg: "bg-[#455d58]/10", text: "text-[#455d58]", border: "border-[#455d58]/30" },
   "Executive Deluxe": { bg: "bg-[#455d58]/10", text: "text-[#455d58]", border: "border-[#455d58]/30" },
-  "Regular Suite": { bg: "bg-[#82285f]/10", text: "text-[#82285f]", border: "border-[#82285f]/30" },
+  "Junior Suite": { bg: "bg-[#82285f]/10", text: "text-[#82285f]", border: "border-[#82285f]/30" },
   "Suite": { bg: "bg-[#82285f]/10", text: "text-[#82285f]", border: "border-[#82285f]/30" },
   "Superior Suite": { bg: "bg-[#D4A853]/10", text: "text-[#9a7b2f]", border: "border-[#D4A853]/30" },
 }

@@ -108,7 +108,7 @@ export default function SearchBar() {
   const [checkIn, setCheckIn] = useState<Date | null>(null)
   const [checkOut, setCheckOut] = useState<Date | null>(null)
   const [dayUseTime, setDayUseTime] = useState<string>("")
-  const [guests, setGuests] = useState<GuestCount>({ adults: 0, children: 0 })
+  const [guests, setGuests] = useState<GuestCount>({ adults: 0, children: 0, pets: 0 })
   const [budget, setBudget] = useState<number>(BUDGET_MAX)
   const [checkInOpen, setCheckInOpen] = useState(false)
   const [checkOutOpen, setCheckOutOpen] = useState(false)
@@ -337,7 +337,7 @@ export default function SearchBar() {
           <label className="typo-caption font-display font-semibold text-ink uppercase tracking-wider block mb-2">
             Guests
           </label>
-          <GuestSelector value={guests} onChange={setGuests} />
+          <GuestSelector value={guests} onChange={setGuests} maxPets={2} allowPets />
         </div>
 
         {/* Budget */}

@@ -3,13 +3,13 @@ import { useParams, Link, useNavigate, useSearchParams } from "react-router"
 import { motion } from "motion/react"
 import DatePicker from "react-datepicker"
 import {
-  Star, Users, ArrowLeft, Check, X,
+  Star, Users, ArrowLeft, Check, X, Dog,
   Wifi, Wind, Wine, ConciergeBell, Building2, BedDouble,
   TreePine, Coffee, Sunrise, Bath, UserCheck, Sofa,
   Baby, Waves, Fence, Droplets, Monitor, Armchair,
   Shirt, Fish, Sunset, UtensilsCrossed, Tv, Sparkles, Music, Clock, Tag, Mail,
   ChevronDown, ChevronLeft, ChevronRight,
-  MapPin, Landmark, ShoppingBag, Trees, TrainFront, FerrisWheel,
+  MapPin, Landmark, ShoppingBag, Trees, TrainFront, FerrisWheel, Car,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
@@ -31,7 +31,7 @@ const lucideIconMap: Record<string, React.ComponentType<{ className?: string }>>
   Wifi, Wind, Wine, ConciergeBell, Building2, BedDouble,
   TreePine, Coffee, Sunrise, Bath, UserCheck, Sofa,
   Baby, Waves, Fence, Droplets, Monitor, Armchair,
-  Shirt, Fish, Sunset, UtensilsCrossed, Tv, Sparkles, Music
+  Shirt, Fish, Sunset, UtensilsCrossed, Tv, Sparkles, Music, Car
 }
 
 const DAY_USE_DURATIONS = [3, 6, 8, 12] as const
@@ -136,6 +136,7 @@ export default function RoomDetail() {
   const [guests, setGuests] = useState<GuestCount>(() => ({
     adults: Number(searchParams.get("adults")) || 2,
     children: Number(searchParams.get("children")) || 0,
+    pets: Number(searchParams.get("pets")) || 0,
   }))
   const [dayDuration, setDayDuration] = useState<number>(
     Number(searchParams.get("duration")) || 3
@@ -179,6 +180,7 @@ export default function RoomDetail() {
     let checkOutDate = searchParams.get("checkOut")
     let adultsValue = searchParams.get("adults")
     let childrenValue = searchParams.get("children")
+    let petsValue = searchParams.get("pets")
 
     if (!checkInDate && !checkOutDate) {
       const returnTo = searchParams.get("returnTo")
@@ -197,6 +199,7 @@ export default function RoomDetail() {
         checkOutDate = params.get("checkOut")
         adultsValue = params.get("adults")
         childrenValue = params.get("children")
+        petsValue = params.get("pets")
       }
     }
 
@@ -205,10 +208,11 @@ export default function RoomDetail() {
     setGuests({
       adults: adultsValue ? Number(adultsValue) : 2,
       children: childrenValue ? Number(childrenValue) : 0,
+      pets: petsValue ? Number(petsValue) : 0,
     })
   }, [searchParams])
 
-  // Reset checkOut if it's now invalid (same date as checkIn or earlier)
+  // Reset checkOut if it's now invalid
   useEffect(() => {
     if (stayType !== "overnight" || !checkIn || !checkOut) return
     const minCheckOut = new Date(checkIn.getTime() + 86400000)
@@ -233,6 +237,7 @@ export default function RoomDetail() {
     }
     params.set("adults", String(guests.adults))
     params.set("children", String(guests.children))
+    params.set("pets", String(guests.pets))
     window.history.replaceState(null, "", `?${params.toString()}`)
   }, [stayType, checkIn, checkOut, guests, dayDuration, startTime, overnightStartTime])
 
@@ -469,12 +474,25 @@ export default function RoomDetail() {
                 </div>
               </div>
 
-              <div className="border-t border-hairline pt-lg">
-                <h2 className="typo-display-sm text-ink mb-md">About this room</h2>
-                <p className="typo-body-md text-body leading-relaxed">{room.description}</p>
-              </div>
+                <div className="border-t border-hairline pt-lg">
+                  <h2 className="typo-display-sm text-ink mb-md">About this room</h2>
+                  <p className="typo-body-md text-body leading-relaxed">{room.description}</p>
+                </div>
 
-              <div className="border-t border-hairline pt-lg mt-lg">
+                {/* Pet Policy Notice */}
+                {room.amenities && room.amenities.some(a => a.includes('Pet')) ? (
+                  <div className="mt-4 rounded-[12px] bg-emerald-50 border border-emerald-200 px-4 py-3 flex items-start gap-3">
+                    <Dog className="h-5 w-5 text-emerald-600 mt-0.5" />
+                    <div>
+                      <p className="typo-body-sm font-semibold text-emerald-800">Pet-Friendly Room</p>
+                      <p className="typo-caption-sm text-emerald-700 mt-1">
+                        Your furry friends are welcome! Maximum of 2 pets allowed per room. Please inform us at check-in for any special requirements.
+                      </p>
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="border-t border-hairline pt-lg mt-lg">
                 <h2 className="typo-display-sm text-ink mb-md">Amenities</h2>
                 <div className="grid grid-cols-2 gap-sm">
                   {room.amenities.map((amenity) => {
@@ -493,15 +511,87 @@ export default function RoomDetail() {
                 </div>
 
                 {/* Show More Button */}
-                <button
-                  type="button"
-                  onClick={() => setShowMoreDetails(true)}
-                  className="mt-3 inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:text-primary-active transition-colors cursor-pointer"
-                >
-                  Show more details
-                  <ChevronDown className="h-4 w-4" />
-                </button>
+                {showMoreDetails ? null : (
+                  <button
+                    type="button"
+                    onClick={() => setShowMoreDetails(true)}
+                    className="mt-3 inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:text-primary-active transition-colors cursor-pointer"
+                  >
+                    Show more details
+                    <ChevronDown className="h-4 w-4" />
+                  </button>
+                )}
               </div>
+
+              {/* Full Amenities Detail View */}
+              {showMoreDetails && (
+                <>
+                  <div className="border-t border-hairline pt-lg mt-lg">
+                    <h2 className="typo-display-sm text-ink mb-md">Amenities Details</h2>
+                    
+                    {/* Available Amenities */}
+                    <div className="mb-6">
+                      <h3 className="typo-caption-sm font-semibold text-emerald-600 mb-3 flex items-center gap-2">
+                        <span className="inline-block h-2 w-2 rounded-full bg-emerald-500"></span>
+                        Available ({room.amenities.length})
+                      </h3>
+                      <div className="grid grid-cols-2 gap-sm">
+                        {room.amenities.map((amenity) => {
+                          const iconName = getAmenityIcon(amenity)
+                          const IconComponent = lucideIconMap[iconName] || Sparkles
+                          return (
+                            <div
+                              key={amenity}
+                              className="flex items-center gap-2 py-2"
+                            >
+                              <IconComponent className="h-4 w-4 text-emerald-600" />
+                              <span className="typo-body-sm text-emerald-700">{amenity}</span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Not Available Amenities */}
+                    {missingAmenities.length > 0 && (
+                      <div>
+                        <h3 className="typo-caption-sm font-semibold text-muted mb-3 flex items-center gap-2">
+                          <span className="inline-block h-2 w-2 rounded-full bg-gray-400"></span>
+                          Not available in this room ({missingAmenities.length})
+                        </h3>
+                        <div className="grid grid-cols-2 gap-sm">
+                          {missingAmenities.map((amenity) => {
+                            const iconName = getAmenityIcon(amenity)
+                            const IconComponent = lucideIconMap[iconName] || Sparkles
+                            return (
+                              <div
+                                key={amenity}
+                                className="flex items-center gap-2 py-2 opacity-60"
+                              >
+                                <IconComponent className="h-4 w-4 text-muted" />
+                                <span className="typo-body-sm text-muted line-through">{amenity}</span>
+                              </div>
+                            )
+                          })}
+                        </div>
+                        <p className="typo-caption-sm text-muted mt-4 italic">
+                          Available in other room types.
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Close Button */}
+                    <button
+                      type="button"
+                      onClick={() => setShowMoreDetails(false)}
+                      className="mt-5 inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:text-primary-active transition-colors cursor-pointer"
+                    >
+                      <ArrowLeft className="h-4 w-4" />
+                      Back to room details
+                    </button>
+                  </div>
+                </>
+              )}
 
               {/* Nearby Places — 3 highlighted cards, "Show more" reveals the rest */}
               <div className="border-t border-hairline pt-lg mt-lg">
@@ -942,7 +1032,15 @@ export default function RoomDetail() {
                   <div>
                     <label className="typo-caption text-muted block mb-xs">Guests</label>
                     <div className="px-3 py-2 rounded-[12px] border border-hairline bg-white">
-                      <GuestSelector value={guests} onChange={setGuests} maxAdults={room.max_adults} maxChildren={room.max_children} allowChildren={room.allows_children} />
+                      <GuestSelector 
+                        value={guests} 
+                        onChange={setGuests} 
+                        maxAdults={room.max_adults} 
+                        maxChildren={room.max_children} 
+                        allowChildren={room.allows_children}
+                        allowPets={room.amenities?.some(a => a.includes('Pet')) || false}
+                        maxPets={2}
+                      />
                     </div>
                   </div>
                 </div>
@@ -1028,7 +1126,15 @@ export default function RoomDetail() {
                   <div>
                     <label className="typo-caption text-muted block mb-xs">Guests</label>
                     <div className="px-3 py-2 rounded-[12px] border border-hairline bg-white">
-                      <GuestSelector value={guests} onChange={setGuests} maxAdults={room.max_adults} maxChildren={room.max_children} allowChildren={room.allows_children} />
+                      <GuestSelector 
+                        value={guests} 
+                        onChange={setGuests} 
+                        maxAdults={room.max_adults} 
+                        maxChildren={room.max_children} 
+                        allowChildren={room.allows_children}
+                        allowPets={room.amenities?.some(a => a.includes('Pet')) || false}
+                        maxPets={2}
+                      />
                     </div>
                   </div>
                 </div>

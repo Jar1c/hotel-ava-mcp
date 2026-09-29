@@ -1,5 +1,5 @@
 import { Link } from "react-router"
-import { Star, Users, Wifi, Wind, Wine, ConciergeBell, Building2, BedDouble, TreePine, Coffee, Tv, Monitor, Waves, Fence, Bath, CookingPot, Sofa, UtensilsCrossed, Mountain, Sunrise, Shirt, Sunset, UserCheck, Eye, Lock, Baby, Sparkles, Music, Droplets, Tag } from "lucide-react"
+import { Star, Users, Wifi, Wind, Wine, ConciergeBell, Building2, BedDouble, TreePine, Coffee, Tv, Monitor, Waves, Fence, Bath, CookingPot, Sofa, UtensilsCrossed, Mountain, Sunrise, Shirt, Sunset, UserCheck, Eye, Lock, Baby, Sparkles, Music, Droplets, Tag, Car } from "lucide-react"
 import type { Room } from "@/data/rooms"
 import ImageWithPlaceholder from "@/components/ui/ImageWithPlaceholder"
 import { getRoomDiscount, type DiscountRoom } from "@/lib/discountEngine"
@@ -63,6 +63,7 @@ const amenityIcons: Record<string, React.ReactNode> = {
   "Hairdryer": <Wind className="h-3 w-3" />,
   "Personal Care Kit": <Sparkles className="h-3 w-3" />,
   "Private Garage": <Building2 className="h-3 w-3" />,
+  "Parking": <Car className="h-3 w-3" />,
   "KTV": <Music className="h-3 w-3" />,
   "Cable TV": <Tv className="h-3 w-3" />,
 }

@@ -208,7 +208,7 @@ export default function SearchFilters({ initialFilters, onFilterChange }: Search
         {/* Guests */}
         <div className="w-1/2 md:flex-1 px-6 py-5 border-t md:border-t-0 md:border-l border-hairline/60">
           <label className="typo-caption font-display font-semibold text-ink uppercase tracking-wider block mb-2">Guests</label>
-          <GuestSelector value={draft.guests} onChange={(val) => updateDraft("guests", val)} />
+          <GuestSelector value={draft.guests} onChange={(val) => updateDraft("guests", val)} maxPets={2} allowPets />
         </div>
 
         {/* Budget */}

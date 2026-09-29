@@ -3,7 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Button } from "@/components/ui/button"
 import {
   X, CloudUpload, Bed, SquarePen, Users, CircleDot,
-  Snowflake, ShowerHead, Wifi, Monitor, Tv, Wind, SprayCan, Car, Bath, Waves, Music,
+  Snowflake, ShowerHead, Wifi, Monitor, Tv, Wind, SprayCan, Car, Bath, Waves, Music, PawPrint,
 } from "lucide-react"
 import { uploadApi } from "@/services/api"
 import LoadingDots from "@/components/LoadingDots"
@@ -17,6 +17,8 @@ export interface RoomFormData {
   max_adults: number
   max_children: number
   allows_children: boolean
+  allows_pets?: boolean
+  max_pets?: number
   amenities: string[]
   images: string[]
   description: string
@@ -25,7 +27,7 @@ export interface RoomFormData {
 
 const MAX_IMAGES = 5
 
-const roomTypes = ["Standard", "Deluxe", "Executive Deluxe", "Regular Suite", "Superior Suite"]
+const roomTypes = ["Standard", "Deluxe", "Executive Deluxe", "Junior Suite", "Superior Suite"]
 
 // Hotel Ava Malate room type presets
 const roomTypePresets: Record<string, { capacity: number; max_adults: number; max_children: number; allows_children: boolean; amenities: string[] }> = {
@@ -50,7 +52,7 @@ const roomTypePresets: Record<string, { capacity: number; max_adults: number; ma
     allows_children: false,
     amenities: ["Air Conditioning", "Free WiFi", "Smart TV", "Hot & Cold Shower", "Personal Care Kit", "Hairdryer", "Private Garage", "Bathtub"],
   },
-  "Regular Suite": {
+  "Junior Suite": {
     capacity: 4,
     max_adults: 3,
     max_children: 2,
@@ -75,6 +77,7 @@ const amenityIcons: Record<string, React.ReactNode> = {
   "Hairdryer": <Wind className="size-3.5 text-black" />,
   "Personal Care Kit": <SprayCan className="size-3.5 text-black" />,
   "Private Garage": <Car className="size-3.5 text-black" />,
+  "Parking": <Car className="size-3.5 text-black" />,
   "Bathtub": <Bath className="size-3.5 text-black" />,
   "Jacuzzi": <Waves className="size-3.5 text-black" />,
   "KTV": <Music className="size-3.5 text-black" />,
@@ -85,6 +88,7 @@ interface RoomFormSheetProps {
   onClose: () => void
   onSave: (data: RoomFormData) => Promise<void> | void
   editRoom?: AdminRoom | null
+  otherRoomNames?: string[]
 }
 
 function emptyForm(): RoomFormData {
@@ -97,6 +101,8 @@ function emptyForm(): RoomFormData {
     max_adults: preset.max_adults,
     max_children: preset.max_children,
     allows_children: preset.allows_children,
+    allows_pets: false,
+    max_pets: 0,
     amenities: [...preset.amenities],
     images: [],
     description: "",
@@ -111,12 +117,13 @@ function extractPath(url: string): string | null {
   return url.slice(idx + marker.length)
 }
 
-export default function RoomFormSheet({ open, onClose, onSave, editRoom }: RoomFormSheetProps) {
+export default function RoomFormSheet({ open, onClose, onSave, editRoom, otherRoomNames = [] }: RoomFormSheetProps) {
   const [form, setForm] = useState<RoomFormData>(() => {
     if (editRoom) {
       const max_adults = editRoom.max_adults || 2
       const max_children = editRoom.max_children ?? 1
-      return { ...editRoom, max_adults, max_children, capacity: max_adults + max_children, images: editRoom.images || [] }
+      const allows_pets = (editRoom.amenities || []).some((a) => a.includes("Pet"))
+      return { ...editRoom, max_adults, max_children, capacity: max_adults + max_children, images: editRoom.images || [], allows_pets, max_pets: allows_pets ? 2 : 0 }
     }
     return emptyForm()
   })
@@ -128,7 +135,12 @@ export default function RoomFormSheet({ open, onClose, onSave, editRoom }: RoomF
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const resetForm = () => {
-    setForm(editRoom ? { ...editRoom, images: editRoom.images || [] } : emptyForm())
+    if (editRoom) {
+      const pets = (editRoom.amenities || []).some((a) => a.includes("Pet"))
+      setForm({ ...editRoom, images: editRoom.images || [], allows_pets: pets, max_pets: pets ? 2 : 0 })
+    } else {
+      setForm(emptyForm())
+    }
     setErrors({})
     setUploading(false)
     setUploadProgress(0)
@@ -143,10 +155,17 @@ export default function RoomFormSheet({ open, onClose, onSave, editRoom }: RoomF
 
   const validate = (): boolean => {
     const errs: Partial<Record<keyof RoomFormData, string>> = {}
-    if (!form.name.trim()) errs.name = "Room name is required"
+    const name = form.name.trim()
+    if (!name) errs.name = "Room name is required"
+    else if (name.length > 100) errs.name = "Room name must not exceed 100 characters"
+    else if (otherRoomNames.some((n) => n.trim().toLowerCase() === name.toLowerCase())) errs.name = "A room with this name already exists"
     if (!form.type) errs.type = "Room type is required"
-    if (form.price <= 0) errs.price = "Price must be greater than 0"
-    if (form.capacity <= 0) errs.capacity = "Capacity must be greater than 0"
+    if (!Number.isInteger(form.price) || form.price <= 0) errs.price = "Price must be a whole number greater than 0"
+    else if (form.price > 1000000) errs.price = "Price must not exceed ₱1,000,000"
+    if (!Number.isInteger(form.max_adults) || form.max_adults < 1 || form.max_adults > 10) errs.max_adults = "Max adults must be a whole number from 1 to 10"
+    if (!Number.isInteger(form.max_children) || form.max_children < 0 || form.max_children > 10) errs.max_children = "Max children must be a whole number from 0 to 10"
+    if (!Number.isInteger(form.max_pets ?? 0) || (form.max_pets ?? 0) < 0 || (form.max_pets ?? 0) > 2) errs.max_pets = "Max pets must be 0, 1, or 2"
+    if (!Number.isInteger(form.capacity) || form.capacity <= 0) errs.capacity = "Total capacity must be greater than 0"
     if (form.images.length === 0) errs.images = "At least 1 image is required"
     setErrors(errs)
     return Object.keys(errs).length === 0
@@ -154,9 +173,15 @@ export default function RoomFormSheet({ open, onClose, onSave, editRoom }: RoomF
 
   const handleSave = async () => {
     if (!validate()) return
+    // The pet amenity follows the numeric pet limit (0 = pets not allowed)
+    const petAmenity = "Pets (Max 2 Allowed)"
+    const petCount = form.max_pets ?? 0
+    const amenities = petCount > 0
+      ? (form.amenities.includes(petAmenity) ? form.amenities : [...form.amenities, petAmenity])
+      : form.amenities.filter((a) => a !== petAmenity)
     setSaving(true)
     try {
-      await onSave(form)
+      await onSave({ ...form, amenities, allows_children: form.max_children > 0, allows_pets: petCount > 0 })
       handleClose()
     } catch {
       // keep dialog open on error
@@ -268,7 +293,21 @@ export default function RoomFormSheet({ open, onClose, onSave, editRoom }: RoomF
                   <input
                     type="text"
                     value={form.name}
-                    onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                    onChange={(e) => {
+                      const value = e.target.value
+                      setForm((f) => ({ ...f, name: value }))
+                      // Live duplicate-name check against the other rooms
+                      const dup = otherRoomNames.some((n) => n.trim().toLowerCase() === value.trim().toLowerCase())
+                      setErrors((prev) => {
+                        if (dup) return { ...prev, name: "A room with this name already exists" }
+                        if (prev.name === "A room with this name already exists") {
+                          const next = { ...prev }
+                          delete next.name
+                          return next
+                        }
+                        return prev
+                      })
+                    }}
                     placeholder="e.g. Deluxe Room"
                     className="w-full rounded-[6px] border border-[#e2e4e8] bg-white pl-9 pr-3 py-2.5 text-[13px] text-[#1a1d26] placeholder:text-[#b0b3b8] focus:outline-none focus:ring-2 focus:ring-[#82285f]/15 focus:border-[#82285f] transition-all"
                   />
@@ -296,6 +335,8 @@ export default function RoomFormSheet({ open, onClose, onSave, editRoom }: RoomF
                           max_adults: preset?.max_adults ?? f.max_adults,
                           max_children: preset?.max_children ?? f.max_children,
                           allows_children: preset?.allows_children ?? f.allows_children,
+                          allows_pets: false,
+                          max_pets: 0,
                           amenities: preset?.amenities ?? f.amenities,
                         }))
                       }}
@@ -320,7 +361,10 @@ export default function RoomFormSheet({ open, onClose, onSave, editRoom }: RoomF
                     <input
                       type="number"
                       value={form.price || ""}
-                      onChange={(e) => setForm((f) => ({ ...f, price: Number(e.target.value) }))}
+                      onChange={(e) => {
+                        const v = e.target.value.replace(/[^0-9]/g, "").slice(0, 7)
+                        setForm((f) => ({ ...f, price: v ? Number(v) : 0 }))
+                      }}
                       placeholder="2400"
                       className="w-full rounded-[6px] border border-[#e2e4e8] bg-white pl-9 pr-3 py-2.5 text-[13px] text-[#1a1d26] placeholder:text-[#b0b3b8] focus:outline-none focus:ring-2 focus:ring-[#82285f]/15 focus:border-[#82285f] transition-all"
                     />
@@ -340,16 +384,20 @@ export default function RoomFormSheet({ open, onClose, onSave, editRoom }: RoomF
                     <input
                       type="number"
                       value={form.max_adults || ""}
-                      onChange={(e) => setForm((f) => {
-                        const max_adults = Number(e.target.value)
-                        return { ...f, max_adults, capacity: max_adults + f.max_children }
-                      })}
+                      onChange={(e) => {
+                        const v = e.target.value.replace(/[^0-9]/g, "").slice(0, 2)
+                        setForm((f) => {
+                          const max_adults = v ? Number(v) : 0
+                          return { ...f, max_adults, capacity: max_adults + f.max_children }
+                        })
+                      }}
                       min={1}
                       max={10}
                       placeholder="2"
                       className="w-full rounded-[6px] border border-[#e2e4e8] bg-white pl-9 pr-3 py-2.5 text-[13px] text-[#1a1d26] placeholder:text-[#b0b3b8] focus:outline-none focus:ring-2 focus:ring-[#82285f]/15 focus:border-[#82285f] transition-all"
                     />
                   </div>
+                  {errors.max_adults && <p className="text-[10px] text-[#A4423A] mt-1">{errors.max_adults}</p>}
                 </div>
                 <div>
                   <label className="block text-[10px] font-bold text-[#6b7280] uppercase tracking-wider mb-1">Max Children</label>
@@ -360,18 +408,45 @@ export default function RoomFormSheet({ open, onClose, onSave, editRoom }: RoomF
                     <input
                       type="number"
                       value={form.max_children || ""}
-                      onChange={(e) => setForm((f) => {
-                        const max_children = Number(e.target.value)
-                        return { ...f, max_children, capacity: f.max_adults + max_children, allows_children: max_children > 0 ? true : false }
-                      })}
+                      onChange={(e) => {
+                        const v = e.target.value.replace(/[^0-9]/g, "").slice(0, 2)
+                        setForm((f) => {
+                          const max_children = v ? Number(v) : 0
+                          return { ...f, max_children, capacity: f.max_adults + max_children, allows_children: max_children > 0 }
+                        })
+                      }}
                       min={0}
                       max={10}
                       placeholder="1"
                       className="w-full rounded-[6px] border border-[#e2e4e8] bg-white pl-9 pr-3 py-2.5 text-[13px] text-[#1a1d26] placeholder:text-[#b0b3b8] focus:outline-none focus:ring-2 focus:ring-[#82285f]/15 focus:border-[#82285f] transition-all"
                     />
                   </div>
+                  {errors.max_children && <p className="text-[10px] text-[#A4423A] mt-1">{errors.max_children}</p>}
+                  <p className="text-[10px] text-[#6b7280] mt-1">0 = children not allowed</p>
                 </div>
                 <div>
+                  <label className="block text-[10px] font-bold text-[#6b7280] uppercase tracking-wider mb-1">Max Pets</label>
+                  <div className="relative">
+                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-black">
+                      <PawPrint className="size-3.5" />
+                    </div>
+                    <input
+                      type="number"
+                      value={form.max_pets || ""}
+                      onChange={(e) => {
+                        const v = e.target.value.replace(/[^0-9]/g, "").slice(0, 1)
+                        setForm((f) => ({ ...f, max_pets: Math.min(2, v ? Number(v) : 0) }))
+                      }}
+                      min={0}
+                      max={2}
+                      placeholder="0"
+                      className="w-full rounded-[6px] border border-[#e2e4e8] bg-white pl-9 pr-3 py-2.5 text-[13px] text-[#1a1d26] placeholder:text-[#b0b3b8] focus:outline-none focus:ring-2 focus:ring-[#82285f]/15 focus:border-[#82285f] transition-all"
+                    />
+                  </div>
+                  {errors.max_pets && <p className="text-[10px] text-[#A4423A] mt-1">{errors.max_pets}</p>}
+                  <p className="text-[10px] text-[#6b7280] mt-1">0 = pets not allowed (max 2)</p>
+                </div>
+                <div className="col-span-3">
                   <label className="block text-[10px] font-bold text-[#6b7280] uppercase tracking-wider mb-1">Total Capacity</label>
                   <div className="relative">
                     <div className="absolute left-3 top-1/2 -translate-y-1/2 text-black">
@@ -384,26 +459,8 @@ export default function RoomFormSheet({ open, onClose, onSave, editRoom }: RoomF
                       className="w-full rounded-[6px] border border-[#e2e4e8] bg-[#f5f6f8] pl-9 pr-3 py-2.5 text-[13px] text-[#6b7280] cursor-not-allowed"
                     />
                   </div>
+                  {errors.capacity && <p className="text-[10px] text-[#A4423A] mt-1">{errors.capacity}</p>}
                 </div>
-              </div>
-
-              {/* Children Policy */}
-              <div className="flex items-center justify-between rounded-[6px] border border-[#e2e4e8] bg-[#f9fafb] px-3 py-2.5">
-                <div>
-                  <p className="text-[13px] font-medium text-[#1a1d26]">Allow Children</p>
-                  <p className="text-[11px] text-[#6b7280]">Allow guests to bring children (age 0-17) to this room</p>
-                </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={form.allows_children}
-                  onClick={() => setForm((f) => ({ ...f, allows_children: !f.allows_children, max_children: !f.allows_children ? f.max_children : 0 }))}
-                  className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${form.allows_children ? "bg-[#82285f]" : "bg-[#d1d5db]"}`}
-                >
-                  <span
-                    className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${form.allows_children ? "translate-x-4" : "translate-x-0"}`}
-                  />
-                </button>
               </div>
 
               {/* Status */}

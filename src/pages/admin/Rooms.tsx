@@ -123,6 +123,7 @@ export default function Rooms() {
         onClose={() => setSheetOpen(false)}
         onSave={handleSave}
         editRoom={editRoom}
+        otherRoomNames={rooms.filter((r) => r.id !== editRoom?.id).map((r) => r.name)}
       />
 
       {/* Delete Confirmation Dialog */}
