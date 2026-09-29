@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react"
-import { Users, Minus, Plus } from "lucide-react"
+import { Users, Minus, Plus, ChevronDown } from "lucide-react"
 
 export interface GuestCount {
   adults: number
@@ -15,9 +15,11 @@ interface GuestSelectorProps {
   allowChildren?: boolean
   maxPets?: number
   allowPets?: boolean
+  /** Optional caption rendered above the trigger (search-bar style) */
+  label?: string
 }
 
-export default function GuestSelector({ value, onChange, maxAdults = 10, maxChildren = 10, allowChildren = true, maxPets = 2, allowPets = false }: GuestSelectorProps) {
+export default function GuestSelector({ value, onChange, maxAdults = 10, maxChildren = 10, allowChildren = true, maxPets = 2, allowPets = false, label }: GuestSelectorProps) {
   const [isOpen, setIsOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -54,13 +56,39 @@ export default function GuestSelector({ value, onChange, maxAdults = 10, maxChil
 
   return (
     <div ref={ref} className="relative">
+      {label && (
+        <span className="text-[11px] font-display font-semibold text-ink uppercase tracking-wider block mb-1.5">
+          {label}
+        </span>
+      )}
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center gap-2 text-left bg-transparent border-none p-0 cursor-pointer"
+        className={
+          label
+            ? "w-full rounded-[10px] border border-hairline bg-white px-3 py-2.5 text-left hover:border-primary/40 focus-visible:border-primary focus-visible:outline-none transition-colors cursor-pointer"
+            : "w-full flex items-center gap-2 text-left bg-transparent border-none p-0 cursor-pointer"
+        }
       >
-        <Users className="h-4 w-4 text-muted shrink-0" />
-        <span className={`typo-body-sm whitespace-nowrap ${value.adults === 0 ? "text-muted" : "text-ink"}`}>{summary}</span>
+        {label ? (
+          <>
+            <span className="flex items-center gap-2.5">
+              <Users className="h-4 w-4 text-muted shrink-0" />
+              <span className="min-w-0 flex-1 text-[13px] font-semibold text-ink truncate">Guests</span>
+              <ChevronDown
+                className={`h-4 w-4 text-muted shrink-0 transition-transform ${isOpen ? "rotate-180" : ""}`}
+              />
+            </span>
+            <span className={`block mt-0.5 text-[12px] truncate ${value.adults === 0 ? "text-muted" : "text-ink"}`}>
+              {summary}
+            </span>
+          </>
+        ) : (
+          <>
+            <Users className="h-4 w-4 text-muted shrink-0" />
+            <span className={`typo-body-sm whitespace-nowrap ${value.adults === 0 ? "text-muted" : "text-ink"}`}>{summary}</span>
+          </>
+        )}
       </button>
 
       {isOpen && (

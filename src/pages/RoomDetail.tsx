@@ -125,6 +125,12 @@ export default function RoomDetail() {
   const [stayType, setStayType] = useState<"overnight" | "day">(
     (searchParams.get("stayType") as "overnight" | "day") || "overnight"
   )
+  // Locked only when the guest came from the home search bar (it always writes check-in).
+  // Direct browsing has no check-in, so the full Overnight / Day Use toggle stays visible.
+  const [stayLocked] = useState(() => {
+    const p = new URLSearchParams(window.location.search)
+    return Boolean(p.get("checkIn") || p.get("checkin"))
+  })
   const [checkIn, setCheckIn] = useState<Date | null>(() => {
     const v = searchParams.get("checkIn") || searchParams.get("checkin")
     return v ? parseDateParam(v) : null
@@ -212,17 +218,15 @@ export default function RoomDetail() {
     })
   }, [searchParams])
 
-  // Reset checkOut if it's now invalid
+  // Overnight stays are locked to 24 hours — check-out is always check-in + 1 day
   useEffect(() => {
-    if (stayType !== "overnight" || !checkIn || !checkOut) return
-    const minCheckOut = new Date(checkIn.getTime() + 86400000)
+    if (stayType !== "overnight" || !checkIn) return
+    const nextDay = new Date(checkIn.getTime() + 24 * 60 * 60 * 1000)
     // Compare as local date strings to avoid timezone issues
-    const checkOutStr = toISODate(checkOut)
-    const minCheckOutStr = toISODate(minCheckOut)
-    if (checkOutStr <= minCheckOutStr) {
-      setCheckOut(null)
+    if (!checkOut || toISODate(checkOut) !== toISODate(nextDay)) {
+      setCheckOut(nextDay)
     }
-  }, [checkIn, stayType])
+  }, [checkIn, checkOut, stayType])
 
   // Sync selections to URL (without re-rendering)
   useEffect(() => {
@@ -379,10 +383,10 @@ export default function RoomDetail() {
   }, [room, checkIn, checkOut, stayType, startTime, dayDuration, overnightStartTime])
 
   const nights = useMemo(() => {
-    if (!checkIn || !checkOut || stayType !== "overnight") return 1
-    const diff = checkOut.getTime() - checkIn.getTime()
-    return Math.max(1, Math.ceil(diff / (1000 * 60 * 60 * 24)))
-  }, [checkIn, checkOut, stayType])
+    if (stayType !== "overnight") return 1
+    // Overnight stays are locked to 24 hours: always exactly 1 night
+    return 1
+  }, [stayType])
 
   if (loading) return <DetailSkeleton />
 
@@ -941,64 +945,78 @@ export default function RoomDetail() {
                 )}
               </div>
 
-              {/* Stay Type Toggle */}
-              <div className="flex gap-2 mb-lg">
-                <button
-                  type="button"
-                  onClick={() => setStayType("overnight")}
-                  className={`flex-1 py-2.5 rounded-[12px] text-sm font-semibold transition-all ${
-                    stayType === "overnight"
-                      ? "bg-primary text-on-primary shadow-sm"
-                      : "bg-white text-muted border border-hairline hover:border-primary/30"
-                  }`}
-                >
-                  Overnight Stay
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setStayType("day")}
-                  className={`flex-1 py-2.5 rounded-[12px] text-sm font-semibold transition-all ${
-                    stayType === "day"
-                      ? "bg-primary text-on-primary shadow-sm"
-                      : "bg-white text-muted border border-hairline hover:border-primary/30"
-                  }`}
-                >
-                  Day Use
-                </button>
-              </div>
+              {/* Stay Type — locked to the home search choice, full toggle on direct browse */}
+              {stayLocked ? (
+                <div className="mb-lg">
+                  <div className="py-2.5 rounded-[12px] bg-primary text-on-primary shadow-sm text-sm font-semibold text-center">
+                    {stayType === "overnight" ? "Overnight Stay" : "Day Use"}
+                  </div>
+                </div>
+              ) : (
+                <div className="flex gap-2 mb-lg">
+                  <button
+                    type="button"
+                    onClick={() => setStayType("overnight")}
+                    className={`flex-1 py-2.5 rounded-[12px] text-sm font-semibold transition-all ${
+                      stayType === "overnight"
+                        ? "bg-primary text-on-primary shadow-sm"
+                        : "bg-white text-muted border border-hairline hover:border-primary/30"
+                    }`}
+                  >
+                    Overnight Stay
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStayType("day")}
+                    className={`flex-1 py-2.5 rounded-[12px] text-sm font-semibold transition-all ${
+                      stayType === "day"
+                        ? "bg-primary text-on-primary shadow-sm"
+                        : "bg-white text-muted border border-hairline hover:border-primary/30"
+                    }`}
+                  >
+                    Day Use
+                  </button>
+                </div>
+              )}
 
               {/* Overnight: Date pickers + Time */}
               {stayType === "overnight" && (
                 <div className="space-y-md mb-lg">
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className={checkIn ? "grid grid-cols-2 gap-2" : "grid grid-cols-1 gap-2"}>
                     <div>
                       <label className="typo-caption text-muted block mb-xs">Check-in</label>
                       <DatePicker
                         selected={checkIn}
                         onChange={(date: Date | null) => setCheckIn(date)}
-                        selectsStart
                         startDate={checkIn}
                         endDate={checkOut}
                         minDate={new Date()}
+                        dateFormat="MMM d, yyyy"
                         customInput={<DateInput placeholder="Select date" />}
                         placeholderText="Select date"
                       />
                     </div>
-                    <div>
-                      <label className="typo-caption text-muted block mb-xs">Check-out</label>
-                      <DatePicker
-                        selected={checkOut}
-                        onChange={(date: Date | null) => setCheckOut(date)}
-                        selectsEnd
-                        startDate={checkIn}
-                        endDate={checkOut}
-                        minDate={checkIn ? new Date(checkIn.getTime() + 86400000) : new Date()}
-                        maxDate={checkIn ? new Date(checkIn.getTime() + 30 * 86400000) : undefined}
-                        customInput={<DateInput placeholder="Select date" />}
-                        placeholderText="Select date"
-                      />
-                    </div>
+                    {checkIn && (
+                      <div>
+                        <label className="typo-caption text-muted block mb-xs">Check-out</label>
+                        <div className="w-full flex items-center gap-sm px-base py-2.5 rounded-[12px] border border-hairline bg-surface-soft/60">
+                          <span className="typo-body-sm font-semibold text-ink truncate">
+                            {checkOut
+                              ? checkOut.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                              : "—"}
+                          </span>
+                          <span className="ml-auto shrink-0 text-[10px] font-semibold uppercase tracking-wider text-primary bg-primary/10 rounded-full px-1.5 py-0.5">
+                            Auto
+                          </span>
+                        </div>
+                      </div>
+                    )}
                   </div>
+
+                  <p className="flex items-center gap-1.5 text-[11px] font-medium text-primary/80">
+                    <Clock className="h-3 w-3 shrink-0" />
+                    24 hours · 1 night only
+                  </p>
 
                   <div>
                     <label className="typo-caption text-muted block mb-xs">Check-in Time</label>
@@ -1055,6 +1073,7 @@ export default function RoomDetail() {
                       selected={checkIn}
                       onChange={(date: Date | null) => setCheckIn(date)}
                       minDate={new Date()}
+                      dateFormat="MMM d, yyyy"
                       customInput={<DateInput placeholder="Select date" />}
                       placeholderText="Select date"
                     />

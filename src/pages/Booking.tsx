@@ -50,7 +50,14 @@ export default function Booking() {
 
   // All booking params come from URL — read-only, no state needed
   const checkIn = searchParams.get("checkIn") ? parseDateParam(searchParams.get("checkIn")!) : null
-  const checkOut = searchParams.get("checkOut") ? parseDateParam(searchParams.get("checkOut")!) : null
+  // Overnight stays are locked to 24 hours: check-out is always check-in + 1 day,
+  // regardless of what the URL says (no 2-day / 3-day bookings).
+  const checkOut =
+    searchParams.get("stayType") !== "day" && checkIn
+      ? new Date(checkIn.getTime() + 24 * 60 * 60 * 1000)
+      : searchParams.get("checkOut")
+        ? parseDateParam(searchParams.get("checkOut")!)
+        : null
   const guests = {
     adults: Number(searchParams.get("adults")) || 2,
     children: Number(searchParams.get("children")) || 0,
@@ -104,7 +111,8 @@ export default function Booking() {
   const isOvernight = stayType === "overnight"
   const hasDate = checkIn !== null
   const hasDates = isOvernight ? (checkIn !== null && checkOut !== null) : hasDate
-  const nights = isOvernight && hasDates ? Math.ceil((checkOut!.getTime() - checkIn!.getTime()) / (1000 * 60 * 60 * 24)) : 0
+  // Overnight bookings are always exactly 1 night (24 hours)
+  const nights = isOvernight && hasDates ? Math.min(1, Math.ceil((checkOut!.getTime() - checkIn!.getTime()) / (1000 * 60 * 60 * 24))) : 0
   const validNights = isOvernight ? nights > 0 : true
   const subtotal = isOvernight
     ? (validNights && room ? room.price * nights : 0)

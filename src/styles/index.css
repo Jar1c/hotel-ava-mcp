@@ -403,6 +403,11 @@ html, body {
 }
 
 /* React DatePicker Custom Styles */
+.react-datepicker-wrapper {
+  display: block;
+  width: 100%;
+}
+
 .react-datepicker {
   font-family: var(--font-family-body);
   border: 1px solid var(--color-hairline);
