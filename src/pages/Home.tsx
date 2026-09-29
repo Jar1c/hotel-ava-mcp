@@ -80,7 +80,7 @@ export default function Home() {
         >
           <div className="absolute inset-0 bg-scrim/60" />
         </div>
-        <div className="relative px-base text-center flex items-center justify-center" style={{ paddingTop: "100px", paddingBottom: "120px", minHeight: "60vh" }}>
+        <div className="relative px-base text-center flex items-center justify-center pb-16 md:pb-[120px]" style={{ paddingTop: "100px", minHeight: "60vh" }}>
           <div className="max-w-container mx-auto">
             <motion.p
               className="typo-caption uppercase tracking-widest mb-md"
@@ -114,8 +114,8 @@ export default function Home() {
             </motion.p>
           </div>
         </div>
-        {/* SearchBar — overlaps hero bottom edge */}
-        <div className="absolute bottom-0 left-1/2 w-full px-base z-10" style={{ transform: "translate(-50%, 50%)" }}>
+        {/* SearchBar — overlaps hero bottom edge on md+; sits in normal flow on mobile */}
+        <div className="relative w-full px-base z-10 md:absolute md:bottom-0 md:left-1/2 md:-translate-x-1/2 md:translate-y-1/2">
           <div className="mx-auto" style={{ maxWidth: "950px" }}>
             <SearchBar />
           </div>
@@ -123,7 +123,7 @@ export default function Home() {
       </section>
 
       {/* Featured Rooms */}
-      <section id="rooms" className="px-base pt-[100px] pb-section">
+      <section id="rooms" className="px-base pt-14 md:pt-[100px] pb-section">
         <div className="mx-auto" style={{ maxWidth: "var(--container-max)" }}>
           <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-md mb-xl">
             <div>

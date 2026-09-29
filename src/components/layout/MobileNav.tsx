@@ -9,8 +9,8 @@ import hotelAvaLogo from "@/assets/images/Hotel Ava logo.png"
 const publicItems = [
   { label: "Home", path: "/", icon: Home },
   { label: "Rooms & Suites", path: "/rooms", icon: BedDouble },
-  { label: "About", path: "/about", icon: Info },
-  { label: "Contact Us", path: "/contact", icon: Phone },
+  { label: "About", path: "/#about", icon: Info },
+  { label: "Contact Us", path: "/#contact", icon: Phone },
 ]
 
 const guestItems = [
@@ -22,8 +22,8 @@ const guestItems = [
 const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   "/": Home,
   "/rooms": BedDouble,
-  "/about": Info,
-  "/contact": Phone,
+  "/#about": Info,
+  "/#contact": Phone,
   "/my-bookings": CalendarDays,
   "/my-reviews": Star,
   "/profile": User,

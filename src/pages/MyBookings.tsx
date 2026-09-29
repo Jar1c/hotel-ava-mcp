@@ -402,7 +402,7 @@ export default function MyBookings() {
                 >
                   <div className="flex flex-col sm:flex-row">
                     {/* Room Image */}
-                    <div className="sm:w-36 h-28 sm:h-auto shrink-0 overflow-hidden">
+                    <div className="w-full aspect-[16/10] sm:w-36 sm:h-auto sm:aspect-auto shrink-0 overflow-hidden">
                       <img
                         src={
                           booking.room_image ||

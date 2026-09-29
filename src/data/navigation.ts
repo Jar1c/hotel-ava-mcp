@@ -49,8 +49,8 @@ export const footerLinkGroups: FooterLinkGroup[] = [
     links: [
       { label: "Home", path: "/" },
       { label: "Rooms & Suites", path: "/rooms" },
-      { label: "About Us", path: "/about" },
-      { label: "Contact Us", path: "#contact" },
+      { label: "About Us", path: "/#about" },
+      { label: "Contact Us", path: "/#contact" },
     ],
   },
   {
