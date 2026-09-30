@@ -184,7 +184,7 @@ export default function AIAssistant() {
           <h1 className="font-display text-2xl font-bold text-foreground">AI Assistant</h1>
           <AiAbout
             size="lg"
-            text="Your AI operations hub. Machine learning studies your past bookings to forecast occupancy and revenue, suggest demand-based discounts, and highlight key hotel stats."
+            text="Your AI operations hub. Forecasts use historical booking data and fixed seasonal factors; demand-based discount suggestions and hotel stats are shown alongside the method and its limitations."
           />
         </div>
         <p className="text-muted text-sm mt-1">Forecasts, price ideas, and hotel stats — in one place</p>

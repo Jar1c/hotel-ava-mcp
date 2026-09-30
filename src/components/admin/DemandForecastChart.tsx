@@ -11,6 +11,7 @@ import {
 } from "recharts"
 import { seasonalEvents } from "@/data/admin"
 import AiAbout from "@/components/admin/AiAbout"
+import ForecastQualityNote from "@/components/admin/ForecastQualityNote"
 import type { ForecastPoint } from "@/services/adminService"
 
 interface TooltipPayloadEntry {
@@ -68,9 +69,9 @@ export default function DemandForecastChart({ data, loading }: { data: ForecastP
       <div className="mb-4">
         <div className="flex items-center gap-1.5">
           <h3 className="font-display text-lg font-semibold text-foreground">Demand Forecast</h3>
-          <AiAbout text="Machine-learning occupancy forecast for the coming months, trained on your historical bookings and seasonal demand. The dashed line marks your peak-occupancy target." />
+          <AiAbout text="Occupancy estimate based on historical booking data and fixed seasonal factors. The dashed line marks your peak-occupancy target." />
         </div>
-        <p className="text-sm text-muted mt-1">Predicted occupancy with seasonal events</p>
+        <p className="text-sm text-muted mt-1">Estimated occupancy with seasonal factors</p>
       </div>
       <div className="h-[320px]">
         <ResponsiveContainer width="100%" height="100%">
@@ -89,7 +90,7 @@ export default function DemandForecastChart({ data, loading }: { data: ForecastP
               formatter={(value) => (value === "actual" ? "Actual" : "Predicted")}
             />
             <ReferenceLine
-              x="Jun"
+              x={new Date().toLocaleString("en-US", { month: "short" })}
               stroke="#82285f"
               strokeWidth={2}
               strokeDasharray="4 3"
@@ -177,6 +178,7 @@ export default function DemandForecastChart({ data, loading }: { data: ForecastP
           Seasonal event (hover chart for details)
         </div>
       </div>
+      <ForecastQualityNote data={data} kind="demand" />
     </div>
   )
 }

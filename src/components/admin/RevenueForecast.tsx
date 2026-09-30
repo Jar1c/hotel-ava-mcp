@@ -12,6 +12,7 @@ import {
 import type { ForecastPoint } from "@/services/adminService"
 import { formatCurrency } from "@/lib/utils"
 import AiAbout from "@/components/admin/AiAbout"
+import ForecastQualityNote from "@/components/admin/ForecastQualityNote"
 
 interface TooltipPayloadEntry {
   name: string
@@ -59,7 +60,7 @@ export default function RevenueForecast({ data, loading }: { data: ForecastPoint
       <div className="mb-4">
         <div className="flex items-center gap-1.5">
           <h3 className="font-display text-lg font-semibold text-foreground">Revenue Forecast</h3>
-          <AiAbout text="AI estimate of monthly room revenue for the coming months — predicted occupancy multiplied by your current room rates." />
+          <AiAbout text="Revenue estimate based on historical booking revenue and fixed seasonal factors." />
         </div>
         <p className="text-sm text-muted mt-1">Actual vs predicted monthly revenue (₱)</p>
       </div>
@@ -89,7 +90,7 @@ export default function RevenueForecast({ data, loading }: { data: ForecastPoint
               formatter={(value) => (value === "actual" ? "Actual" : "Predicted")}
             />
             <ReferenceLine
-              x="Jun"
+              x={new Date().toLocaleString("en-US", { month: "short" })}
               stroke="#82285f"
               strokeWidth={2}
               strokeDasharray="4 3"
@@ -136,6 +137,7 @@ export default function RevenueForecast({ data, loading }: { data: ForecastPoint
           Dashed = Predicted
         </div>
       </div>
+      <ForecastQualityNote data={data} kind="revenue" />
     </div>
   )
 }

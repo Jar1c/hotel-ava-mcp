@@ -1,4 +1,4 @@
-import { TrendingDown, Check, X, Brain, Tag } from "lucide-react"
+import { TrendingDown, Check, X, Brain, Tag, Pencil, Save } from "lucide-react"
 import { useState } from "react"
 import type { DemandInsightData } from "@/services/adminService"
 import { setDemandInsightStatus } from "@/services/adminService"
@@ -15,22 +15,43 @@ export default function DemandInsight({ insight }: DemandInsightProps) {
   const [dismissed, setDismissed] = useState(insight.dismissed ?? false)
   const [showConfirm, setShowConfirm] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [editingDiscount, setEditingDiscount] = useState(false)
+  const [discountPercent, setDiscountPercent] = useState(insight.discountPercent)
 
   if (dismissed) return null
 
   const handleAccept = async () => {
     setBusy(true)
     try {
-      await setDemandInsightStatus(insight.id, "accept")
+      await setDemandInsightStatus(insight.id, "accept", discountPercent)
       setApplied(true)
       setShowConfirm(false)
       toast({
-        title: "Discount accepted",
-        description: `${insight.period} suggestion is now active.`,
+        title: "Recommendation accepted",
+        description: `${insight.period} was marked as accepted.`,
         variant: "success",
       })
     } catch {
       toast({ title: "Couldn't save", description: "Try again.", variant: "error" })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleSaveDiscount = async () => {
+    const percent = Math.round(discountPercent)
+    if (!Number.isFinite(percent) || percent < 1 || percent > 80) {
+      toast({ title: "Invalid discount", description: "Choose a value from 1% to 80%.", variant: "error" })
+      return
+    }
+    setBusy(true)
+    try {
+      await setDemandInsightStatus(insight.id, "edit", percent)
+      setDiscountPercent(percent)
+      setEditingDiscount(false)
+      toast({ title: "Discount updated", description: `${insight.period}: ${percent}% off`, variant: "success" })
+    } catch {
+      toast({ title: "Couldn't save discount", description: "Try again.", variant: "error" })
     } finally {
       setBusy(false)
     }
@@ -70,22 +91,48 @@ export default function DemandInsight({ insight }: DemandInsightProps) {
                 <h4 className="text-sm font-semibold text-foreground">{insight.period}</h4>
                 <div className="flex items-center gap-2 mt-0.5">
                   <span className="text-xs font-medium px-2 py-0.5 rounded-[4px] bg-[#455d58]/10 text-[#455d58]">
-                    {insight.discountPercent}% Discount
+                    {discountPercent}% Discount
                   </span>
+                  {!applied && !editingDiscount && (
+                    <button type="button" onClick={() => setEditingDiscount(true)} disabled={busy} className="inline-flex items-center gap-1 text-xs font-medium text-[#455d58] hover:text-[#82285f] disabled:opacity-50">
+                      <Pencil className="h-3 w-3" /> Edit
+                    </button>
+                  )}
                   <span className="text-xs text-muted flex items-center gap-1">
                     <Brain className="w-3 h-3" />
-                    from booking history
+                    based on past bookings
                   </span>
                 </div>
               </div>
             </div>
+
+            {editingDiscount && (
+              <div className="mb-3 flex flex-wrap items-center gap-2 rounded-[4px] border border-[#e2e4e8] bg-[#fbfaf8] p-3">
+                <label htmlFor={`discount-${insight.id}`} className="text-xs font-medium text-foreground">Set discount percent</label>
+                <input
+                  id={`discount-${insight.id}`}
+                  type="number"
+                  min={1}
+                  max={80}
+                  step={1}
+                  value={discountPercent}
+                  onChange={(event) => setDiscountPercent(Number(event.target.value))}
+                  className="w-20 rounded-[4px] border border-[#e2e4e8] px-2 py-1.5 text-right text-sm text-foreground focus:border-[#455d58] focus:outline-none"
+                />
+                <span className="text-xs text-muted">1–80%</span>
+                <button type="button" onClick={handleSaveDiscount} disabled={busy} className="inline-flex items-center gap-1 rounded-[4px] bg-[#455d58] px-2.5 py-1.5 text-xs font-medium text-white hover:bg-[#374d48] disabled:opacity-50">
+                  <Save className="h-3 w-3" /> {busy ? "Saving..." : "Save"}
+                </button>
+                <button type="button" onClick={() => { setDiscountPercent(insight.discountPercent); setEditingDiscount(false) }} disabled={busy} className="rounded-[4px] border border-[#e2e4e8] px-2.5 py-1.5 text-xs font-medium text-muted hover:bg-white disabled:opacity-50">Cancel</button>
+              </div>
+            )}
 
             {/* Predicted occupancy */}
             <div className="flex items-baseline gap-2 mb-2">
               <span className="font-display text-2xl font-bold text-foreground">
                 {insight.predictedOccupancy}%
               </span>
-              <span className="text-xs text-muted">expected occupancy</span>
+              <span className="text-xs text-muted">estimated share of rooms booked</span>
             </div>
 
             {/* Reason */}
@@ -104,7 +151,7 @@ export default function DemandInsight({ insight }: DemandInsightProps) {
                 <Tag className="w-3 h-3" />
                 {insight.affectedRooms.join(", ")}
               </span>
-              <span className="font-medium text-[#3D6B4F]">{insight.projectedImpact}</span>
+                  <span className="font-medium text-[#3D6B4F]">Estimated impact (not guaranteed): {insight.projectedImpact}</span>
             </div>
           </div>
 
@@ -159,7 +206,7 @@ export default function DemandInsight({ insight }: DemandInsightProps) {
                 <p className="text-sm text-muted mb-2">{insight.reason}</p>
                 <div className="flex items-center gap-3">
                   <span className="text-xs font-medium px-2 py-0.5 rounded-[4px] bg-[#455d58]/10 text-[#455d58]">
-                    {insight.discountPercent}% off
+                    {discountPercent}% off
                   </span>
                   <span className="text-xs text-muted">
                     Applies to: {insight.affectedRooms.join(", ")}
@@ -168,9 +215,7 @@ export default function DemandInsight({ insight }: DemandInsightProps) {
               </div>
 
               <p className="text-xs text-muted mb-4">
-                This will activate the {insight.discountPercent}% discount for {insight.period}.
-                Base rates remain fixed — this is a temporary promotional offer.
-                You can deactivate from the Discounts tab.
+                This marks the {discountPercent}% recommendation for {insight.period} as accepted. It records your decision but does not automatically change live room prices.
               </p>
             </div>
 

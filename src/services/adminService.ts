@@ -461,8 +461,8 @@ async function fetchDemandInsights(): Promise<DemandInsightData[]> {
   }
 }
 
-export async function setDemandInsightStatus(id: string, action: "accept" | "dismiss"): Promise<void> {
-  await analyticsApi.setDemandInsightStatus(id, action)
+export async function setDemandInsightStatus(id: string, action: "accept" | "dismiss" | "edit", discountPercent?: number): Promise<void> {
+  await analyticsApi.setDemandInsightStatus(id, action, discountPercent)
   clearCache("analytics-demand")
 }
 
@@ -486,8 +486,8 @@ async function fetchDiscountOffers(): Promise<DiscountOfferData[]> {
   }
 }
 
-export async function setDiscountOfferStatus(id: string, status: "active" | "scheduled" | "dismissed"): Promise<void> {
-  await analyticsApi.setDiscountOfferStatus(id, status)
+export async function setDiscountOfferStatus(id: string, status: "active" | "scheduled" | "dismissed", discountPercent?: number): Promise<void> {
+  await analyticsApi.setDiscountOfferStatus(id, status, discountPercent)
   clearCache("analytics-discounts")
 }
 

@@ -70,7 +70,7 @@ export default function AIInsightCards({ recommendations, loading, linkBase, sho
               </div>
               <div className="flex items-center gap-1.5 mb-1">
                 <p className="text-[13px] font-bold text-[#1a1d26]">How full we'll be</p>
-                <AiAbout text="ML forecast of the % of rooms occupied over the next 30 days, based on seasonal patterns and your booking history." />
+                <AiAbout text="Occupancy estimate based on historical bookings and fixed seasonal factors." />
               </div>
               <p className="text-[12px] text-[#4a4f59]">
                 {recommendations && recommendations.confidence > 0
@@ -97,7 +97,7 @@ export default function AIInsightCards({ recommendations, loading, linkBase, sho
               </div>
               <div className="flex items-center gap-1.5 mb-1">
                 <p className="text-[13px] font-bold text-[#1a1d26]">Expected earnings</p>
-                <AiAbout text="AI-projected room revenue for the next 30 days — forecasted occupancy combined with your current rates." />
+                <AiAbout text="Revenue estimate based on recorded bookings and fixed seasonal factors." />
               </div>
               <p className="text-[12px] text-[#4a4f59]">
                 {recommendations && recommendations.confidence > 0

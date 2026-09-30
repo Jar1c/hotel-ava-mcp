@@ -282,8 +282,8 @@ def generate_demand_insights(
             "period": period_label,
             "predictedOccupancy": avg_occ,
             "reason": (
-                f"K-Means clustering identified this as a low-demand segment "
-                f"(avg occupancy {avg_occ}%). Gradient Boosting recommends {headline_discount}% discount."
+                f"Past booking patterns estimate about {avg_occ}% occupancy during this period. "
+                f"The suggested discount is {headline_discount}%; review it against your room costs before applying it."
             ),
             "recommendation": f"{headline_discount}% discount on {' & '.join(affected) or 'all rooms'} to stimulate demand",
             "discountPercent": headline_discount,

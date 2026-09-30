@@ -1,13 +1,22 @@
 import { useState, useEffect, useMemo } from "react"
 import { useSearchParams } from "react-router"
 import { motion } from "motion/react"
-import { Sparkles } from "lucide-react"
+import { RotateCcw, SlidersHorizontal, Sparkles } from "lucide-react"
 import { publicRoomsApi, type PublicRoomData } from "@/services/api"
 import { type Room } from "@/data/rooms"
 import { setCache, getCached } from "@/lib/cache"
 import { formatDate as toISODate, parseDateParam } from "@/lib/dates"
 import { rankRooms } from "@/lib/roomRanking"
 import RoomCard from "@/components/rooms/RoomCard"
+import RoomFilters from "@/components/rooms/RoomFilters"
+import {
+  DEFAULT_ROOM_FILTERS,
+  countActiveFilters,
+  roomMatchesFilter,
+  type FilterableRoom,
+  type RoomFilterState,
+} from "@/lib/roomFilters"
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 import type { DiscountRoom } from "@/lib/discountEngine"
 import { getRoomDiscount } from "@/lib/discountEngine"
 import { useDiscountApproval } from "@/hooks/useDiscountApproval"
@@ -157,42 +166,63 @@ export default function Rooms() {
     return () => { cancelled = true }
   }, [roomsData, hasDateFilter, filters.checkIn, filters.checkOut, filters.stayType, filters.startTime, filters.duration])
 
-  // Smart Filter: guests preference > date availability > budget
-  // Pass pets/children in URL params but filter frontend after availability check
-  const smartFilteredRooms = useMemo(() => {
-    let result = roomsData
-    
-    // 1. Guests filter FIRST (pets/children - most important!)
-    if (filters.pets && filters.pets > 0) {
-      result = result.filter(room => 
-        room.amenities?.some(a => a.includes('Pet')) || false
-      )
-    }
-    if (filters.children && filters.children > 0) {
-      result = result.filter(room => 
-        room.allows_children === true
-      )
-    }
-    
-    // 2. Date availability (if dates specified)
-    if (hasDateFilter) {
-      result = result.filter(room => availabilityMap[room.id] === true)
-    }
-    
-    // 3. Budget (final filter)
-    if (filters.budgetMax && filters.budgetMax < 99999) {
-      result = result.filter(room => 
-        room.price <= filters.budgetMax!
-      )
-    }
-    
-    return result
-  }, [roomsData, availabilityMap, filters, hasDateFilter])
-
   const discountRooms: DiscountRoom[] = useMemo(
     () => roomsData.map((r) => ({ id: r.id, name: r.name, type: r.type, price: r.price })),
-    [roomsData]
+    [roomsData],
   )
+
+  // Sidebar filter panel (Room type / price / rating / amenities / guest needs).
+  const [filterState, setFilterState] = useState<RoomFilterState>(DEFAULT_ROOM_FILTERS)
+  const activeFilterCount = countActiveFilters(filterState)
+
+  // One flat list the sidebar and the URL search filters both run against.
+  const filterableRooms: FilterableRoom[] = useMemo(
+    () =>
+      roomsData.map((r) => {
+        const deal = getRoomDiscount(discountRooms, r.id)
+        return {
+          id: r.id,
+          type: r.type,
+          price: deal ? deal.discountedPrice : r.price,
+          rating: r.rating ?? null,
+          amenities: r.amenities ?? [],
+          allows_children: r.allows_children === true,
+          petFriendly: (r.amenities ?? []).some((a) => a.includes("Pet")),
+          hasDeal: Boolean(deal),
+        }
+      }),
+    [roomsData, discountRooms],
+  )
+
+  const matchingFilterIds = useMemo(() => {
+    // The search bar still owns pets/children, so merge them into the sidebar state.
+    const merged: RoomFilterState = {
+      ...filterState,
+      petFriendly: filterState.petFriendly || Boolean(filters.pets && filters.pets > 0),
+      familyFriendly:
+        filterState.familyFriendly || Boolean(filters.children && filters.children > 0),
+    }
+    return new Set(
+      filterableRooms.filter((r) => roomMatchesFilter(r, merged)).map((r) => r.id),
+    )
+  }, [filterableRooms, filterState, filters.pets, filters.children])
+
+  // Smart Filter: sidebar + guests preference > date availability > budget
+  const smartFilteredRooms = useMemo(() => {
+    let result = roomsData.filter((room) => matchingFilterIds.has(room.id))
+
+    // Date availability (if dates specified)
+    if (hasDateFilter) {
+      result = result.filter((room) => availabilityMap[room.id] === true)
+    }
+
+    // Budget from the home search bar
+    if (filters.budgetMax && filters.budgetMax < 99999) {
+      result = result.filter((room) => room.price <= filters.budgetMax!)
+    }
+
+    return result
+  }, [roomsData, matchingFilterIds, availabilityMap, filters.budgetMax, hasDateFilter])
 
   // Sort: discounted rooms first, then by effective price (cheapest first)
   const sortedRooms = useMemo(() => {
@@ -269,7 +299,13 @@ export default function Rooms() {
           </p>
         </motion.div>
 
-        <div className="mb-md">
+        <div className="flex items-start gap-xl">
+          <aside className="sticky top-24 hidden w-[264px] shrink-0 self-start lg:block">
+            <RoomFilters rooms={filterableRooms} value={filterState} onChange={setFilterState} />
+          </aside>
+
+          <div className="min-w-0 flex-1">
+        <div className="mb-md flex flex-wrap items-center justify-between gap-sm">
           <p className="typo-caption-sm text-muted">
             {loading ? "Loading..."
               : hasDateFilter && checkingAvailability
@@ -282,12 +318,35 @@ export default function Rooms() {
                       : "No rooms match your preference"
                   : `${roomsData.length} ${roomsData.length === 1 ? "room" : "rooms"} available`}
           </p>
+
+          <Sheet>
+            <SheetTrigger
+              type="button"
+              className="flex items-center gap-1.5 rounded-full border border-hairline bg-white px-base py-2 text-sm font-semibold text-ink hover:border-primary hover:text-primary lg:hidden"
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+              Filters
+              {activeFilterCount > 0 && (
+                <span className="text-primary">({activeFilterCount})</span>
+              )}
+            </SheetTrigger>
+            <SheetContent side="left" className="w-[300px] overflow-y-auto sm:max-w-[300px]">
+              <SheetHeader>
+                <SheetTitle>Filters</SheetTitle>
+              </SheetHeader>
+              <RoomFilters
+                rooms={filterableRooms}
+                value={filterState}
+                onChange={setFilterState}
+              />
+            </SheetContent>
+          </Sheet>
         </div>
 
         <div className="border-b border-hairline/50 mb-xl" />
 
         {loading || (hasDateFilter && checkingAvailability) ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-lg">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-lg">
             {Array.from({ length: 8 }).map((_, i) => (
               <RoomCardSkeleton key={i} />
             ))}
@@ -311,7 +370,7 @@ export default function Rooms() {
                 </div>
 
                 <motion.div
-                  className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-lg"
+                  className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-lg"
                   variants={cardContainer}
                   initial="hidden"
                   animate="visible"
@@ -339,7 +398,7 @@ export default function Rooms() {
                 )}
 
                 <motion.div
-                  className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-lg"
+                  className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-lg"
                   variants={cardContainer}
                   initial="hidden"
                   animate="visible"
@@ -363,18 +422,30 @@ export default function Rooms() {
               transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] as const }}
             >
               <p className="typo-body-lg text-ink font-medium">
-                No exact match found
+                {activeFilterCount > 0 ? "No rooms match your filters" : "No exact match found"}
               </p>
               <p className="typo-body-sm text-muted mt-sm">
-                {hasDateFilter
-                  ? "No rooms are available for your exact search. Here are the closest options we found:"
-                  : "No rooms match your budget. Here are the closest options:"}
+                {activeFilterCount > 0
+                  ? "Try removing a filter to see more rooms."
+                  : hasDateFilter
+                    ? "No rooms are available for your exact search. Here are the closest options we found:"
+                    : "No rooms match your budget. Here are the closest options:"}
               </p>
+              {activeFilterCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setFilterState(DEFAULT_ROOM_FILTERS)}
+                  className="mt-md inline-flex items-center gap-1.5 rounded-full border border-hairline bg-white px-base py-2 text-sm font-semibold text-ink hover:border-primary hover:text-primary"
+                >
+                  <RotateCcw className="h-4 w-4" />
+                  Clear all filters
+                </button>
+              )}
             </motion.div>
 
             {suggestedRooms.length > 0 && (
               <motion.div
-                className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-lg"
+                className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-lg"
                 variants={cardContainer}
                 initial="hidden"
                 animate="visible"
@@ -388,6 +459,8 @@ export default function Rooms() {
             )}
           </div>
         )}
+          </div>
+        </div>
       </div>
     </div>
   )

@@ -3868,14 +3868,27 @@ def set_demand_insight_status():
     data = request.get_json() or {}
     insight_id = data.get("id")
     action = data.get("action")
-    if not insight_id or action not in ("accept", "dismiss"):
-        return jsonify({"error": "id and action (accept|dismiss) required"}), 400
+    if not insight_id or action not in ("accept", "dismiss", "edit"):
+        return jsonify({"error": "id and action (accept|dismiss|edit) required"}), 400
+
+    discount_percent = data.get("discountPercent")
+    if action == "edit" or discount_percent is not None:
+        if isinstance(discount_percent, bool) or not isinstance(discount_percent, (int, float)) or not 1 <= discount_percent <= 80:
+            return jsonify({"error": "discountPercent must be a number from 1 to 80"}), 400
+        discount_percent = int(discount_percent)
 
     status = _load_json_file(_demand_status_file, {})
-    if action == "accept":
-        status[insight_id] = "accepted"
+    previous = status.get(insight_id, {})
+    insight_state = previous.copy() if isinstance(previous, dict) else {"status": previous} if previous else {}
+    if action == "edit":
+        insight_state["discountPercent"] = discount_percent
+    elif action == "accept":
+        insight_state["status"] = "accepted"
     else:
-        status[insight_id] = "dismissed"
+        insight_state["status"] = "dismissed"
+    if discount_percent is not None:
+        insight_state["discountPercent"] = discount_percent
+    status[insight_id] = insight_state
     if not _save_json_file(_demand_status_file, status):
         return jsonify({"error": "Could not save status"}), 500
     invalidate_cache("analytics-demand")
@@ -3896,8 +3909,19 @@ def set_discount_offer_status():
     if not offer_id or status_val not in ("active", "scheduled", "dismissed"):
         return jsonify({"error": "id and status (active|scheduled|dismissed) required"}), 400
 
+    discount_percent = data.get("discountPercent")
+    if discount_percent is not None:
+        if isinstance(discount_percent, bool) or not isinstance(discount_percent, (int, float)) or not 1 <= discount_percent <= 80:
+            return jsonify({"error": "discountPercent must be a number from 1 to 80"}), 400
+        discount_percent = int(discount_percent)
+
     status = _load_json_file(_offer_status_file, {})
-    status[offer_id] = status_val
+    previous = status.get(offer_id, {})
+    offer_state = previous.copy() if isinstance(previous, dict) else {}
+    offer_state["status"] = status_val
+    if discount_percent is not None:
+        offer_state["discountPercent"] = discount_percent
+    status[offer_id] = offer_state
     if not _save_json_file(_offer_status_file, status):
         return jsonify({"error": "Could not save status"}), 500
     invalidate_cache("analytics-discounts")
@@ -3934,9 +3958,19 @@ def _build_demand_insights():
         out = []
         for ins in insights:
             st = saved.get(ins["id"], "")
-            if st == "dismissed":
+            saved_status = st.get("status", "") if isinstance(st, dict) else st
+            if saved_status == "dismissed":
                 continue
-            ins["applied"] = st == "accepted"
+            if isinstance(st, dict):
+                saved_percent = st.get("discountPercent")
+                if isinstance(saved_percent, (int, float)) and not isinstance(saved_percent, bool) and 1 <= saved_percent <= 80:
+                    old_percent = int(ins.get("discountPercent", 0))
+                    ins["discountPercent"] = int(saved_percent)
+                    room_labels = " & ".join(ins.get("affectedRooms", [])) or "selected rooms"
+                    ins["recommendation"] = f"{int(saved_percent)}% discount on {room_labels} to stimulate demand"
+                    if old_percent != int(saved_percent):
+                        ins["reason"] = f"{ins.get('reason', '')} Admin adjusted the suggested discount from {old_percent}% to {int(saved_percent)}%."
+            ins["applied"] = saved_status == "accepted"
             ins["dismissed"] = False
             out.append(ins)
         return out
@@ -3970,9 +4004,18 @@ def _build_discount_offers():
         out = []
         for o in offers:
             st = saved.get(o["id"], "")
-            if st == "dismissed":
+            saved_status = st.get("status", "") if isinstance(st, dict) else st
+            if saved_status == "dismissed":
                 continue
-            if st:
+            if isinstance(st, dict):
+                if saved_status:
+                    o["status"] = saved_status
+                saved_percent = st.get("discountPercent")
+                if isinstance(saved_percent, (int, float)) and not isinstance(saved_percent, bool) and 1 <= saved_percent <= 80:
+                    o["discountPercent"] = int(saved_percent)
+                    o["discountedRate"] = round(o["baseRate"] * (1 - int(saved_percent) / 100))
+                    o["projectedRevenue"] = o["projectedBookings"] * o["discountedRate"]
+            elif st:
                 o["status"] = st
             out.append(o)
         return out

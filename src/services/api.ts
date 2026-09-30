@@ -581,16 +581,16 @@ export const analyticsApi = {
   getOccupancyForecast: () => apiFetch<ForecastPoint[]>("/analytics/forecast/occupancy"),
   getRevenueForecast: () => apiFetch<ForecastPoint[]>("/analytics/forecast/revenue"),
   getDemandInsights: () => apiFetch<DemandInsightData[]>("/analytics/demand-insights"),
-  setDemandInsightStatus: (id: string, action: "accept" | "dismiss") =>
+  setDemandInsightStatus: (id: string, action: "accept" | "dismiss" | "edit", discountPercent?: number) =>
     apiFetch<{ ok: boolean }>("/analytics/demand-insights/status", {
       method: "POST",
-      body: JSON.stringify({ id, action }),
+      body: JSON.stringify({ id, action, ...(discountPercent == null ? {} : { discountPercent }) }),
     }),
   getDiscountOffers: () => apiFetch<DiscountOfferData[]>("/analytics/discount-offers"),
-  setDiscountOfferStatus: (id: string, status: "active" | "scheduled" | "dismissed") =>
+  setDiscountOfferStatus: (id: string, status: "active" | "scheduled" | "dismissed", discountPercent?: number) =>
     apiFetch<{ ok: boolean }>("/analytics/discount-offers/status", {
       method: "POST",
-      body: JSON.stringify({ id, status }),
+      body: JSON.stringify({ id, status, ...(discountPercent == null ? {} : { discountPercent }) }),
     }),
   getAIRecommendations: () => apiFetch<RecommendationsData>("/analytics/ai-recommendations"),
 }

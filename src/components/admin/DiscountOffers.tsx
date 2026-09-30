@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react"
-import { Tag, Check, X, Brain, Calendar, Sparkles, Shield } from "lucide-react"
+import { Tag, Check, X, Brain, Calendar, Sparkles, Shield, Pencil, Save } from "lucide-react"
 import { cn, formatCurrency } from "@/lib/utils"
 import AiAbout from "@/components/admin/AiAbout"
 import type { DiscountOfferData } from "@/services/adminService"
@@ -16,6 +16,9 @@ interface DiscountOffersProps {
 
 export default function DiscountOffers({ offers: initialOffers, rooms, loading }: DiscountOffersProps) {
   const [offers, setOffers] = useState(initialOffers)
+  const [editingOfferId, setEditingOfferId] = useState<string | null>(null)
+  const [editPercent, setEditPercent] = useState(10)
+  const [savingEdit, setSavingEdit] = useState(false)
   const [aiDiscounts, setAiDiscounts] = useState<ActiveDiscount[]>([])
   const [upcomingDiscounts, setUpcomingDiscounts] = useState<(ActiveDiscount & { daysUntilStart: number })[]>([])
   const { approvedKeys, loading: approvalLoading, approve, dismiss } = useDiscountApproval()
@@ -78,6 +81,34 @@ export default function DiscountOffers({ offers: initialOffers, rooms, loading }
         prev.map((o) => (o.id === offerId ? { ...o, status: offer.status } : o))
       )
       toast({ title: "Couldn't save", description: "Try again.", variant: "error" })
+    }
+  }
+
+  const beginEditOffer = (offer: DiscountOfferData) => {
+    setEditingOfferId(offer.id)
+    setEditPercent(offer.discountPercent)
+  }
+
+  const handleSaveOfferEdit = async (offer: DiscountOfferData) => {
+    const percent = Math.round(editPercent)
+    if (!Number.isFinite(percent) || percent < 1 || percent > 80) {
+      toast({ title: "Invalid discount", description: "Choose a value from 1% to 80%.", variant: "error" })
+      return
+    }
+    setSavingEdit(true)
+    try {
+      const persistedStatus = offer.status === "expired" ? "scheduled" : offer.status
+      await setDiscountOfferStatus(offer.id, persistedStatus, percent)
+      const discountedRate = Math.round(offer.baseRate * (1 - percent / 100))
+      setOffers((prev) => prev.map((o) => o.id === offer.id
+        ? { ...o, discountPercent: percent, discountedRate, projectedRevenue: o.projectedBookings * discountedRate }
+        : o))
+      setEditingOfferId(null)
+      toast({ title: "Discount updated", description: `${offer.roomType}: ${percent}% off`, variant: "success" })
+    } catch {
+      toast({ title: "Couldn't save discount", description: "Try again.", variant: "error" })
+    } finally {
+      setSavingEdit(false)
     }
   }
 
@@ -257,37 +288,54 @@ export default function DiscountOffers({ offers: initialOffers, rooms, loading }
                         {formatCurrency(offer.discountedRate)}
                       </td>
                       <td className="px-6 py-3 text-right">
+                        {editingOfferId === offer.id ? (
+                          <div className="flex items-center justify-end gap-1">
+                            <input
+                              aria-label={`Discount percent for ${offer.roomType}`}
+                              type="number"
+                              min={1}
+                              max={80}
+                              step={1}
+                              value={editPercent}
+                              onChange={(event) => setEditPercent(Number(event.target.value))}
+                              className="w-16 rounded-[4px] border border-[#e2e4e8] px-2 py-1 text-right text-xs text-foreground focus:border-[#82285f] focus:outline-none"
+                            />
+                            <span className="text-xs text-muted">%</span>
+                          </div>
+                        ) : (
                         <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-[4px] bg-[#455d58]/10 text-[#455d58]">
                           <Tag className="w-3 h-3" />
                           {offer.discountPercent}%
                         </span>
+                        )}
                       </td>
                       <td className="px-6 py-3 text-xs text-muted">
                         {new Date(offer.validFrom).toLocaleDateString("en-PH", { month: "short", day: "numeric" })} –{" "}
                         {new Date(offer.validTo).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}
                       </td>
                       <td className="px-6 py-3 text-center">
-                        <button
-                          onClick={() => handleToggleOffer(offer.id)}
-                          className={cn(
-                            "inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-[4px] transition-all duration-200",
-                            isActive
-                              ? "bg-[#3D6B4F]/10 text-[#3D6B4F] hover:bg-[#3D6B4F]/20"
-                              : "bg-[#f0f1f3] text-muted hover:bg-[#e2e4e8]"
-                          )}
-                        >
-                          {isActive ? (
+                        <div className="inline-flex items-center justify-center gap-1.5">
+                          {editingOfferId === offer.id ? (
                             <>
-                              <Check className="w-3 h-3" />
-                              Deactivate
+                              <button type="button" onClick={() => handleSaveOfferEdit(offer)} disabled={savingEdit} className="inline-flex items-center gap-1 rounded-[4px] bg-[#455d58] px-2.5 py-1.5 text-xs font-medium text-white hover:bg-[#374d48] disabled:opacity-50">
+                                <Save className="h-3 w-3" /> Save
+                              </button>
+                              <button type="button" onClick={() => setEditingOfferId(null)} disabled={savingEdit} aria-label="Cancel editing" className="rounded-[4px] border border-[#e2e4e8] p-1.5 text-muted hover:bg-[#f5f6f8] disabled:opacity-50"><X className="h-3 w-3" /></button>
                             </>
                           ) : (
                             <>
-                              <Tag className="w-3 h-3" />
-                              Activate
+                              <button type="button" onClick={() => beginEditOffer(offer)} className="inline-flex items-center gap-1 rounded-[4px] border border-[#e2e4e8] px-2.5 py-1.5 text-xs font-medium text-muted hover:border-[#82285f]/40 hover:text-[#82285f]">
+                                <Pencil className="h-3 w-3" /> Edit
+                              </button>
+                              <button onClick={() => handleToggleOffer(offer.id)} className={cn(
+                                "inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-[4px] transition-all duration-200",
+                                isActive ? "bg-[#3D6B4F]/10 text-[#3D6B4F] hover:bg-[#3D6B4F]/20" : "bg-[#f0f1f3] text-muted hover:bg-[#e2e4e8]"
+                              )}>
+                                {isActive ? <><Check className="w-3 h-3" /> Deactivate</> : <><Tag className="w-3 h-3" /> Activate</>}
+                              </button>
                             </>
                           )}
-                        </button>
+                        </div>
                       </td>
                     </tr>
                   )
