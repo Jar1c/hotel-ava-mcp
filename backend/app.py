@@ -2002,10 +2002,10 @@ def create_booking():
     except Exception as e:
         err = str(e)
         import traceback as _tb
-        print("CREATE_BOOKING_RAW_ERROR:", err)
+        print(f"create_booking error: {err}")
         _tb.print_exc()
         if "row-level security" in err or "42501" in err:
-            return jsonify({"error": "Unable to save your booking due to a permissions issue. Please try again or contact support.", "detail": err}), 500
+            return jsonify({"error": "Unable to save your booking due to a permissions issue. Please try again or contact support."}), 500
         return jsonify({"error": err}), 500
 
 
