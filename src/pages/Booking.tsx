@@ -82,8 +82,8 @@ export default function Booking() {
 
   const endTime = useMemo(() => addHoursToTime(startTime, dayDuration), [startTime, dayDuration])
 
-  // Guest-facing window: dates + the hotel's published 12:00 NN check-out,
-  // instead of "10:00 PM - 10:00 PM".
+  // Guest-facing window: dated 24-hour stay - check-out is the same clock time
+  // on the check-out date.
   const overnightLabel = overnightWindow(checkIn, checkOut, overnightStartTime)
   const dayLabel = dayUseWindow(checkIn, startTime, endTime)
 

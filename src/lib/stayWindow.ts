@@ -1,10 +1,10 @@
 /**
  * Guest-facing stay window shown before booking.
  *
- * The backend's conflict window runs to the same clock time on the check-out
- * date, which made the summary read "10:00 PM - 10:00 PM". Guests are told the
- * hotel's published 12:00 NN check-out everywhere else (receipts, My Bookings),
- * so the pre-booking summary shows the same thing - with the dates attached.
+ * Overnight stays run for 24 hours: check-out falls on the same clock time on
+ * the check-out date. The summary used to echo the start time with no date
+ * ("10:00 PM - 10:00 PM"), which testers read as a bug, so both ends are now
+ * dated.
  */
 
 const shortDay = (d: Date) =>
@@ -21,7 +21,7 @@ export function overnightWindow(
   if (!checkIn || !checkOut || !startTime) return null
   return {
     checkIn: `${shortDay(checkIn)}, ${startTime}`,
-    checkOut: `${shortDay(checkOut)}, 12:00 NN`,
+    checkOut: `${shortDay(checkOut)}, ${startTime}`,
   }
 }
 

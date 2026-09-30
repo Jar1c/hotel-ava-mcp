@@ -364,8 +364,7 @@ export default function RoomDetail() {
   const endTime = useMemo(() => addHoursToTime(startTime, dayDuration), [startTime, dayDuration])
 
   // For overnight: end time is same time on check-out date
-  // Dates + the hotel's published 12:00 NN check-out, so the summary never
-  // reads "10:00 PM - 10:00 PM".
+  // Dated 24-hour window, so the summary never reads "10:00 PM - 10:00 PM".
   const overnightLabel = overnightWindow(checkIn, checkOut, overnightStartTime)
   const dayLabel = dayUseWindow(checkIn, startTime, endTime)
 
@@ -1093,7 +1092,7 @@ export default function RoomDetail() {
 
                   <p className="flex items-center gap-1.5 text-[11px] font-medium text-primary/80">
                     <Clock className="h-3 w-3 shrink-0" />
-                    1 night · check-out by 12:00 NN
+                    24 hours · 1 night only
                   </p>
 
                   <div>

@@ -47,7 +47,7 @@ export const SECTIONS: TermsSection[] = [
     title: "Check-in & Check-out",
     icon: <CalendarDays className="size-4" />,
     points: [
-      "Overnight stays start at 2:00 PM on your check-in date, and check-out is 12:00 NN on your check-out date. Nights are counted by calendar date — Oct 3 to Oct 4 is exactly one night, no matter what hour you arrive.",
+      "Overnight stays run for 24 hours: they start at your chosen check-in time on the check-in date and end at the same clock time on the check-out date — a 10:00 PM check-in on Oct 3 is a 10:00 PM check-out on Oct 4. Nights are counted by calendar date, so Oct 3 to Oct 4 is exactly one night.",
       "Day-use stays begin at your selected start time for the number of hours you booked.",
       "Your booking stays active through your check-out date and is closed automatically once the stay window ends.",
       "Present your booking QR code at the front desk. Your stay starts running at the booked time whether or not the QR code has been scanned.",
