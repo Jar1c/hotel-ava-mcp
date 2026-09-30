@@ -21,6 +21,7 @@ import { getAmenityIcon, rooms as fallbackRooms, type Room } from "@/data/rooms"
 import { nearbyPlaces, travelLabel, type NearbyCategory } from "@/data/nearbyPlaces"
 import { getCached, setCache } from "@/lib/cache"
 import { formatDate as toISODate, parseDateParam } from "@/lib/dates"
+import { overnightWindow, dayUseWindow } from "@/lib/stayWindow"
 import { getDiceBearUrl } from "@/lib/dicebear"
 import PhotoGallery from "@/components/rooms/PhotoGallery"
 import { useAuth } from "@/contexts/AuthContext"
@@ -363,10 +364,10 @@ export default function RoomDetail() {
   const endTime = useMemo(() => addHoursToTime(startTime, dayDuration), [startTime, dayDuration])
 
   // For overnight: end time is same time on check-out date
-  const overnightEndTime = useMemo(() => {
-    if (!overnightStartTime) return ""
-    return overnightStartTime // Same time on checkout day
-  }, [overnightStartTime])
+  // Dates + the hotel's published 12:00 NN check-out, so the summary never
+  // reads "10:00 PM - 10:00 PM".
+  const overnightLabel = overnightWindow(checkIn, checkOut, overnightStartTime)
+  const dayLabel = dayUseWindow(checkIn, startTime, endTime)
 
   // Check room availability when dates change
   useEffect(() => {
@@ -1092,7 +1093,7 @@ export default function RoomDetail() {
 
                   <p className="flex items-center gap-1.5 text-[11px] font-medium text-primary/80">
                     <Clock className="h-3 w-3 shrink-0" />
-                    24 hours · 1 night only
+                    1 night · check-out by 12:00 NN
                   </p>
 
                   <div>
@@ -1115,12 +1116,16 @@ export default function RoomDetail() {
                     </div>
                   </div>
 
-                  {checkIn && checkOut && overnightStartTime && (
-                    <div className="bg-primary/5 border border-primary/10 rounded-[10px] px-3 py-2 flex items-center gap-2">
-                      <Clock className="h-4 w-4 text-primary" />
-                      <span className="text-sm text-ink font-medium">
-                        {overnightStartTime} – {overnightEndTime}
-                      </span>
+                  {overnightLabel && (
+                    <div className="bg-primary/5 border border-primary/10 rounded-[10px] px-3 py-2 space-y-1">
+                      <div className="flex items-center justify-between gap-3 text-sm">
+                        <span className="text-muted">Check-in</span>
+                        <span className="text-ink font-medium">{overnightLabel.checkIn}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3 text-sm">
+                        <span className="text-muted">Check-out</span>
+                        <span className="text-ink font-medium">{overnightLabel.checkOut}</span>
+                      </div>
                     </div>
                   )}
 
@@ -1210,12 +1215,10 @@ export default function RoomDetail() {
                     </div>
                   </div>
 
-                  {checkIn && startTime && (
+                  {dayLabel && (
                     <div className="bg-primary/5 border border-primary/10 rounded-[10px] px-3 py-2 flex items-center gap-2">
                       <Clock className="h-4 w-4 text-primary" />
-                      <span className="text-sm text-ink font-medium">
-                        {startTime} – {endTime}
-                      </span>
+                      <span className="text-sm text-ink font-medium">{dayLabel}</span>
                     </div>
                   )}
 

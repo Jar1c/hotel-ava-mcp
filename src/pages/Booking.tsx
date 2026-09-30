@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { publicRoomsApi, type PublicRoomData } from "@/services/api"
 import { rooms as fallbackRooms, type Room } from "@/data/rooms"
 import { getCached, setCache } from "@/lib/cache"
+import { overnightWindow, dayUseWindow } from "@/lib/stayWindow"
 import { API_BASE } from "@/lib/apiBase"
 import { formatDate as toISODate, parseDateParam } from "@/lib/dates"
 import { useAuth } from "@/contexts/AuthContext"
@@ -81,11 +82,10 @@ export default function Booking() {
 
   const endTime = useMemo(() => addHoursToTime(startTime, dayDuration), [startTime, dayDuration])
 
-  // For overnight: end time is same time on check-out date
-  const overnightEndTime = useMemo(() => {
-    if (!overnightStartTime) return ""
-    return overnightStartTime // Same time on checkout day
-  }, [overnightStartTime])
+  // Guest-facing window: dates + the hotel's published 12:00 NN check-out,
+  // instead of "10:00 PM - 10:00 PM".
+  const overnightLabel = overnightWindow(checkIn, checkOut, overnightStartTime)
+  const dayLabel = dayUseWindow(checkIn, startTime, endTime)
 
   useEffect(() => {
     if (!id) return
@@ -290,12 +290,16 @@ export default function Booking() {
                     <span className="text-sm text-muted">Guests</span>
                     <span className="text-sm font-semibold text-ink">{guests.adults} adult{guests.adults !== 1 ? "s" : ""}{guests.children > 0 ? `, ${guests.children} child${guests.children !== 1 ? "ren" : ""}` : ""}</span>
                   </div>
-                  {overnightStartTime && (
-                    <div className="bg-primary/5 border border-primary/10 rounded-[10px] px-3 py-2 flex items-center gap-2 mt-1">
-                      <Clock className="h-4 w-4 text-primary" />
-                      <span className="text-sm text-ink font-medium">
-                        {overnightStartTime} – {overnightEndTime}
-                      </span>
+                  {overnightLabel && (
+                    <div className="bg-primary/5 border border-primary/10 rounded-[10px] px-3 py-2 space-y-1 mt-1">
+                      <div className="flex items-center justify-between gap-3 text-sm">
+                        <span className="text-muted">Check-in</span>
+                        <span className="text-ink font-medium">{overnightLabel.checkIn}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3 text-sm">
+                        <span className="text-muted">Check-out</span>
+                        <span className="text-ink font-medium">{overnightLabel.checkOut}</span>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -326,12 +330,10 @@ export default function Booking() {
                     <span className="text-sm text-muted">Guests</span>
                     <span className="text-sm font-semibold text-ink">{guests.adults} adult{guests.adults !== 1 ? "s" : ""}{guests.children > 0 ? `, ${guests.children} child${guests.children !== 1 ? "ren" : ""}` : ""}</span>
                   </div>
-                  {startTime && (
+                  {dayLabel && (
                     <div className="bg-primary/5 border border-primary/10 rounded-[10px] px-3 py-2 flex items-center gap-2 mt-1">
                       <Clock className="h-4 w-4 text-primary" />
-                      <span className="text-sm text-ink font-medium">
-                        {startTime} – {endTime}
-                      </span>
+                      <span className="text-sm text-ink font-medium">{dayLabel}</span>
                     </div>
                   )}
                 </div>
