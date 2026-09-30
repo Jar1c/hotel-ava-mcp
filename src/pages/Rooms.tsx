@@ -96,34 +96,6 @@ export default function Rooms() {
     filters.stayType === "overnight" ? filters.checkOut : filters.startTime
   )
 
-  // AI Smart Filter - filter by guest preferences BEFORE budget check
-  const filteredRooms = useMemo(() => {
-    let result = roomsData
-    
-    // Filter 1: If pets > 0, show ONLY pet-friendly rooms
-    if (filters.pets && filters.pets > 0) {
-      result = result.filter(room => 
-        room.amenities?.some(a => a.includes('Pet')) || false
-      )
-    }
-    
-    // Filter 2: If children > 0, show ONLY rooms that allow children
-    if (filters.children && filters.children > 0) {
-      result = result.filter(room => 
-        room.allows_children === true
-      )
-    }
-    
-    // Filter 3: Budget check (if specified)
-    if (filters.budgetMax && filters.budgetMax < 99999) {
-      result = result.filter(room => 
-        room.price <= filters.budgetMax!
-      )
-    }
-    
-    return result
-  }, [roomsData, filters])
-
   useEffect(() => {
     const cached = getCached<PublicRoomData[]>("public_rooms")
     if (cached) {
@@ -237,7 +209,7 @@ export default function Rooms() {
       // Then by effective price (cheapest first)
       return priceA - priceB
     })
-  }, [filteredRooms, discountRooms])
+  }, [smartFilteredRooms, discountRooms])
 
   // AI ranking: the 3 best matches for this search, the rest follow below
   const guests = (filters.adults ?? 0) + (filters.children ?? 0)
@@ -304,10 +276,10 @@ export default function Rooms() {
                 ? "Checking availability for your dates..."
                 : hasDateFilter
                   ? sortedRooms.length > 0
-                    ? `${sortedRooms.length} ${sortedRooms.length === 1 ? "room" : "rooms"} available for selected dates`
+                    ? `${sortedRooms.length} ${sortedRooms.length === 1 ? "room" : "rooms"} available for your preference`
                     : suggestedRooms.length > 0
                       ? `${suggestedRooms.length} ${suggestedRooms.length === 1 ? "room" : "rooms"} suggested — no exact match`
-                      : "No rooms available for selected dates"
+                      : "No rooms match your preference"
                   : `${roomsData.length} ${roomsData.length === 1 ? "room" : "rooms"} available`}
           </p>
         </div>
