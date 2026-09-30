@@ -1,6 +1,5 @@
 import type { ArrivalState } from "@/lib/arrival"
-
-const API_BASE = import.meta.env.VITE_API_URL || "/api"
+import { API_BASE } from "@/lib/apiBase"
 
 /** Flag to prevent multiple concurrent refresh attempts */
 let isRefreshing = false

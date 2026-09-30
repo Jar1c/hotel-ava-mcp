@@ -1,4 +1,4 @@
-const API_BASE = import.meta.env.VITE_API_URL || "/api"
+import { API_BASE } from "@/lib/apiBase"
 
 async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = sessionStorage.getItem("access_token")

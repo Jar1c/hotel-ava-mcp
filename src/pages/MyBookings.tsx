@@ -204,6 +204,13 @@ export default function MyBookings() {
     15000,
   )
 
+  // Failsafe: the poller swallows fetch errors, so if the first request keeps
+  // failing the page would sit on skeletons forever. Show the empty state.
+  useEffect(() => {
+    const id = setTimeout(() => setLoading(false), 8000)
+    return () => clearTimeout(id)
+  }, [])
+
   useEffect(() => {
     // Fire auto-complete in background (non-blocking)
     bookingsApi.autoComplete().catch(() => {})
