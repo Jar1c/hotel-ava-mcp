@@ -469,11 +469,11 @@ export default function Booking() {
                           <>
                             <div className="flex items-center gap-2 text-sm text-muted">
                               <Check className="h-3.5 w-3.5 text-success" />
-                              50% deposit paid online
+                              Downpayment
                             </div>
                             <div className="flex items-center gap-2 text-sm text-muted">
                               <Check className="h-3.5 w-3.5 text-success" />
-                              Remaining 50% due at hotel
+                              Pay the balance at the hotel
                             </div>
                           </>
                         );
@@ -482,11 +482,11 @@ export default function Booking() {
                         <>
                           <div className="flex items-center gap-2 text-sm text-muted">
                             <Check className="h-3.5 w-3.5 text-success" />
-                            Full payment online
+                            Full payment
                           </div>
                           <div className="flex items-center gap-2 text-sm text-muted">
                             <Check className="h-3.5 w-3.5 text-success" />
-                            No balance due at property
+                            Nothing left to pay
                           </div>
                         </>
                       );
