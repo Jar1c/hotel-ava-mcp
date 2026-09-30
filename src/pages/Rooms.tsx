@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useCallback } from "react"
 import { useSearchParams } from "react-router"
 import { motion } from "motion/react"
 import { RotateCcw, SlidersHorizontal, Sparkles } from "lucide-react"
@@ -193,7 +193,7 @@ export default function Rooms() {
   /** The active scheduled offer for one room. Browsing shows every switched-on
    *  offer; once the guest picks dates we only advertise the ones that cover
    *  those dates, so the badge never promises a price the stay will not get. */
-  const offerFor = (room: Room): RoomOfferDiscount | null => {
+  const offerFor = useCallback((room: Room): RoomOfferDiscount | null => {
     const offer = offerByType.get(room.type)
     if (!offer) return null
     if (filters.checkIn) {
@@ -205,7 +205,7 @@ export default function Rooms() {
       price: offer.discountedRate,
       original: offer.baseRate,
     }
-  }
+  }, [offerByType, filters.checkIn])
 
   // Sidebar filter panel (Room type / price / rating / amenities / guest needs).
   const [filterState, setFilterState] = useState<RoomFilterState>(DEFAULT_ROOM_FILTERS)
@@ -216,18 +216,21 @@ export default function Rooms() {
     () =>
       roomsData.map((r) => {
         const deal = getRoomDiscount(discountRooms, r.id)
+        // Scheduled offers the admin switched on count as a promo too -
+        // otherwise the "active promo" filter hides every discounted room.
+        const offer = offerFor(r)
         return {
           id: r.id,
           type: r.type,
-          price: deal ? deal.discountedPrice : r.price,
+          price: offer ? offer.price : deal ? deal.discountedPrice : r.price,
           rating: r.rating ?? null,
           amenities: r.amenities ?? [],
           allows_children: r.allows_children === true,
           petFriendly: (r.amenities ?? []).some((a) => a.includes("Pet")),
-          hasDeal: Boolean(deal),
+          hasDeal: Boolean(deal) || Boolean(offer),
         }
       }),
-    [roomsData, discountRooms],
+    [roomsData, discountRooms, offerFor],
   )
 
   const matchingFilterIds = useMemo(() => {
@@ -336,11 +339,11 @@ export default function Rooms() {
         </motion.div>
 
         <div className="flex items-start gap-xl">
-          <aside className="sticky top-24 hidden w-[264px] shrink-0 self-start lg:block">
+          <aside className="hidden w-[264px] shrink-0 self-start lg:sticky lg:top-24 lg:block lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto lg:overscroll-contain lg:pr-2 lg:pb-2">
             <RoomFilters rooms={filterableRooms} value={filterState} onChange={setFilterState} />
           </aside>
 
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0 flex-1 lg:min-h-[70vh]">
         <div className="mb-md flex flex-wrap items-center justify-between gap-sm">
           <p className="typo-caption-sm text-muted">
             {loading ? "Loading..."
@@ -410,7 +413,7 @@ export default function Rooms() {
                   variants={cardContainer}
                   initial="hidden"
                   animate="visible"
-                  key={`picks-${aiPicks.length}`}
+                  key="ai-picks"
                 >
                   {aiPicks.map((room, index) => (
                     <motion.div key={room.id} variants={cardItem} custom={index}>
@@ -438,7 +441,7 @@ export default function Rooms() {
                   variants={cardContainer}
                   initial="hidden"
                   animate="visible"
-                  key={`${showAiSuggestions ? "search" : "browse"}-${belowRooms.length}`}
+                  key={showAiSuggestions ? "search" : "browse"}
                 >
                   {belowRooms.map((room, index) => (
                     <motion.div key={room.id} variants={cardItem} custom={index}>
