@@ -1274,11 +1274,11 @@ export default function RoomDetail() {
                   </li>
                   <li className="flex items-center gap-2 text-sm text-ink">
                     <Check className="h-4 w-4 text-success" />
-                    No prepayment needed
+                    Pay in full, or just 50% online
                   </li>
                   <li className="flex items-center gap-2 text-sm text-ink">
                     <Check className="h-4 w-4 text-success" />
-                    Pay at the property
+                    Settle any balance at the hotel
                   </li>
                 </ul>
               </div>
