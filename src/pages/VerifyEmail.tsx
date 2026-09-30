@@ -4,6 +4,7 @@ import { CheckCircle, XCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import LoadingDots from "@/components/LoadingDots"
 import hotelLogo from "@/assets/images/Hotel Ava logo.png"
+import { API_BASE } from "@/lib/apiBase"
 
 type VerifyState = "loading" | "success" | "redirecting" | "expired"
 
@@ -23,7 +24,7 @@ export default function VerifyEmail() {
       return
     }
 
-    const apiBase = import.meta.env.VITE_API_URL || "/api"
+    const apiBase = API_BASE
     fetch(`${apiBase}/auth/verify-email`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router"
 import { ArrowRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import BookingQr from "@/components/BookingQr"
+import { API_BASE } from "@/lib/apiBase"
 
 const PRIMARY = "#82285f"
 
@@ -58,7 +59,7 @@ export default function BookingConfirmation() {
        return
      }
 
-     const apiBase = import.meta.env.VITE_API_URL || "/api"
+      const apiBase = API_BASE
      const token = sessionStorage.getItem("access_token")
      const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {}
 

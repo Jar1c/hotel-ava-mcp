@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { publicRoomsApi, type PublicRoomData } from "@/services/api"
 import { rooms as fallbackRooms, type Room } from "@/data/rooms"
 import { getCached, setCache } from "@/lib/cache"
+import { API_BASE } from "@/lib/apiBase"
 import { formatDate as toISODate, parseDateParam } from "@/lib/dates"
 import { useAuth } from "@/contexts/AuthContext"
 import LoadingDots from "@/components/LoadingDots"
@@ -157,7 +158,7 @@ export default function Booking() {
         throw new Error("This room is no longer available for the selected dates. Please go back and choose different dates.")
       }
 
-      const apiBase = import.meta.env.VITE_API_URL || "/api"
+      const apiBase = API_BASE
       const token = sessionStorage.getItem("access_token")
 
       const res = await fetch(`${apiBase}/bookings`, {

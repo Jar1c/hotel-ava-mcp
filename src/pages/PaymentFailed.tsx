@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react"
 import { useNavigate, useSearchParams } from "react-router"
 import { XCircle, ArrowRight, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { API_BASE } from "@/lib/apiBase"
 
 const PRIMARY = "#82285f"
 
@@ -14,7 +15,7 @@ export default function PaymentFailed() {
   useEffect(() => {
     if (!bookingId || reportedRef.current) return
     reportedRef.current = true
-    const apiBase = import.meta.env.VITE_API_URL || "/api"
+    const apiBase = API_BASE
     const token = sessionStorage.getItem("access_token")
     fetch(`${apiBase}/bookings/${bookingId}/payment-failed`, {
       method: "POST",
