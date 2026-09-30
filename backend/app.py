@@ -1432,6 +1432,9 @@ def create_paymongo_checkout(booking_id, amount, email, description, success_pat
                         "send_email_receipt": True,
                         "show_description": True,
                         "show_line_items": True,
+                        # Name shown in the PayMongo checkout header - defaults to
+                        # the account holder's name when omitted.
+                        "merchant": "Hotel Ava Malate",
                         "line_items": [
                             {
                                 "name": description,
