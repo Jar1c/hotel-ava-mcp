@@ -3,6 +3,7 @@ from flask_cors import CORS
 from supabase import create_client, Client
 from config import SUPABASE_URL, SUPABASE_KEY, SUPABASE_SERVICE_KEY, PAYMONGO_SECRET_KEY, PAYMONGO_BASE_URL
 from datetime import datetime, date, timedelta, timezone
+from zoneinfo import ZoneInfo
 from math import ceil
 import os
 import json
@@ -133,6 +134,164 @@ def days_between(a, b):
 
 def today_str():
     return date.today().isoformat()
+
+
+# ── Downpayment ────────────────────────────────────────────────────────────────
+# A downpayment booking charges half online; the rest is settled at the hotel
+# and recorded via POST /api/bookings/<id>/settle-balance.
+
+DOWNPAYMENT_RATIO = 0.5
+
+
+def downpayment_amount(total_price):
+    """What a downpayment guest owes up front (half, rounded, never 0)."""
+    try:
+        return max(1, round(float(total_price or 0) * DOWNPAYMENT_RATIO))
+    except (TypeError, ValueError):
+        return 0
+
+
+def settled_amount(total_price, payment_mode):
+    """Online-collected amount for a confirmed booking of the given mode."""
+    total = float(total_price or 0)
+    if payment_mode == "downpayment":
+        return float(downpayment_amount(total))
+    return total
+
+
+def balance_due(amount_paid, total_price):
+    """Still owed at the hotel. Never negative."""
+    try:
+        return max(0.0, float(total_price or 0) - float(amount_paid or 0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+# ── Check-in / "In-house" state ────────────────────────────────────────────────
+# The front desk stamps checked_in_at after scanning the guest's QR. Whether the
+# stay is actually RUNNING is derived from the clock against the booking's start
+# moment — this server has no scheduler (auto_complete_bookings is a POST that
+# only runs when someone opens a page), so everything below is evaluated on read
+# and the state flips by itself when the booked time arrives.
+
+HOTEL_TZ = ZoneInfo("Asia/Manila")
+
+# Overnight stays store a date, not a clock, so they need a house time.
+DEFAULT_CHECK_IN_TIME = "2:00 PM"
+
+
+def hotel_now():
+    """Current wall-clock time in the hotel's timezone (Asia/Manila)."""
+    return datetime.now(timezone.utc).astimezone(HOTEL_TZ)
+
+
+def parse_clock(text, default=None):
+    """'10:00 AM', '14:00', '2:00PM' -> minutes past midnight. Else default."""
+    if not text:
+        return default
+    m = re.match(r"\s*(\d{1,2}):(\d{2})\s*(AM|PM)?", str(text), re.IGNORECASE)
+    if not m:
+        return default
+    hours, minutes = int(m.group(1)), int(m.group(2))
+    period = (m.group(3) or "").upper()
+    if period == "PM" and hours != 12:
+        hours += 12
+    elif period == "AM" and hours == 12:
+        hours = 0
+    if hours > 23 or minutes > 59:
+        return default
+    return hours * 60 + minutes
+
+
+def _as_date(value):
+    if not value:
+        return None
+    try:
+        return datetime.strptime(str(value)[:10], "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def _as_minutes(value):
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def stay_type_of(b):
+    return (b.get("stay_type") or "overnight").strip() or "overnight"
+
+
+def check_in_moment(b):
+    """(date, minutes-past-midnight) the stay starts, in hotel time."""
+    day = _as_date(b.get("check_in"))
+    if stay_type_of(b) == "day":
+        return day, parse_clock(b.get("start_time"), 0) or 0
+    return day, parse_clock(DEFAULT_CHECK_IN_TIME, 14 * 60) or (14 * 60)
+
+
+def stay_end_moment(b):
+    """(date, minutes-past-midnight) the stay ends. Mirrors auto_complete's rule:
+    overnight ends at midnight of the day AFTER check_out, a day-use stay ends
+    when its duration runs out. (None, 0) = nothing to end on."""
+    if stay_type_of(b) == "day":
+        if not b.get("start_time") or not b.get("duration"):
+            return None, 0
+        end = parse_clock(b.get("start_time"), 0) or 0
+        end += max(0, _as_minutes(b.get("duration"))) * 60
+        return _as_date(b.get("check_in")), end
+    out = _as_date(b.get("check_out"))
+    if out is None:
+        return None, 0
+    return out + timedelta(days=1), 0
+
+
+def arrival_state(b, now=None):
+    """none | early | in_house | ended — derived, never stored."""
+    if (b.get("status") or "") in ("cancelled", "completed", "checked-out"):
+        return "ended"
+
+    now = now or hotel_now()
+
+    # Checked the end FIRST: a no-show whose stay already passed must not be
+    # offered a check-in button, scanned or not.
+    end_day, end_minutes = stay_end_moment(b)
+    if end_day is not None and (
+        now.date() > end_day or (now.date() == end_day and now.hour * 60 + now.minute >= end_minutes)
+    ):
+        return "ended"
+
+    if not b.get("checked_in_at"):
+        return "none"
+
+    start_day, start_minutes = check_in_moment(b)
+    if start_day is None:
+        return "in_house"
+    if now.date() < start_day:
+        return "early"
+    if now.date() == start_day and now.hour * 60 + now.minute < start_minutes:
+        return "early"
+    return "in_house"
+
+
+def format_moment(day, minutes):
+    """'Oct 5, 2:00 PM' for the banners."""
+    if day is None:
+        return ""
+    label = parse_clock_label(minutes)
+    return f"{day.strftime('%b %d, ')}{label}" if label else day.strftime("%b %d, %Y")
+
+
+def parse_clock_label(minutes):
+    try:
+        total = int(minutes or 0)
+    except (TypeError, ValueError):
+        return ""
+    hours, mins = divmod(total, 60)
+    period = "AM" if hours < 12 else "PM"
+    display = hours % 12 or 12
+    return f"{display}:{mins:02d} {period}"
 
 
 # ── Notifications ────────────────────────────────────────────────────────────────
@@ -1363,6 +1522,77 @@ def resolve_pending_payment_method(booking_id, payment_method):
     return None
 
 
+def session_payment_intent_id(attrs):
+    """Best-effort payment-intent id from checkout-session attrs (for refunds)."""
+    if not attrs:
+        return None
+    if attrs.get("payment_intent"):
+        return attrs["payment_intent"]
+    for p in attrs.get("payments") or []:
+        pa = p.get("attributes", {}) or {}
+        if pa.get("payment_intent"):
+            return pa["payment_intent"]
+        if p.get("id"):
+            return p["id"]
+    return None
+
+
+def paymongo_refund(payment_intent_id, amount_php, reason="requested_by_customer"):
+    """POST /v1/refunds. `amount_php` is whole pesos; PayMongo wants centavos.
+
+    Returns (ok: bool, detail: str) — detail is the refund id on success, or the
+    reason it failed. Never raises: a refund failure must not stop the booking
+    from being cancelled.
+    """
+    if not PAYMONGO_SECRET_KEY:
+        return False, "PAYMONGO_SECRET_KEY is not configured"
+    if not payment_intent_id:
+        return False, "no payment reference stored on this booking"
+    centavos = int(round(float(amount_php or 0) * 100))
+    if centavos <= 0:
+        return False, "nothing to refund"
+    try:
+        import base64
+        encoded_key = base64.b64encode(PAYMONGO_SECRET_KEY.encode()).decode()
+        res = http_requests.post(
+            f"{PAYMONGO_BASE_URL}/refunds",
+            headers={
+                "Authorization": f"Basic {encoded_key}",
+                "Content-Type": "application/json",
+                "Idempotency-Key": f"refund-{payment_intent_id}-{centavos}",
+            },
+            json={
+                "amount": centavos,
+                "payment_intent": payment_intent_id,
+                "reason": reason,
+            },
+            timeout=20,
+        )
+        if res.status_code in (200, 201):
+            try:
+                refund_id = res.json().get("data", {}).get("id", "")
+            except Exception:
+                refund_id = ""
+            return True, refund_id
+        return False, f"PayMongo {res.status_code}: {res.text[:300]}"
+    except Exception as e:
+        return False, str(e)
+
+
+def free_cancellation_ok(b):
+    """True when the guest is cancelling at least 24h before the stay starts.
+
+    Matches the advertised policy: "Free cancellation up to 24 hours before
+    your scheduled check-in." Uses the same start moment as check-in, so a
+    day-use 10:00 AM stay is cut off at 10:00 AM the previous day.
+    """
+    day, minutes = check_in_moment(b)
+    if day is None:
+        return False
+    start = datetime(day.year, day.month, day.day, minutes // 60, minutes % 60, tzinfo=HOTEL_TZ)
+    return hotel_now() + timedelta(hours=24) <= start
+
+
 # ── Stay windows / extend helpers ──────────────────────────────────────────────
 
 EXTEND_MAX_HOURS = 4
@@ -1370,8 +1600,9 @@ GAP_MINUTES = 60  # extending is blocked when the next booking is <= 1h away
 
 
 def _now_naive():
-    """UTC-naive now — same convention as auto_complete_bookings."""
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    """Asia/Manila-naive now — matches _stay_window, whose dates and
+    start_times are guest-local wall-clock, not UTC."""
+    return hotel_now().replace(tzinfo=None)
 
 
 def _parse_time12(value):
@@ -1596,6 +1827,23 @@ def create_booking():
         return jsonify({"error": "Unauthorized"}), 401
 
     data = request.get_json()
+
+    # A guest with an unpaid downpayment balance cannot book again until the
+    # front desk records the remaining balance as settled.
+    try:
+        owed_res = supabase_admin.table("bookings") \
+            .select("id, total_price, amount_paid") \
+            .eq("user_id", user_id).eq("payment_mode", "downpayment") \
+            .in_("status", ["confirmed", "completed"]).execute()
+        for row in owed_res.data or []:
+            if balance_due(row.get("amount_paid"), row.get("total_price")) > 0:
+                return jsonify({
+                    "error": "You still have an unpaid balance on a previous booking. "
+                             "Please settle it at the hotel before booking again."
+                }), 409
+    except Exception as e:
+        print(f"downpayment balance check skipped: {e}")
+
     room_id = data.get("room_id")
     check_in = data.get("check_in")
     check_out = data.get("check_out")
@@ -1606,6 +1854,12 @@ def create_booking():
     special_requests = data.get("special_requests", "")
     payment_method = data.get("payment_method", "gcash")
     total_price = data.get("total_price", 0)
+    payment_mode = data.get("payment_mode", "full")
+    if payment_mode not in ("full", "downpayment"):
+        payment_mode = "full"
+    # Downpayment: charge half now, the rest is settled at the hotel.
+    # total_price stays the full amount so revenue reports stay correct.
+    amount_due = max(1, round(total_price / 2)) if payment_mode == "downpayment" else total_price
     stay_type = data.get("stay_type", "overnight")
     stays = data.get("stays", "24 Hours")
     duration = data.get("duration")
@@ -1671,6 +1925,8 @@ def create_booking():
             "special_requests": special_requests,
             "stay_type": stay_type,
             "stays": stays,
+            "payment_mode": payment_mode,
+            "amount_paid": 0,
         }
         if stay_type == "day":
             booking_insert["duration"] = duration
@@ -1680,7 +1936,17 @@ def create_booking():
 
         # Service-role write: RLS on the shared anon client races with
         # clear_auth()/set_auth() from concurrent requests (42501).
-        booking_res = supabase_admin.table("bookings").insert(booking_insert).execute()
+        # payment_mode / amount_paid need migrate-payment-mode.sql; drop them
+        # and retry if the columns have not been added yet.
+        try:
+            booking_res = supabase_admin.table("bookings").insert(booking_insert).execute()
+        except Exception as ins_err:
+            if "payment_mode" in str(ins_err) or "amount_paid" in str(ins_err):
+                booking_insert.pop("payment_mode", None)
+                booking_insert.pop("amount_paid", None)
+                booking_res = supabase_admin.table("bookings").insert(booking_insert).execute()
+            else:
+                raise
 
         if not booking_res.data:
             return jsonify({"error": "Failed to create booking"}), 500
@@ -1691,7 +1957,7 @@ def create_booking():
         # Create PayMongo checkout session
         checkout_url, session_id = create_paymongo_checkout(
             booking_id=booking_id,
-            amount=total_price,
+            amount=amount_due,
             email=email,
             description=f"Booking: {booking_id}",
         )
@@ -1735,8 +2001,11 @@ def create_booking():
 
     except Exception as e:
         err = str(e)
+        import traceback as _tb
+        print("CREATE_BOOKING_RAW_ERROR:", err)
+        _tb.print_exc()
         if "row-level security" in err or "42501" in err:
-            return jsonify({"error": "Unable to save your booking due to a permissions issue. Please try again or contact support."}), 500
+            return jsonify({"error": "Unable to save your booking due to a permissions issue. Please try again or contact support.", "detail": err}), 500
         return jsonify({"error": err}), 500
 
 
@@ -1807,6 +2076,10 @@ def get_my_bookings():
                 "total_price": b["total_price"],
                 "status": b["status"],
                 "payment_method": b.get("payment_method", ""),
+                "payment_mode": b.get("payment_mode", "full"),
+                "amount_paid": b.get("amount_paid", 0),
+                "checked_in_at": b.get("checked_in_at"), "refunded_at": b.get("refunded_at"),
+                "arrival_state": arrival_state(b),
                 "created_at": b["created_at"],
                 "stay_type": b.get("stay_type", "overnight"),
                 "stays": b.get("stays", "24 Hours"),
@@ -1875,6 +2148,10 @@ def get_booking(booking_id):
             "phone": b.get("phone", ""),
             "special_requests": b.get("special_requests", ""),
             "payment_method": b.get("payment_method", ""),
+            "payment_mode": b.get("payment_mode", "full"),
+            "amount_paid": b.get("amount_paid", 0),
+            "checked_in_at": b.get("checked_in_at"), "refunded_at": b.get("refunded_at"),
+            "arrival_state": arrival_state(b),
             "created_at": b["created_at"],
             "stay_type": b.get("stay_type", "overnight"),
             "stays": b.get("stays", "24 Hours"),
@@ -1903,11 +2180,9 @@ def verify_booking(booking_code):
     is_ref = 6 <= len(code) <= 8 and all(c in HEX for c in code)
 
     try:
-        q = supabase_admin.table("bookings").select(
-            "id, status, check_in, check_out, stay_type, start_time, duration,"
-            " guests, full_name, email, phone, total_price, payment_method,"
-            " room_id, created_at"
-        )
+        # select("*"): payment_mode / amount_paid only exist once
+        # migrate-payment-mode.sql has run, and the payload picks explicit keys.
+        q = supabase_admin.table("bookings").select("*")
         if is_uuid:
             res = q.eq("id", code).execute()
         elif is_ref:
@@ -1953,6 +2228,10 @@ def verify_booking(booking_code):
             "phone": b.get("phone") or "",
             "total_price": b.get("total_price") or 0,
             "payment_method": b.get("payment_method") or "",
+            "payment_mode": b.get("payment_mode") or "full",
+            "amount_paid": b.get("amount_paid") or 0,
+            "checked_in_at": b.get("checked_in_at"), "refunded_at": b.get("refunded_at"),
+            "arrival_state": arrival_state(b),
             "created_at": b.get("created_at"),
         }), 200
     except Exception as e:
@@ -1968,7 +2247,9 @@ def cancel_booking(booking_id):
         return jsonify({"error": "Unauthorized"}), 401
 
     try:
-        booking_res = supabase.table("bookings").select("user_id, status").eq("id", booking_id).execute()
+        # select("*"): arrival_state() needs the whole stay window to know
+        # whether the guest is already at the hotel.
+        booking_res = supabase.table("bookings").select("*").eq("id", booking_id).execute()
         if not booking_res.data:
             return jsonify({"error": "Booking not found"}), 404
 
@@ -1977,12 +2258,73 @@ def cancel_booking(booking_id):
             return jsonify({"error": "Forbidden"}), 403
         if b["status"] not in ("pending", "confirmed"):
             return jsonify({"error": "Booking cannot be cancelled"}), 400
+        if arrival_state(b) in ("early", "in_house"):
+            return jsonify({
+                "error": "Your stay has already started. Please contact the front desk to make changes."
+            }), 409
 
-        supabase_admin.table("bookings").update({"status": "cancelled"}).eq("id", booking_id).execute()
-        create_notification(user_id, "booking", "Booking Cancelled",
-            "Your booking has been cancelled successfully.",
-            booking_id=booking_id)
-        return jsonify({"status": "cancelled"}), 200
+        # ── Refund ──────────────────────────────────────────────────────────
+        # Only money collected online can come back, and only when the guest
+        # gives at least 24 hours' notice. Within 24h (or on a no-show) the
+        # payment is kept — that is the advertised policy.
+        paid = float(b.get("amount_paid") or 0)
+        refund_ok = False
+        refund_detail = ""
+        refund_amount = 0.0
+        if b.get("status") == "confirmed" and paid > 0:
+            if free_cancellation_ok(b):
+                refund_amount = paid
+                refund_ok, refund_detail = paymongo_refund(b.get("payment_intent"), paid)
+            else:
+                refund_detail = "cancelled within 24 hours of check-in"
+
+        fields = {"status": "cancelled"}
+        if refund_ok:
+            fields["amount_paid"] = 0
+            fields["refunded_at"] = hotel_now().isoformat()
+            fields["refund_id"] = refund_detail
+        try:
+            supabase_admin.table("bookings").update(fields).eq("id", booking_id).execute()
+        except Exception as ue:
+            # refunded_at / refund_id need migrate-refund.sql — keep the
+            # cancellation itself working either way.
+            for col in ("amount_paid", "refunded_at", "refund_id"):
+                if col in str(ue):
+                    fields.pop(col, None)
+            if fields:
+                supabase_admin.table("bookings").update(fields).eq("id", booking_id).execute()
+
+        invalidate_cache("bookings")
+
+        if refund_ok:
+            msg = (
+                f"Your booking has been cancelled. A refund of "
+                f"₱{refund_amount:,.0f} has been initiated to your original "
+                f"payment method and should arrive within 7–14 banking days."
+            )
+        elif refund_amount > 0:
+            msg = (
+                "Your booking has been cancelled. Because this was within 24 "
+                "hours of check-in, no refund is issued."
+            )
+        elif b.get("status") == "confirmed" and paid > 0:
+            msg = (
+                "Your booking has been cancelled. Your refund could not be "
+                "processed automatically — our front desk will contact you "
+                "about returning your payment."
+            )
+            notify_admins("booking", "Refund needs review",
+                f"Automatic refund failed for booking #{booking_id[:8]} "
+                f"(₱{paid:,.0f}): {refund_detail}", booking_id=booking_id)
+        else:
+            msg = "Your booking has been cancelled successfully."
+
+        create_notification(user_id, "booking", "Booking Cancelled", msg, booking_id=booking_id)
+        return jsonify({
+            "status": "cancelled",
+            "refunded": refund_ok,
+            "refund_amount": refund_amount if refund_ok else 0,
+        }), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -2174,6 +2516,173 @@ def confirm_booking_extension(booking_id):
 
 # ── Bookings (admin) ──────────────────────────────────────────────────────────
 
+@app.route("/api/bookings/<booking_id>/settle-balance", methods=["POST"])
+def settle_booking_balance(booking_id):
+    """Front desk: record the remaining downpayment balance as paid at the hotel.
+
+    Admin-only — this is the step that lifts the "cannot book again" block.
+    """
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    if not require_admin(token):
+        return jsonify({"error": "Admin access required"}), 403
+
+    try:
+        res = supabase_admin.table("bookings").select(
+            "id, user_id, room_id, check_in, status, total_price, amount_paid, payment_mode"
+        ).eq("id", booking_id).execute()
+        if not res.data:
+            return jsonify({"error": "Booking not found"}), 404
+
+        b = res.data[0]
+        total = float(b.get("total_price") or 0)
+        paid = float(b.get("amount_paid") or 0)
+        status = b.get("status") or ""
+        if balance_due(paid, total) <= 0 and status != "pending":
+            return jsonify({
+                "booking_id": booking_id,
+                "amount_paid": total,
+                "balance_due": 0,
+                "message": "Balance already settled",
+            }), 200
+
+        fields = {"amount_paid": total}
+        # Cash/card taken at the counter → the booking becomes confirmed too.
+        if status == "pending":
+            fields["status"] = "confirmed"
+
+        try:
+            supabase_admin.table("bookings").update(fields).eq("id", booking_id).execute()
+        except Exception as ue:
+            if "amount_paid" in str(ue):
+                return jsonify({
+                    "error": "The amount_paid column is missing. Run migrate-payment-mode.sql on Supabase first."
+                }), 409
+            raise
+
+        invalidate_cache("bookings")
+        invalidate_cache("dash-")
+        invalidate_cache("analytics-")
+
+        room_name = "your room"
+        if b.get("room_id"):
+            rr = supabase_admin.table("rooms").select("name").eq("id", b["room_id"]).execute()
+            if rr.data:
+                room_name = rr.data[0]["name"]
+
+        if b.get("user_id"):
+            create_notification(b["user_id"], "booking", "Balance Settled",
+                f"Your remaining balance for {room_name} on {b.get('check_in', '')} has been settled. Your booking is fully paid.",
+                booking_id=booking_id)
+            if status == "pending":
+                create_notification(b["user_id"], "booking", "Booking Confirmed",
+                    f"Payment received at the front desk — your booking for {room_name} on {b.get('check_in', '')} is confirmed!",
+                    booking_id=booking_id)
+
+        # NOTE: do NOT touch rooms.available here. That flag is the maintenance
+        # toggle — clearing it hides the room from /api/rooms/public and shows
+        # it as "maintenance" in admin. Occupancy is derived from overlapping
+        # bookings (check_room_availability), so payment must not flip it.
+
+        return jsonify({
+            "booking_id": booking_id,
+            "amount_paid": total,
+            "balance_due": 0,
+            "status": "confirmed" if status == "pending" else status,
+        }), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/bookings/<booking_id>/check-in", methods=["POST"])
+def check_in_booking(booking_id):
+    """Front desk: stamp the guest's arrival after scanning their QR code.
+
+    The stamp alone does NOT start the stay. arrival_state() derives the real
+    state from the clock, so a guest who scans at 9:50 AM for a 10:00 AM booking
+    is recorded as "arrived early" and flips to "in-house" on its own once the
+    booked time passes — there is no scheduler to wake up and do it for us.
+
+    Admin-only: the public /verify/<code> page never calls this.
+    """
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    if not require_admin(token):
+        return jsonify({"error": "Admin access required"}), 403
+
+    try:
+        # select("*"): checked_in_at only exists once migrate-checked-in.sql has
+        # run, and .get() on the missing key degrades to "not arrived yet".
+        res = supabase_admin.table("bookings").select("*").eq("id", booking_id).execute()
+        if not res.data:
+            return jsonify({"error": "Booking not found"}), 404
+
+        b = res.data[0]
+        status = b.get("status") or ""
+        if status == "pending":
+            return jsonify({
+                "error": "Collect the balance first — this booking must be confirmed before check-in."
+            }), 409
+        if status in ("cancelled", "completed", "checked-out"):
+            return jsonify({"error": "This booking has already ended."}), 409
+
+        day = _as_date(b.get("check_in"))
+        now = hotel_now()
+        if day and now.date() < day:
+            return jsonify({
+                "error": f"Check-in opens on {day.strftime('%b %d, %Y')}."
+            }), 409
+
+        if not b.get("checked_in_at"):
+            stamped = now.isoformat()
+            try:
+                supabase_admin.table("bookings").update(
+                    {"checked_in_at": stamped}
+                ).eq("id", booking_id).execute()
+            except Exception as ue:
+                if "checked_in_at" in str(ue):
+                    return jsonify({
+                        "error": "The checked_in_at column is missing. Run migrate-checked-in.sql on Supabase first."
+                    }), 409
+                raise
+            b["checked_in_at"] = stamped
+            created = True
+        else:
+            # Re-scan keeps the original arrival time.
+            created = False
+            stamped = b["checked_in_at"]
+
+        invalidate_cache("bookings")
+        invalidate_cache("dash-")
+        invalidate_cache("analytics-")
+
+        state = arrival_state(b, now)
+        start_day, start_minutes = check_in_moment(b)
+        room_name = "your room"
+        if b.get("room_id"):
+            rr = supabase_admin.table("rooms").select("name").eq("id", b["room_id"]).execute()
+            if rr.data:
+                room_name = rr.data[0]["name"]
+
+        if created and b.get("user_id"):
+            if state == "early":
+                create_notification(b["user_id"], "booking", "Arrived Early",
+                    f"We've recorded your arrival for {room_name}. Your stay starts at "
+                    f"{format_moment(start_day, start_minutes)} — see you then!",
+                    booking_id=booking_id)
+            else:
+                create_notification(b["user_id"], "booking", "You're Checked In",
+                    f"Welcome! Your stay at {room_name} is now in progress. Enjoy your visit.",
+                    booking_id=booking_id)
+
+        return jsonify({
+            "booking_id": booking_id,
+            "checked_in_at": stamped,
+            "arrival_state": state,
+            "start_at": format_moment(start_day, start_minutes),
+        }), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/bookings", methods=["GET"])
 def get_bookings():
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
@@ -2236,6 +2745,10 @@ def get_bookings():
                 "start_time": b.get("start_time"),
                 "createdAt": b.get("created_at", ""),
                 "payment_method": b.get("payment_method", ""),
+                "payment_mode": b.get("payment_mode", "full"),
+                "amount_paid": b.get("amount_paid", 0),
+                "checked_in_at": b.get("checked_in_at"), "refunded_at": b.get("refunded_at"),
+                "arrival_state": arrival_state(b),
             })
 
         return jsonify(result), 200
@@ -2245,14 +2758,16 @@ def get_bookings():
 
 @app.route("/api/bookings/auto-complete", methods=["POST"])
 def auto_complete_bookings():
-    """Auto-complete confirmed bookings past their end, and auto-cancel unpaid bookings past their date."""
-    import re as _re
-    from datetime import datetime, timezone
+    """Auto-complete confirmed bookings past their end, and auto-cancel unpaid bookings past their date.
 
+    The clock is Asia/Manila: start/end times are stored as the guest's local
+    wall-clock ("10:00 AM", "2:00 PM"), so judging them against UTC would close
+    day-use stays 8 hours early and roll overnight stays over at 8 AM.
+    """
     try:
-        now = datetime.now(timezone.utc)
-        today_s = now.strftime("%Y-%m-%d")
-        current_time_minutes = now.hour * 60 + now.minute
+        now = hotel_now()
+        today = now.date()
+        today_s = today.isoformat()
 
         # Fetch both candidate sets + rooms in 3 calls instead of N+1 per row.
         # Service-role: this cron has no user JWT — RLS would block under anon.
@@ -2267,42 +2782,29 @@ def auto_complete_bookings():
             rid = b.get("room_id")
             return rooms_by_id.get(rid, "your room") if rid else "your room"
 
+        def stay_has_ended(b):
+            end_day, end_minutes = stay_end_moment(b)
+            if end_day is None:
+                return False
+            if today > end_day:
+                return True
+            return today == end_day and now.hour * 60 + now.minute >= end_minutes
+
         completed_ids = []
         for b in confirmed:
-            should_complete = False
-            stay_type = b.get("stay_type", "overnight")
+            if not stay_has_ended(b):
+                continue
 
-            if stay_type == "day":
-                start_time = b.get("start_time")
-                duration = b.get("duration")
-                check_in = b.get("check_in", "")
-                if start_time and duration and check_in == today_s:
-                    match = _re.match(r"(\d+):00\s*(AM|PM)", start_time, _re.IGNORECASE)
-                    if match:
-                        h = int(match.group(1))
-                        period = match.group(2).upper()
-                        if period == "PM" and h != 12:
-                            h += 12
-                        if period == "AM" and h == 12:
-                            h = 0
-                        start_minutes = h * 60
-                        end_minutes = start_minutes + (duration * 60)
-                        if current_time_minutes >= end_minutes:
-                            should_complete = True
-            else:
-                check_out = b.get("check_out", "")
-                if check_out and check_out < today_s:
-                    should_complete = True
-
-            if should_complete:
-                result = supabase_admin.table("bookings").update({"status": "completed"}).eq("id", b["id"]).eq("status", "confirmed").execute()
-                # Only notify if the status actually changed (prevents duplicates on repeated calls)
-                if result.data:
-                    completed_ids.append(b["id"])
-                    create_notification(b["user_id"], "booking", "Stay Completed",
-                        f"Your stay at {room_name(b)} has been marked as completed. We hope to see you again!",
-                        booking_id=b["id"])
-                    # Ask for a review right after the stay wraps up
+            result = supabase_admin.table("bookings").update({"status": "completed"}).eq("id", b["id"]).eq("status", "confirmed").execute()
+            # Only notify if the status actually changed (prevents duplicates on repeated calls)
+            if result.data:
+                completed_ids.append(b["id"])
+                create_notification(b["user_id"], "booking", "Stay Completed",
+                    f"Your stay at {room_name(b)} has been marked as completed. We hope to see you again!",
+                    booking_id=b["id"])
+                # Ask for a review right after the stay wraps up — but only for
+                # stays the guest actually checked in to (a no-show can't rate it)
+                if b.get("checked_in_at"):
                     create_notification(b["user_id"], "review", "How was your stay?",
                         f"Rate {room_name(b)} and share your experience with other guests.",
                         booking_id=b["id"])
@@ -2444,7 +2946,7 @@ def create_review():
 
     try:
         booking_res = supabase_admin.table("bookings") \
-            .select("id, user_id, room_id, status, full_name, email") \
+            .select("id, user_id, room_id, status, full_name, email, checked_in_at") \
             .eq("id", booking_id).execute()
         if not booking_res.data:
             return jsonify({"error": "Booking not found"}), 404
@@ -2454,6 +2956,8 @@ def create_review():
             return jsonify({"error": "You can only review your own booking."}), 403
         if booking.get("status") not in REVIEWABLE_STATUSES:
             return jsonify({"error": "You can review a stay once it is completed."}), 400
+        if not booking.get("checked_in_at"):
+            return jsonify({"error": "You can only review a stay you actually checked in to."}), 400
 
         existing = supabase_admin.table("reviews").select("id").eq("booking_id", booking_id).execute()
         if existing.data:
@@ -3512,11 +4016,30 @@ def paymongo_webhook():
             if booking_id:
                 # Update booking status to confirmed (only if still pending)
                 # Service-role: webhooks have no user JWT for RLS.
+                row_res = supabase_admin.table("bookings") \
+                    .select("total_price, payment_mode").eq("id", booking_id).execute()
+                row = row_res.data[0] if row_res.data else {}
                 update = {"status": "confirmed"}
+                if row:
+                    # Record the online-collected amount — a downpayment only
+                    # settles half, the rest is still owed at the hotel.
+                    update["amount_paid"] = settled_amount(
+                        row.get("total_price"), row.get("payment_mode"))
                 source_type = (payment_data.get("source") or {}).get("type")
                 if source_type:
                     update["payment_method"] = _PAYMONGO_SOURCE_TYPES.get(source_type, source_type)
-                result = supabase_admin.table("bookings").update(update).eq("id", booking_id).eq("status", "pending").execute()
+                # Reference needed to issue a refund later (migrate-refund.sql).
+                if payment_data.get("payment_intent"):
+                    update["payment_intent"] = payment_data["payment_intent"]
+                try:
+                    result = supabase_admin.table("bookings").update(update).eq("id", booking_id).eq("status", "pending").execute()
+                except Exception as ue:
+                    # amount_paid / payment_intent need their migrations.
+                    for col in ("amount_paid", "payment_intent"):
+                        if col in str(ue):
+                            update.pop(col, None)
+                    print(f"webhook confirm retry: {ue}")
+                    result = supabase_admin.table("bookings").update(update).eq("id", booking_id).eq("status", "pending").execute()
                 print(f"Booking {booking_id} confirmed via webhook")
 
                 # Only notify if the status actually changed
@@ -3535,9 +4058,9 @@ def paymongo_webhook():
                         notify_admins("booking", "Payment Confirmed",
                             f"Payment received for {room_name} on {b.get('check_in', '')}.",
                             booking_id=booking_id)
-                        room_id = b.get("room_id")
-                        if room_id:
-                            supabase_admin.table("rooms").update({"available": False}).eq("id", room_id).execute()
+                        # NOTE: rooms.available is the maintenance toggle, not
+                        # occupancy — never clear it on payment (it hides the
+                        # room from /api/rooms/public). See check_room_availability.
             else:
                 print(f"Webhook: Could not find booking_id from description: {description}")
 
@@ -3553,7 +4076,10 @@ def confirm_booking_after_payment(booking_id):
     try:
         # Service-role: this endpoint never set_auth()'d — ran as anon and
         # RLS filtered the SELECT (404) / blocked the UPDATE.
-        booking_res = supabase_admin.table("bookings").select("user_id, room_id, check_in, status, payment_method").eq("id", booking_id).execute()
+        booking_res = supabase_admin.table("bookings").select(
+            "user_id, room_id, check_in, status, payment_method,"
+            " total_price, payment_mode, amount_paid"
+        ).eq("id", booking_id).execute()
 
         if not booking_res.data:
             return jsonify({"error": "Booking not found"}), 404
@@ -3576,11 +4102,31 @@ def confirm_booking_after_payment(booking_id):
                 if attempt < 2:
                     time.sleep(1)
 
+        # Save a refund reference if we don't have one yet (redirect usually
+        # beats the webhook, so this is often the only place it lands).
+        if not b.get("payment_intent"):
+            sid = pm.split(":", 1)[1] if pm.startswith("awaiting:") else None
+            pi = session_payment_intent_id(fetch_paymongo_session(sid)) if sid else None
+            if pi:
+                try:
+                    supabase_admin.table("bookings").update({"payment_intent": pi}).eq("id", booking_id).execute()
+                except Exception as ue:
+                    print(f"payment_intent store skipped: {ue}")
+
         if b["status"] == "confirmed":
             return jsonify({"booking_id": booking_id, "status": "confirmed"}), 200
 
-        # Update booking status to confirmed
-        result = supabase_admin.table("bookings").update({"status": "confirmed"}).eq("id", booking_id).eq("status", "pending").execute()
+        # Update booking status to confirmed + record what was collected online
+        update = {"status": "confirmed"}
+        if float(b.get("amount_paid") or 0) <= 0:
+            update["amount_paid"] = settled_amount(b.get("total_price"), b.get("payment_mode"))
+        try:
+            result = supabase_admin.table("bookings").update(update).eq("id", booking_id).eq("status", "pending").execute()
+        except Exception as ue:
+            # amount_paid needs migrate-payment-mode.sql.
+            update.pop("amount_paid", None)
+            print(f"confirm retry without amount_paid: {ue}")
+            result = supabase_admin.table("bookings").update(update).eq("id", booking_id).eq("status", "pending").execute()
 
         if result.data:
             room_name = "your room"

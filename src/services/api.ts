@@ -1,3 +1,5 @@
+import type { ArrivalState } from "@/lib/arrival"
+
 const API_BASE = import.meta.env.VITE_API_URL || "/api"
 
 /** Flag to prevent multiple concurrent refresh attempts */
@@ -267,6 +269,8 @@ export interface CreateBookingPayload {
   special_requests?: string
   payment_method: string
   total_price: number
+  /** "full" = paid online in full, "downpayment" = 50% online + balance at hotel */
+  payment_mode?: "full" | "downpayment"
 }
 
 export interface BookingResponse {
@@ -288,6 +292,15 @@ export interface UserBookingData {
   total_price: number
   status: string
   payment_method: string
+  /** "full" = paid online in full, "downpayment" = 50% online + balance at hotel */
+  payment_mode?: "full" | "downpayment"
+  /** Collected online so far; balance = total_price − amount_paid */
+  amount_paid?: number
+  /** Front-desk check-in stamp. null = the guest has not arrived yet. */
+  checked_in_at?: string | null
+  refunded_at?: string | null
+  /** Derived from the clock — never stored. See ArrivalState. */
+  arrival_state?: ArrivalState
   created_at: string
   stay_type?: string
   stays?: string
@@ -325,7 +338,10 @@ export const userBookingsApi = {
   getOne: (id: string) => apiFetch<UserBookingData & { full_name: string; email: string; phone: string; special_requests: string }>(`/bookings/${id}`),
 
   cancel: (id: string) =>
-    apiFetch(`/bookings/${id}/cancel`, { method: "POST" }),
+    apiFetch<{ status: string; refunded?: boolean; refund_amount?: number }>(
+      `/bookings/${id}/cancel`,
+      { method: "POST" },
+    ),
 
   retryPay: (id: string) =>
     apiFetch<{ checkout_url: string }>(`/bookings/${id}/pay`, { method: "POST" }),
@@ -356,6 +372,11 @@ export interface VerifyBookingData {
   phone?: string
   total_price?: number
   payment_method?: string
+  payment_mode?: string
+  amount_paid?: number
+  checked_in_at?: string | null
+  refunded_at?: string | null
+  arrival_state?: ArrivalState
   created_at?: string
 }
 
@@ -389,6 +410,11 @@ export interface BookingData {
   start_time?: string
   createdAt?: string
   payment_method?: string
+  payment_mode?: string
+  amount_paid?: number
+  checked_in_at?: string | null
+  refunded_at?: string | null
+  arrival_state?: ArrivalState
 }
 
 export const bookingsApi = {
@@ -403,6 +429,24 @@ export const bookingsApi = {
     }),
   autoComplete: () =>
     apiFetch<{ completed: number; ids: string[] }>("/bookings/auto-complete", { method: "POST" }),
+  /** Front desk: record the remaining downpayment balance as paid at the hotel. */
+  settleBalance: (bookingId: string) =>
+    apiFetch<{ booking_id: string; amount_paid: number; balance_due: number; status?: string }>(
+      `/bookings/${bookingId}/settle-balance`,
+      { method: "POST" },
+    ),
+  /**
+   * Front desk: stamp the guest's arrival after scanning their QR code.
+   * The stamp does not start the stay — `arrival_state` decides that from the
+   * clock, so an early scan stays "early" until the booked time arrives.
+   */
+  checkIn: (bookingId: string) =>
+    apiFetch<{
+      booking_id: string
+      checked_in_at: string
+      arrival_state: ArrivalState
+      start_at?: string
+    }>(`/bookings/${bookingId}/check-in`, { method: "POST" }),
 }
 
 // ── Guests ─────────────────────────────────────────────────────────────────────

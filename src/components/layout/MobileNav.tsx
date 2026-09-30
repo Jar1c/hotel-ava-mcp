@@ -4,6 +4,7 @@ import { Menu, X, CalendarDays, User, Home, BedDouble, Info, Phone, Star } from 
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/contexts/AuthContext"
+import { useNotifications } from "@/contexts/NotificationContext"
 import hotelAvaLogo from "@/assets/images/Hotel Ava logo.png"
 
 const publicItems = [
@@ -32,6 +33,7 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
 export default function MobileNav() {
   const [open, setOpen] = useState(false)
   const { isAuthenticated } = useAuth()
+  const { unreadBookingCount } = useNotifications()
 
   const navItems = isAuthenticated ? guestItems : publicItems
 
@@ -96,6 +98,11 @@ export default function MobileNav() {
               >
                 {Icon && <Icon className="size-[17px]" />}
                 {item.label}
+                {item.label === "My Bookings" && unreadBookingCount > 0 && (
+                  <span className="ml-auto inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#A4423A] px-1.5 text-[10px] font-bold leading-none text-white shadow-sm">
+                    {unreadBookingCount >= 9 ? "9+" : unreadBookingCount}
+                  </span>
+                )}
               </NavLink>
             )
           })}

@@ -57,8 +57,8 @@ export const footerLinkGroups: FooterLinkGroup[] = [
     title: "Policies",
     links: [
       { label: "Terms & Conditions", path: "/terms" },
-      { label: "Privacy Policy", path: "/privacy" },
-      { label: "Data Privacy", path: "/privacy" },
+      { label: "Privacy Policy", path: "/terms#privacy" },
+      { label: "Data Privacy", path: "/terms#privacy" },
       { label: "Hotel Policies", path: "/terms" },
     ],
   },

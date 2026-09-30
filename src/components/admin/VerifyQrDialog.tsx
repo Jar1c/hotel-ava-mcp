@@ -1,9 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { verifyApi, ApiError, type VerifyBookingData } from "@/services/api"
+import { verifyApi, bookingsApi, ApiError, type VerifyBookingData } from "@/services/api"
 import ReceiptDialog, { type ReceiptData } from "@/components/ReceiptDialog"
 import { formatPaymentMethod } from "@/lib/payment"
+import {
+  deriveArrival,
+  startMomentLabel,
+  arrivalTimeLabel,
+  minutesUntilStart,
+  canCheckIn,
+  type ArrivalState,
+} from "@/lib/arrival"
 import { QrCode, Camera, CheckCircle, XCircle, Upload } from "lucide-react"
 import jsQR from "jsqr"
 
@@ -21,6 +29,30 @@ type Detector = { detect(source: DetectSource): Promise<Array<{ rawValue: string
 type BarcodeCtor = new (opts: { formats: string[] }) => Detector
 
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
+
+/** Per-state look for the arrival panel. */
+const ARRIVAL_TONE: Record<ArrivalState, { box: string; pill: string; hint: string }> = {
+  none: {
+    box: "border-[#e2e4e8] border-l-[#9ca3af]",
+    pill: "bg-[#2A2A28] text-white",
+    hint: "text-muted",
+  },
+  early: {
+    box: "border-amber-300 border-l-amber-500",
+    pill: "bg-amber-500 text-white",
+    hint: "text-amber-800",
+  },
+  in_house: {
+    box: "border-emerald-300 border-l-[#3D6B4F]",
+    pill: "bg-[#3D6B4F] text-white",
+    hint: "text-[#2d5a3e]",
+  },
+  ended: {
+    box: "border-gray-200 border-l-gray-400",
+    pill: "bg-gray-400 text-white",
+    hint: "text-muted",
+  },
+}
 
 /** QR payload → booking id: full UUID, /verify/<id> link, or #ABC12345 code. */
 function extractCode(raw: string): string {
@@ -82,10 +114,12 @@ async function decodeQrFromImage(file: File): Promise<string | null> {
   }
 }
 
-function paymentNote(status: string): string {
-  if (status === "pending") return "Awaiting payment"
-  if (status === "confirmed" || status === "completed" || status === "checked-out") return "Paid"
+function paymentNote(status: string, downpayment = false, balance = 0): string {
+  if (status === "pending") return downpayment ? "Awaiting downpayment" : "Awaiting payment"
   if (status === "cancelled") return "Cancelled"
+  if (status === "confirmed" || status === "completed" || status === "checked-out") {
+    return downpayment ? (balance > 0 ? "Downpayment · balance due" : "Paid in full") : "Paid"
+  }
   return "—"
 }
 
@@ -102,6 +136,9 @@ function receiptFor(d: VerifyBookingData): ReceiptData {
   const isDay = d.stay_type === "day"
   const nights = nightsBetween(d.check_in, d.check_out)
   const roomName = d.room_name
+  const downpayment = d.payment_mode === "downpayment"
+  const total = Number(d.total_price) || 0
+  const balance = downpayment ? Math.max(0, total - (d.amount_paid ?? 0)) : 0
   return {
     reference: d.reference,
     fullReference: d.id,
@@ -117,14 +154,17 @@ function receiptFor(d: VerifyBookingData): ReceiptData {
       ? `Day use${d.duration ? ` · ${d.duration} hours` : ""}${d.start_time ? ` from ${d.start_time}` : ""}`
       : `${nights} night${nights === 1 ? "" : "s"}`,
     guests: d.guests,
-    total: Number(d.total_price) || 0,
+    total,
     // The verify payload carries no room rate, so no rate/discount line.
     gross: null,
     itemLabel: isDay
       ? `${roomName} · day use`
       : `${roomName} × ${nights} night${nights === 1 ? "" : "s"}`,
     paymentMethod: formatPaymentMethod(d.payment_method || "", "Not set"),
-    paymentStatus: paymentNote(d.status),
+    paymentStatus: paymentNote(d.status, downpayment, balance),
+    paymentMode: downpayment ? "downpayment" : "full",
+    amountPaid: downpayment ? Math.max(0, d.amount_paid ?? 0) : Number(d.total_price) || 0,
+    balanceDue: balance,
   }
 }
 
@@ -137,6 +177,13 @@ export default function VerifyQrDialog({ open, onOpenChange }: Props) {
   const [value, setValue] = useState("")
   const [result, setResult] = useState<Result>({ kind: "idle" })
   const [busy, setBusy] = useState(false)
+  const [settling, setSettling] = useState(false)
+  const [checkingIn, setCheckingIn] = useState(false)
+  const [actionError, setActionError] = useState<string | null>(null)
+  // Arrival is derived from the clock, so keep the clock moving while this
+  // dialog is open — an "arrived early" banner flips to "In-house" on its own
+  // when the booked time arrives, with nobody refetching anything.
+  const [now, setNow] = useState(() => new Date())
   const [receiptOpen, setReceiptOpen] = useState(false)
   const [cam, setCam] = useState<CameraState>("off")
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -156,6 +203,7 @@ export default function VerifyQrDialog({ open, onOpenChange }: Props) {
     const code = extractCode(raw)
     if (!code) return
     setBusy(true)
+    setActionError(null)
     setResult({ kind: "idle" })
     try {
       const data = await verifyApi.get(code)
@@ -211,6 +259,54 @@ export default function VerifyQrDialog({ open, onOpenChange }: Props) {
   useEffect(() => {
     if (!open) stopCamera()
   }, [open, stopCamera])
+
+  // Re-render every 15s while open so arrival_state flips at the booked time.
+  useEffect(() => {
+    if (!open) return
+    setNow(new Date())
+    const id = window.setInterval(() => setNow(new Date()), 15_000)
+    return () => window.clearInterval(id)
+  }, [open])
+
+  // Front desk stamps the guest's arrival. The stamp alone does NOT start the
+  // stay — deriveArrival() decides that from the clock, so an early scan just
+  // records "arrived" and turns into "In-house" when the booked time passes.
+  const checkInGuest = useCallback(async () => {
+    if (result.kind !== "found" || checkingIn) return
+    const bid = result.data.id
+    setCheckingIn(true)
+    setActionError(null)
+    try {
+      await bookingsApi.checkIn(bid)
+      await verifyCode(value || bid)
+    } catch (err) {
+      setActionError(
+        err instanceof ApiError ? err.message : "Couldn't check the guest in. Please try again.",
+      )
+    } finally {
+      setCheckingIn(false)
+    }
+  }, [result, checkingIn, value, verifyCode])
+
+  // Front desk collects the outstanding balance (cash / card at the counter).
+  // Re-verifies afterwards so the balance line and receipt both update.
+  const settleBalance = useCallback(async () => {
+    if (result.kind !== "found" || settling) return
+    const d = result.data
+    const bid = d.id
+    setSettling(true)
+    setActionError(null)
+    try {
+      await bookingsApi.settleBalance(bid)
+      await verifyCode(value || bid)
+    } catch (err) {
+      setActionError(
+        err instanceof ApiError ? err.message : "Couldn't record the payment. Please try again.",
+      )
+    } finally {
+      setSettling(false)
+    }
+  }, [result, settling, value, verifyCode])
 
   // Live QR loop while the camera runs (BarcodeDetector is Chrome/Edge built-in)
   useEffect(() => {
@@ -343,10 +439,95 @@ export default function VerifyQrDialog({ open, onOpenChange }: Props) {
               <div className="flex items-center gap-2">
                 <CheckCircle className="h-5 w-5 text-emerald-600" />
                 <p className="text-sm font-bold text-emerald-800">Booking found</p>
-                <span className="ml-auto rounded-full border border-emerald-200 bg-white px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700">
-                  {result.data.status}
-                </span>
+                {(() => {
+                  const state = deriveArrival(result.data, now)
+                  const label =
+                    state === "in_house" ? "In-house" : state === "early" ? "Arrived" : result.data.status
+                  const accent =
+                    state === "in_house"
+                      ? "border-[#3D6B4F] text-[#3D6B4F]"
+                      : state === "early"
+                        ? "border-amber-300 text-amber-700"
+                        : "border-emerald-200 text-emerald-700"
+                  return (
+                    <span
+                      className={`ml-auto rounded-full border bg-white px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${accent}`}
+                    >
+                      {label}
+                    </span>
+                  )
+                })()}
               </div>
+
+              {/* Arrival — has the guest shown up, and is the stay running yet? */}
+              {(() => {
+                const d = result.data
+                const state = deriveArrival(d, now)
+                const tone = ARRIVAL_TONE[state]
+                const startLabel = startMomentLabel(d)
+                const arrivedAt = arrivalTimeLabel(d.checked_in_at)
+                const until = state === "early" ? minutesUntilStart(d, now) : null
+                const countdown =
+                  until && until > 0
+                    ? until >= 60
+                      ? `Starts in ${Math.floor(until / 60)}h ${until % 60}m`
+                      : `Starts in ${until} min`
+                    : null
+                const hint =
+                  state === "none"
+                    ? `Not checked in yet${startLabel ? ` · Stay starts ${startLabel}` : ""}`
+                    : state === "early"
+                      ? `Checked in ${arrivedAt}${startLabel ? ` · Stay starts ${startLabel}` : ""}`
+                      : state === "in_house"
+                        ? `Checked in ${arrivedAt}${startLabel ? ` · Running since ${startLabel}` : ""}`
+                        : arrivedAt
+                          ? `Checked in ${arrivedAt}`
+                          : "Never checked in"
+                return (
+                  <div className={`mt-3 rounded-[8px] border border-l-4 bg-white p-3 ${tone.box}`}>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${tone.pill}`}>
+                        {state === "none"
+                          ? "Awaiting arrival"
+                          : state === "early"
+                            ? "Arrived early"
+                            : state === "in_house"
+                              ? "In-house"
+                              : "Stay ended"}
+                      </span>
+                      {countdown && (
+                        <span className="text-[11px] font-bold uppercase tracking-wide text-amber-700">
+                          {countdown}
+                        </span>
+                      )}
+                    </div>
+                    <p className={`mt-1.5 text-[13px] ${tone.hint}`}>{hint}</p>
+
+                    {actionError && (
+                      <p className="mt-2 rounded-[6px] border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-[12px] font-semibold text-rose-700">
+                        {actionError}
+                      </p>
+                    )}
+
+                    {canCheckIn(d, now) && (
+                      <Button
+                        type="button"
+                        onClick={() => void checkInGuest()}
+                        disabled={checkingIn}
+                        className="mt-3 w-full !rounded-[8px] gap-2 bg-[#3D6B4F] text-white hover:bg-[#2d5a3e]"
+                      >
+                        {checkingIn ? "Checking in…" : "Check in guest"}
+                      </Button>
+                    )}
+                    {state === "none" && d.status === "pending" && (
+                      <p className="mt-2 text-[12px] font-semibold text-[#b45309]">
+                        Collect the balance first — this booking must be confirmed before check-in.
+                      </p>
+                    )}
+                  </div>
+                )
+              })()}
+
               <dl className="mt-3 space-y-1.5 text-[13px]">
                 <div className="flex justify-between gap-3">
                   <dt className="text-emerald-700">Guest</dt>
@@ -371,6 +552,65 @@ export default function VerifyQrDialog({ open, onOpenChange }: Props) {
                   <dd className="font-mono font-semibold text-emerald-950">#{result.data.reference}</dd>
                 </div>
               </dl>
+
+              {/* Payment terms — flagged the moment the QR is scanned */}
+              {(() => {
+                const d = result.data
+                const down = d.payment_mode === "downpayment"
+                const total = Number(d.total_price) || 0
+                const paid = down ? Math.max(0, d.amount_paid ?? 0) : total
+                const balance = Math.max(0, total - paid)
+                const cancelled = d.status === "cancelled"
+                const showSettle = !cancelled && balance > 0
+                return (
+                  <div className="mt-3 rounded-[8px] border border-emerald-200 bg-white p-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="rounded-full bg-[#82285f] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white">
+                        {down ? "Downpayment" : "Full payment"}
+                      </span>
+                      <span
+                        className={
+                          balance > 0
+                            ? "text-[11px] font-bold uppercase tracking-wide text-[#b45309]"
+                            : "text-[11px] font-bold uppercase tracking-wide text-emerald-700"
+                        }
+                      >
+                        {cancelled ? "Cancelled" : balance > 0 ? `Balance ₱${balance.toLocaleString()}` : "Fully paid"}
+                      </span>
+                    </div>
+                    <dl className="mt-2 space-y-1 text-[13px]">
+                      <div className="flex justify-between gap-3">
+                        <dt className="text-emerald-700">Total</dt>
+                        <dd className="font-semibold text-emerald-950">₱{total.toLocaleString()}</dd>
+                      </div>
+                      <div className="flex justify-between gap-3">
+                        <dt className="text-emerald-700">Paid online</dt>
+                        <dd className="font-semibold text-emerald-950">₱{paid.toLocaleString()}</dd>
+                      </div>
+                      {balance > 0 && (
+                        <div className="flex justify-between gap-3 border-t border-emerald-100 pt-1">
+                          <dt className="font-semibold text-[#b45309]">Balance due at hotel</dt>
+                          <dd className="font-bold text-[#b45309]">₱{balance.toLocaleString()}</dd>
+                        </div>
+                      )}
+                    </dl>
+                    {showSettle && (
+                      <Button
+                        type="button"
+                        onClick={() => void settleBalance()}
+                        disabled={settling}
+                        className="mt-3 w-full !rounded-[8px] gap-2 bg-[#3D6B4F] text-white hover:bg-[#2d5a3e]"
+                      >
+                        {settling
+                          ? "Saving…"
+                          : d.status === "pending"
+                            ? `Collect ₱${balance.toLocaleString()} & confirm`
+                            : `Collect ₱${balance.toLocaleString()} — mark as paid`}
+                      </Button>
+                    )}
+                  </div>
+                )
+              })()}
               <Button
                 type="button"
                 variant="outline"

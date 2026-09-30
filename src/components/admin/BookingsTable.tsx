@@ -6,12 +6,16 @@ import type { Booking } from "@/data/admin"
 import LoadingDots from "@/components/LoadingDots"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import ReceiptDialog, { type ReceiptData } from "@/components/ReceiptDialog"
-import { Mail, Phone, CalendarDays, PhilippinePeso, User, Clock, BedDouble, CreditCard, FileText } from "lucide-react"
+import { Mail, Phone, CalendarDays, PhilippinePeso, User, Clock, BedDouble, CreditCard, FileText, Landmark, LogIn } from "lucide-react"
 import { getDiceBearUrl } from "@/lib/dicebear"
 import { formatPaymentMethod } from "@/lib/payment"
+import { deriveArrival, canCheckIn, arrivalTimeLabel, startMomentLabel } from "@/lib/arrival"
 import Pagination from "@/components/admin/Pagination"
 
 type BookingStatus = "confirmed" | "pending" | "completed" | "cancelled" | "checked-out"
+/** What the row shows: a stay that is running reads as In-house, not Confirmed. */
+type DisplayStatus = BookingStatus | "in-house"
+type RowAction = BookingStatus | "check-in"
 
 const PAGE_SIZE = 10
 
@@ -22,22 +26,53 @@ interface BookingsTableProps {
   onStatusChange?: () => void
 }
 
-const statusConfig: Record<BookingStatus, { label: string; dotColor: string; textColor: string }> = {
+const statusConfig: Record<DisplayStatus, { label: string; dotColor: string; textColor: string }> = {
   confirmed: { label: "Confirmed", dotColor: "bg-[#3D6B4F]", textColor: "text-[#3D6B4F]" },
   pending: { label: "Pending", dotColor: "bg-[#B5AC97]", textColor: "text-[#B5AC97]" },
   completed: { label: "Completed", dotColor: "bg-[#b0b3b8]", textColor: "text-[#9ca3af]" },
   cancelled: { label: "Cancelled", dotColor: "bg-[#A4423A]", textColor: "text-[#A4423A]" },
   "checked-out": { label: "Checked Out", dotColor: "bg-[#b0b3b8]", textColor: "text-[#9ca3af]" },
+  "in-house": { label: "In-house", dotColor: "bg-[#2f7d6d]", textColor: "text-[#2f7d6d]" },
 }
 
-const statusFilters: { label: string; value: BookingStatus | "all" }[] = [
+const statusFilters: { label: string; value: DisplayStatus | "all" }[] = [
   { label: "All", value: "all" },
   { label: "Pending", value: "pending" },
   { label: "Confirmed", value: "confirmed" },
+  { label: "In-house", value: "in-house" },
   { label: "Completed", value: "completed" },
   { label: "Checked Out", value: "checked-out" },
   { label: "Cancelled", value: "cancelled" },
 ]
+
+/**
+ * The status the table filters and counts by. In-house stays are split out of
+ * Confirmed so the front desk can see who is actually in the building; an
+ * arrival that is still waiting for its start time stays under Confirmed.
+ */
+function displayStatus(b: Booking, now?: Date): DisplayStatus {
+  return deriveArrival(b, now) === "in_house" ? "in-house" : b.status
+}
+
+/** Badge for the row — also surfaces "Arrived" for an early check-in. */
+function badgeFor(b: Booking, now?: Date) {
+  const state = deriveArrival(b, now)
+  if (state === "early") {
+    return { label: "Arrived", dotColor: "bg-amber-500", textColor: "text-amber-600" }
+  }
+  return statusConfig[displayStatus(b, now)]
+}
+
+/** One line summarising where the guest is in the arrival flow. */
+function arrivalLabel(b: Booking, now: Date) {
+  const state = deriveArrival(b, now)
+  const start = startMomentLabel(b)
+  if (state === "none") return start ? `Not checked in · starts ${start}` : "Not checked in"
+  const at = arrivalTimeLabel(b.checked_in_at)
+  if (state === "early") return `Arrived ${at} · starts ${start}`
+  if (state === "in_house") return `In-house since ${start || at}`
+  return at ? `Checked in ${at}` : "Never checked in"
+}
 
 function formatBookingDate(dateStr: string) {
   if (!dateStr) return "—"
@@ -49,11 +84,24 @@ function formatPaymentLabel(method: string) {
   return formatPaymentMethod(method, "Not set")
 }
 
-function paymentNote(status: BookingStatus) {
-  if (status === "pending") return "Awaiting payment"
-  if (status === "confirmed") return "Paid"
-  if (status === "completed" || status === "checked-out") return "Paid"
-  if (status === "cancelled") return "Cancelled"
+function bookingBalance(b: { amount: number; amount_paid?: number }) {
+  return Math.max(0, (b.amount ?? 0) - (b.amount_paid ?? 0))
+}
+
+function isDownpayment(b: Booking) {
+  return b.payment_mode === "downpayment"
+}
+
+function paymentNote(b: Booking) {
+  if (b.status === "pending") return isDownpayment(b) ? "Awaiting downpayment" : "Awaiting payment"
+  if (b.status === "cancelled") return "Cancelled"
+  if (b.status === "confirmed" || b.status === "completed" || b.status === "checked-out") {
+    return isDownpayment(b)
+      ? bookingBalance(b) > 0
+        ? "Downpayment · balance due"
+        : "Paid in full"
+      : "Paid"
+  }
   return "—"
 }
 
@@ -65,6 +113,9 @@ function receiptFor(b: Booking): ReceiptData {
   // so lead with the name — the same order the guest receipt uses.
   const roomName = b.roomNumber || b.roomType
   const roomType = b.roomNumber && b.roomType && b.roomNumber !== b.roomType ? b.roomType : undefined
+  const down = isDownpayment(b)
+  const amountPaid = down ? Math.max(0, b.amount_paid ?? 0) : b.amount
+  const balance = down ? bookingBalance(b) : 0
   return {
     reference: (b.fullId || b.id).slice(0, 8).toUpperCase(),
     fullReference: b.fullId || b.id,
@@ -86,21 +137,32 @@ function receiptFor(b: Booking): ReceiptData {
     gross: null,
     itemLabel: isDay ? `${roomName} · day use` : `${roomName} × ${nights} night${nights === 1 ? "" : "s"}`,
     paymentMethod: formatPaymentLabel(b.payment_method || ""),
-    paymentStatus: paymentNote(b.status),
+    paymentStatus: paymentNote(b),
+    paymentMode: down ? "downpayment" : "full",
+    amountPaid,
+    balanceDue: balance,
   }
 }
 
 export default function BookingsTable({ bookings, showFilters = true, loading, onStatusChange }: BookingsTableProps) {
-  const [filter, setFilter] = useState<BookingStatus | "all">("all")
+  const [filter, setFilter] = useState<DisplayStatus | "all">("all")
   const [page, setPage] = useState(1)
   const [actingId, setActingId] = useState<string | null>(null)
-  const [confirmAction, setConfirmAction] = useState<{ bookingId: string; bookingIdShort: string; action: BookingStatus; label: string } | null>(null)
+  const [confirmAction, setConfirmAction] = useState<{ bookingId: string; bookingIdShort: string; action: RowAction; label: string } | null>(null)
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [receiptOpen, setReceiptOpen] = useState(false)
+  // Arrival is derived from the clock — re-render so "Arrived" flips to
+  // "In-house" on its own when the booked time passes.
+  const [now, setNow] = useState(() => new Date())
   const { toast } = useToast()
 
-  const filtered = filter === "all" ? bookings : bookings.filter((b) => b.status === filter)
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(new Date()), 30_000)
+    return () => window.clearInterval(id)
+  }, [])
+
+  const filtered = filter === "all" ? bookings : bookings.filter((b) => displayStatus(b, now) === filter)
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const safePage = Math.min(page, totalPages)
   const paged = useMemo(
@@ -121,15 +183,19 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
     setModalOpen(true)
   }
 
-  async function handleStatusChange(bookingId: string, newStatus: BookingStatus) {
+  async function handleStatusChange(bookingId: string, newStatus: RowAction) {
     if (!bookingId) return
     setActingId(bookingId)
     try {
-      await bookingsApi.updateStatus(bookingId, newStatus)
+      if (newStatus === "check-in") {
+        await bookingsApi.checkIn(bookingId)
+      } else {
+        await bookingsApi.updateStatus(bookingId, newStatus)
+      }
       onStatusChange?.()
     } catch (err) {
       toast({
-        title: "Couldn't update this booking",
+        title: newStatus === "check-in" ? "Couldn't check this guest in" : "Couldn't update this booking",
         description: err instanceof ApiError ? err.message : "Please try again.",
         variant: "error",
       })
@@ -140,31 +206,42 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
     }
   }
 
-  function openConfirm(booking: Booking, action: BookingStatus, label: string) {
+  function openConfirm(booking: Booking, action: RowAction, label: string) {
     const bid = booking.fullId || booking.id
     setConfirmAction({ bookingId: bid, bookingIdShort: booking.id, action, label })
     setModalOpen(false)
   }
 
-  function getActions(booking: Booking) {
+  function getActions(booking: Booking, now: Date) {
     const bid = booking.fullId || booking.id
-    const actions: { label: string; status: BookingStatus; style: string }[] = []
+    const actions: { label: string; action: RowAction; style: string }[] = []
+    const state = deriveArrival(booking, now)
 
     if (booking.status === "pending") {
-      actions.push({ label: "Confirm", status: "confirmed", style: "bg-[#3D6B4F] text-white hover:bg-[#2d5a3e]" })
-      actions.push({ label: "Cancel", status: "cancelled", style: "bg-white text-[#A4423A] border border-[#A4423A]/30 hover:bg-[#A4423A]/5" })
+      actions.push({ label: "Confirm", action: "confirmed", style: "bg-[#3D6B4F] text-white hover:bg-[#2d5a3e]" })
+      actions.push({ label: "Cancel", action: "cancelled", style: "bg-white text-[#A4423A] border border-[#A4423A]/30 hover:bg-[#A4423A]/5" })
     } else if (booking.status === "confirmed") {
-      actions.push({ label: "Check Out", status: "checked-out", style: "bg-[#82285f] text-white hover:bg-[#6d204f]" })
-      actions.push({ label: "Cancel", status: "cancelled", style: "bg-white text-[#A4423A] border border-[#A4423A]/30 hover:bg-[#A4423A]/5" })
+      if (state === "none") {
+        // Not at the hotel yet — no cancelling once they show up either.
+        if (canCheckIn(booking, now)) {
+          actions.push({ label: "Check In", action: "check-in", style: "bg-[#3D6B4F] text-white hover:bg-[#2d5a3e]" })
+        }
+        actions.push({ label: "Cancel", action: "cancelled", style: "bg-white text-[#A4423A] border border-[#A4423A]/30 hover:bg-[#A4423A]/5" })
+      } else if (state === "in_house") {
+        // In the building: cancellations are blocked server-side from here on.
+        actions.push({ label: "Check Out", action: "checked-out", style: "bg-[#82285f] text-white hover:bg-[#6d204f]" })
+      }
+      // "early" = arrived, waiting for the booked time — nothing to do yet.
+      // "ended"  = auto-complete will close it out on the next page load.
     }
 
     return actions.map((a) => (
       <button
-        key={a.status}
+        key={a.action}
         disabled={actingId === bid}
         onClick={(e) => {
           e.stopPropagation()
-          openConfirm(booking, a.status, a.label)
+          openConfirm(booking, a.action, a.label)
         }}
         className={cn(
           "px-2.5 py-1 rounded-[4px] text-[10px] font-semibold transition-all duration-150",
@@ -181,7 +258,8 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
   const counts = {
     all: bookings.length,
     pending: bookings.filter((b) => b.status === "pending").length,
-    confirmed: bookings.filter((b) => b.status === "confirmed").length,
+    confirmed: bookings.filter((b) => displayStatus(b, now) === "confirmed").length,
+    "in-house": bookings.filter((b) => displayStatus(b, now) === "in-house").length,
     completed: bookings.filter((b) => b.status === "completed").length,
     "checked-out": bookings.filter((b) => b.status === "checked-out").length,
     cancelled: bookings.filter((b) => b.status === "cancelled").length,
@@ -256,8 +334,8 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
             </thead>
             <tbody>
               {paged.map((booking) => {
-                const status = statusConfig[booking.status]
-                const actions = getActions(booking)
+                const status = badgeFor(booking, now)
+                const actions = getActions(booking, now)
                 return (
                   <tr
                     key={booking.id}
@@ -306,7 +384,14 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
                         <span className="text-[11px] text-[#6b7280]">{booking.nights} night{booking.nights !== 1 ? "s" : ""}</span>
                       )}
                     </td>
-                    <td className="px-5 py-3 text-right font-semibold text-[#1a1d26]">₱{booking.amount.toLocaleString()}</td>
+                    <td className="px-5 py-3 text-right font-semibold text-[#1a1d26]">
+                      ₱{booking.amount.toLocaleString()}
+                      {isDownpayment(booking) && bookingBalance(booking) > 0 && (
+                        <div className="text-[10px] font-medium text-[#b45309] mt-0.5">
+                          50% paid · ₱{bookingBalance(booking).toLocaleString()} due
+                        </div>
+                      )}
+                    </td>
                     <td className="px-5 py-3">
                       <span className={cn("inline-flex items-center gap-1.5 text-[11px] font-medium", status.textColor)}>
                         <span className={cn("size-1.5 rounded-full", status.dotColor)} />
@@ -363,9 +448,9 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
                   />
                   <div>
                     <h3 className="font-display font-semibold text-[#1a1d26] text-lg">{selectedBooking.guestName}</h3>
-                    <span className={cn("inline-flex items-center gap-1.5 text-[11px] font-medium mt-0.5", statusConfig[selectedBooking.status].textColor)}>
-                      <span className={cn("size-1.5 rounded-full", statusConfig[selectedBooking.status].dotColor)} />
-                      {statusConfig[selectedBooking.status].label}
+                    <span className={cn("inline-flex items-center gap-1.5 text-[11px] font-medium mt-0.5", badgeFor(selectedBooking, now).textColor)}>
+                      <span className={cn("size-1.5 rounded-full", badgeFor(selectedBooking, now).dotColor)} />
+                      {badgeFor(selectedBooking, now).label}
                     </span>
                   </div>
                 </div>
@@ -403,6 +488,7 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
                         ? `Day use · ${selectedBooking.duration}h`
                         : `${selectedBooking.nights} night${selectedBooking.nights !== 1 ? "s" : ""}`
                     } />
+                    <DetailRow icon={<LogIn className="h-4 w-4" />} label="Arrival" value={arrivalLabel(selectedBooking, now)} />
                     {selectedBooking.specialRequests ? (
                       <DetailRow icon={<FileText className="h-4 w-4" />} label="Requests" value={selectedBooking.specialRequests} />
                     ) : null}
@@ -415,7 +501,52 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
                   <div className="bg-[#f5f6f8] rounded-[10px] p-4 space-y-3">
                     <DetailRow icon={<CreditCard className="h-4 w-4" />} label="Method" value={formatPaymentLabel(selectedBooking.payment_method || "")} />
                     <DetailRow icon={<PhilippinePeso className="h-4 w-4" />} label="Amount" value={`₱${selectedBooking.amount.toLocaleString()}`} valueClass="font-bold text-[#82285f]" />
-                    <DetailRow icon={<Clock className="h-4 w-4" />} label="Status" value={paymentNote(selectedBooking.status)} />
+                    {isDownpayment(selectedBooking) && (
+                      <DetailRow
+                        icon={<PhilippinePeso className="h-4 w-4" />}
+                        label="Paid online (50%)"
+                        value={`₱${Math.max(0, selectedBooking.amount_paid ?? 0).toLocaleString()}`}
+                      />
+                    )}
+                    {isDownpayment(selectedBooking) && bookingBalance(selectedBooking) > 0 && (
+                      <DetailRow
+                        icon={<Landmark className="h-4 w-4" />}
+                        label="Balance due at hotel"
+                        value={`₱${bookingBalance(selectedBooking).toLocaleString()}`}
+                        valueClass="font-bold text-[#b45309]"
+                      />
+                    )}
+                    <DetailRow icon={<Clock className="h-4 w-4" />} label="Status" value={paymentNote(selectedBooking)} />
+                    {isDownpayment(selectedBooking) && bookingBalance(selectedBooking) > 0 && (
+                      <button
+                        type="button"
+                        disabled={actingId === (selectedBooking.fullId || selectedBooking.id)}
+                        onClick={async () => {
+                          const bid = selectedBooking.fullId || selectedBooking.id
+                          setActingId(bid)
+                          try {
+                            await bookingsApi.settleBalance(bid)
+                            toast({
+                              title: "Balance settled",
+                              description: `${selectedBooking.guestName}'s remaining balance has been recorded as paid.`,
+                            })
+                            onStatusChange?.()
+                            setModalOpen(false)
+                          } catch (err) {
+                            toast({
+                              title: "Couldn't settle the balance",
+                              description: err instanceof ApiError ? err.message : "Please try again.",
+                              variant: "error",
+                            })
+                          } finally {
+                            setActingId(null)
+                          }
+                        }}
+                        className="mt-1 flex w-full cursor-pointer items-center justify-center gap-2 rounded-[8px] bg-[#3D6B4F] py-2 text-[12px] font-semibold text-white transition-colors hover:bg-[#2d5a3e] disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Settle balance · ₱{bookingBalance(selectedBooking).toLocaleString()}
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => setReceiptOpen(true)}
@@ -428,7 +559,7 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
 
                 {/* Actions inside modal */}
                 {(() => {
-                  const actions = getActions(selectedBooking)
+                  const actions = getActions(selectedBooking, now)
                   if (actions.length === 0) return null
                   return (
                     <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t border-[#e2e4e8]">
@@ -464,12 +595,14 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
                   {confirmAction.action === "confirmed" && "Confirm Booking?"}
                   {confirmAction.action === "cancelled" && "Cancel Booking?"}
                   {confirmAction.action === "checked-out" && "Mark as Checked Out?"}
+                  {confirmAction.action === "check-in" && "Check In Guest?"}
                 </DialogTitle>
               </DialogHeader>
               <p className="text-[13px] text-muted mb-6 leading-relaxed">
                 {confirmAction.action === "confirmed" && `Booking #${confirmAction.bookingIdShort} will be confirmed. The guest will be notified.`}
                 {confirmAction.action === "cancelled" && `Booking #${confirmAction.bookingIdShort} will be cancelled. This cannot be undone.`}
                 {confirmAction.action === "checked-out" && `Booking #${confirmAction.bookingIdShort} will be marked as checked out.`}
+                {confirmAction.action === "check-in" && `Booking #${confirmAction.bookingIdShort} will be marked as arrived. The stay starts running at its booked time, and the guest will be notified.`}
               </p>
               <div className="flex items-center justify-end gap-2">
                 <button
@@ -483,6 +616,7 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
                   className={cn(
                     "px-4 py-2 rounded-[8px] text-[12px] font-semibold transition-colors cursor-pointer",
                     confirmAction.action === "confirmed" && "bg-[#3D6B4F] text-white hover:bg-[#2d5a3e]",
+                    confirmAction.action === "check-in" && "bg-[#3D6B4F] text-white hover:bg-[#2d5a3e]",
                     confirmAction.action === "cancelled" && "bg-destructive text-white hover:bg-destructive-hover",
                     confirmAction.action === "checked-out" && "bg-primary text-white hover:bg-primary-active",
                   )}

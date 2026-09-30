@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Link, useNavigate, useSearchParams } from "react-router"
 import { Mail, Lock, User, Eye, EyeOff, CheckCircle2, ArrowRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -33,7 +33,7 @@ function SubmitButton({ disabled, submitting }: { disabled: boolean; submitting:
 }
 
 export default function Register() {
-  const { register } = useAuth()
+  const { register, isAuthenticated, loading } = useAuth()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const returnTo = searchParams.get("returnTo") || "/"
@@ -50,6 +50,11 @@ export default function Register() {
   const [registeredEmail, setRegisteredEmail] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+
+  // Already signed in — no reason to sit on the Create Account form.
+  useEffect(() => {
+    if (!loading && isAuthenticated) navigate(returnTo, { replace: true })
+  }, [loading, isAuthenticated, navigate, returnTo])
 
   const formatName = (value: string, onError: (msg: string) => void) => {
     const hasInvalid = /[^a-zA-Z\s]/.test(value)
@@ -101,6 +106,8 @@ export default function Register() {
     borderColor: focused === field ? PRIMARY : "#E5E1DA",
     boxShadow: focused === field ? `0 0 0 3px rgba(130,40,95,0.08)` : "none",
   })
+
+  if (isAuthenticated) return null
 
   return (
     <div className="min-h-screen flex">
@@ -364,13 +371,13 @@ export default function Register() {
               />
               <label htmlFor="terms" className="text-xs text-muted cursor-pointer leading-relaxed">
                 I agree to the{" "}
-                <a href="#" className="font-medium hover:underline" style={{ color: PRIMARY }}>
+                <Link to="/terms" onClick={(e) => e.stopPropagation()} className="font-medium hover:underline" style={{ color: PRIMARY }}>
                   Terms
-                </a>
+                </Link>
                 {" "}and{" "}
-                <a href="#" className="font-medium hover:underline" style={{ color: PRIMARY }}>
+                <Link to="/terms" onClick={(e) => e.stopPropagation()} className="font-medium hover:underline" style={{ color: PRIMARY }}>
                   Privacy Policy
-                </a>
+                </Link>
               </label>
             </div>
 

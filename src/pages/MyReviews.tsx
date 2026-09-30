@@ -285,6 +285,7 @@ export default function MyReviews() {
           onClose={() => setEditing(null)}
           bookingId={editing.booking_id || ""}
           roomName={editing.room_name}
+          roomImage={editing.room_image}
           onSaved={() => void load()}
           editing={{
             id: editing.id,

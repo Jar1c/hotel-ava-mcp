@@ -22,6 +22,7 @@ const Settings = lazy(() => import("./pages/Settings"))
 const ForgotPassword = lazy(() => import("./pages/ForgotPassword"))
 const ResetPassword = lazy(() => import("./pages/ResetPassword"))
 const NotFound = lazy(() => import("./pages/NotFound"))
+const Terms = lazy(() => import("./pages/Terms"))
 
 // Admin — lazy loaded separately (includes heavy recharts)
 const Admin = lazy(() => import("./pages/Admin"))
@@ -64,6 +65,7 @@ export default function App() {
             <Route path="rooms/:id" element={<RoomDetail />} />
             <Route path="booking/failed" element={<PaymentFailed />} />
             <Route path="verify/:id" element={<VerifyBooking />} />
+            <Route path="terms" element={<Terms />} />
             <Route path="*" element={<NotFound />} />
 
             {/* Authenticated user routes */}

@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react"
-import { useParams, useNavigate, useSearchParams } from "react-router"
-import { ArrowLeft, Calendar, Check, CreditCard, AlertCircle, Clock, Mail, X } from "lucide-react"
+import { useParams, useNavigate, useSearchParams, Link } from "react-router"
+import { ArrowLeft, Calendar, Check, CreditCard, AlertCircle, Clock, Mail, Wallet, Landmark, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { publicRoomsApi, type PublicRoomData } from "@/services/api"
@@ -9,6 +9,7 @@ import { getCached, setCache } from "@/lib/cache"
 import { formatDate as toISODate, parseDateParam } from "@/lib/dates"
 import { useAuth } from "@/contexts/AuthContext"
 import LoadingDots from "@/components/LoadingDots"
+import TermsPopup from "@/components/TermsPopup"
 
 const PRIMARY = "#82285f"
 
@@ -38,7 +39,16 @@ export default function Booking() {
 
    const [room, setRoom] = useState<Room | null>(null)
    const [loading, setLoading] = useState(true)
-   const [submitting, setSubmitting] = useState(false)
+    const [submitting, setSubmitting] = useState(false)
+    // Hard gate: nobody pays without ticking the cancellation / no-show policy.
+    const [agreedToPolicy, setAgreedToPolicy] = useState(false)
+    // T&C opens as a popup so the guest never loses the booking form.
+    const [termsOpen, setTermsOpen] = useState(false)
+    const [termsTarget, setTermsTarget] = useState<string | null>(null)
+    const openTerms = (target: string | null = null) => {
+      setTermsTarget(target)
+      setTermsOpen(true)
+    }
    const [submitted, setSubmitted] = useState(false)
    const [errorDialog, setErrorDialog] = useState<{ open: boolean; title: string; message: string }>({
     open: false,
@@ -47,6 +57,7 @@ export default function Booking() {
   })
   const [showSignInModal, setShowSignInModal] = useState(false)
   const [googleLoading, setGoogleLoading] = useState(false)
+  const [paymentMode, setPaymentMode] = useState<"full" | "downpayment">("full")
 
   // All booking params come from URL — read-only, no state needed
   const checkIn = searchParams.get("checkIn") ? parseDateParam(searchParams.get("checkIn")!) : null
@@ -119,8 +130,10 @@ export default function Booking() {
     : (room ? Math.round(room.price * (dayDuration / 24)) : 0)
   const taxes = Math.round(subtotal * 0.12)
   const total = subtotal + taxes
+  const amountDue = paymentMode === "downpayment" ? Math.round(total / 2) : total
+  const balanceDue = total - amountDue
 
-  const canSubmit = hasDate && validNights && !submitting && ((isOvernight && !!overnightStartTime) || (!isOvernight && !!startTime))
+  const canSubmit = hasDate && validNights && !submitting && agreedToPolicy && ((isOvernight && !!overnightStartTime) || (!isOvernight && !!startTime))
 
   const handleSubmit = async () => {
     if (!canSubmit || !room) return
@@ -165,6 +178,7 @@ export default function Booking() {
           full_name: user.name,
           email: user.email,
           total_price: total,
+          payment_mode: paymentMode,
         }),
       })
 
@@ -245,33 +259,33 @@ export default function Booking() {
               {isOvernight ? (
                 /* Overnight: read-only */
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between py-2 border-b border-hairline">
+                  <div className="flex items-center gap-3 py-2 border-b border-hairline">
                     <span className="text-sm text-muted">Stay Type</span>
                     <span className="text-sm font-semibold text-ink">Overnight Stay</span>
                   </div>
-                  <div className="flex items-center justify-between py-2 border-b border-hairline">
+                  <div className="flex items-center gap-3 py-2 border-b border-hairline">
                     <span className="text-sm text-muted">Check-in</span>
                     <span className="text-sm font-semibold text-ink">
                       {checkIn ? checkIn.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}
                     </span>
                   </div>
-                  <div className="flex items-center justify-between py-2 border-b border-hairline">
+                  <div className="flex items-center gap-3 py-2 border-b border-hairline">
                     <span className="text-sm text-muted">Check-out</span>
                     <span className="text-sm font-semibold text-ink">
                       {checkOut ? checkOut.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}
                     </span>
                   </div>
                   {overnightStartTime && (
-                    <div className="flex items-center justify-between py-2 border-b border-hairline">
+                    <div className="flex items-center gap-3 py-2 border-b border-hairline">
                       <span className="text-sm text-muted">Check-in Time</span>
                       <span className="text-sm font-semibold text-ink">{overnightStartTime}</span>
                     </div>
                   )}
-                  <div className="flex items-center justify-between py-2 border-b border-hairline">
+                  <div className="flex items-center gap-3 py-2 border-b border-hairline">
                     <span className="text-sm text-muted">Duration</span>
                     <span className="text-sm font-semibold text-ink">{nights} {nights === 1 ? "night" : "nights"}</span>
                   </div>
-                  <div className="flex items-center justify-between py-2">
+                  <div className="flex items-center gap-3 py-2">
                     <span className="text-sm text-muted">Guests</span>
                     <span className="text-sm font-semibold text-ink">{guests.adults} adult{guests.adults !== 1 ? "s" : ""}{guests.children > 0 ? `, ${guests.children} child${guests.children !== 1 ? "ren" : ""}` : ""}</span>
                   </div>
@@ -287,27 +301,27 @@ export default function Booking() {
               ) : (
                 /* Day Use: read-only */
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between py-2 border-b border-hairline">
+                  <div className="flex items-center gap-3 py-2 border-b border-hairline">
                     <span className="text-sm text-muted">Stay Type</span>
                     <span className="text-sm font-semibold text-ink">Day Use</span>
                   </div>
-                  <div className="flex items-center justify-between py-2 border-b border-hairline">
+                  <div className="flex items-center gap-3 py-2 border-b border-hairline">
                     <span className="text-sm text-muted">Date</span>
                     <span className="text-sm font-semibold text-ink">
                       {checkIn ? checkIn.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}
                     </span>
                   </div>
-                  <div className="flex items-center justify-between py-2 border-b border-hairline">
+                  <div className="flex items-center gap-3 py-2 border-b border-hairline">
                     <span className="text-sm text-muted">Duration</span>
                     <span className="text-sm font-semibold text-ink">{dayDuration} hours</span>
                   </div>
                   {startTime && (
-                    <div className="flex items-center justify-between py-2 border-b border-hairline">
+                    <div className="flex items-center gap-3 py-2 border-b border-hairline">
                       <span className="text-sm text-muted">Time</span>
                       <span className="text-sm font-semibold text-ink">{startTime} – {endTime}</span>
                     </div>
                   )}
-                  <div className="flex items-center justify-between py-2">
+                  <div className="flex items-center gap-3 py-2">
                     <span className="text-sm text-muted">Guests</span>
                     <span className="text-sm font-semibold text-ink">{guests.adults} adult{guests.adults !== 1 ? "s" : ""}{guests.children > 0 ? `, ${guests.children} child${guests.children !== 1 ? "ren" : ""}` : ""}</span>
                   </div>
@@ -321,6 +335,43 @@ export default function Booking() {
                   )}
                 </div>
               )}
+            </div>
+
+            {/* Payment option */}
+            <div className="bg-white border border-hairline rounded-[12px] p-lg">
+              <h2 className="typo-display-sm text-ink mb-md flex items-center gap-2">
+                <Wallet className="h-5 w-5 text-primary" />
+                Payment Option
+              </h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {([
+                  { key: "full", title: "Full payment", Icon: CreditCard, due: total, note: "Nothing left to pay" },
+                  { key: "downpayment", title: "Downpayment", Icon: Landmark, due: Math.round(total / 2), note: "Pay the balance at the hotel" },
+                ] as const).map(({ key, title, Icon, due, note }) => {
+                  const active = paymentMode === key
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setPaymentMode(key)}
+                      disabled={!validNights || submitted}
+                      className={`text-left rounded-[12px] border p-4 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+                        active ? "border-primary bg-primary/5" : "border-hairline bg-white hover:border-primary/40"
+                      }`}
+                    >
+                      <span className="flex items-center gap-2 mb-1.5">
+                        <Icon className={`h-4 w-4 shrink-0 ${active ? "text-primary" : "text-muted"}`} />
+                        <span className="typo-body-sm font-semibold text-ink">{title}</span>
+                        <span className={`ml-auto h-4 w-4 rounded-full border-2 flex items-center justify-center shrink-0 ${active ? "border-primary" : "border-hairline"}`}>
+                          {active && <span className="h-2 w-2 rounded-full bg-primary" />}
+                        </span>
+                      </span>
+                      <span className="block typo-body-sm font-semibold text-ink">Pay ₱{due.toLocaleString()}</span>
+                      <span className="block typo-caption-sm text-muted">{note}</span>
+                    </button>
+                  )
+                })}
+              </div>
             </div>
 
             {/* Secure payment notice */}
@@ -372,6 +423,18 @@ export default function Booking() {
                         {validNights ? `₱${total.toLocaleString()}` : "—"}
                       </span>
                     </div>
+                    {paymentMode === "downpayment" && validNights && (
+                      <>
+                        <div className="flex justify-between typo-body-sm">
+                          <span className="text-muted">Pay now (50%)</span>
+                          <span className="text-ink font-semibold">₱{amountDue.toLocaleString()}</span>
+                        </div>
+                        <div className="flex justify-between typo-body-sm">
+                          <span className="text-muted">Balance at the hotel</span>
+                          <span className="text-ink">₱{balanceDue.toLocaleString()}</span>
+                        </div>
+                      </>
+                    )}
                   </div>
 
                   <div className="mt-md pt-md border-t border-hairline space-y-xs">
@@ -405,6 +468,43 @@ export default function Booking() {
                 </div>
               </div>
 
+              {/* Policy agreement — required before payment */}
+              <div className="mt-md flex items-start gap-2.5 rounded-[10px] border border-hairline bg-canvas p-3">
+                <input
+                  type="checkbox"
+                  id="booking-policy"
+                  className="mt-0.5 size-4 shrink-0 rounded border cursor-pointer"
+                  style={{ accentColor: PRIMARY }}
+                  checked={agreedToPolicy}
+                  onChange={(e) => setAgreedToPolicy(e.target.checked)}
+                />
+                <label htmlFor="booking-policy" className="typo-caption-sm text-muted cursor-pointer leading-relaxed">
+                  I have read and agree to the{" "}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      openTerms(null)
+                    }}
+                    className="font-semibold text-primary hover:underline cursor-pointer"
+                  >
+                    Terms &amp; Conditions
+                  </button>
+                  , including the{" "}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      openTerms("cancellation")
+                    }}
+                    className="font-semibold text-primary hover:underline cursor-pointer"
+                  >
+                    24-hour cancellation, refund and no-show policy
+                  </button>
+                  .
+                </label>
+              </div>
+
               {/* CTA — always show Pay button */}
                <Button
                  onClick={handleSubmit}
@@ -418,14 +518,14 @@ export default function Booking() {
                     Processing...
                   </span>
                 ) : validNights ? (
-                  `Pay ₱${total.toLocaleString()}`
+                  `Pay ₱${amountDue.toLocaleString()}`
                 ) : (
                   "Pay"
                 )}
               </Button>
 
-              <p className="typo-caption text-muted text-center mt-3">
-                By booking, you agree to our Terms & Conditions
+              <p className="typo-caption text-muted text-center mt-3 leading-relaxed">
+                Payments are processed securely by PayMongo.
               </p>
             </div>
           </div>
@@ -461,6 +561,9 @@ export default function Booking() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Terms popup — stays on this page, keeps the form state */}
+      <TermsPopup open={termsOpen} onOpenChange={setTermsOpen} targetId={termsTarget} />
 
       {/* Sign In Modal (when not logged in) */}
       {showSignInModal && (
@@ -553,9 +656,9 @@ export default function Booking() {
 
             <p className="text-[11px] text-muted/60 mt-5 leading-relaxed">
               By signing in, you agree to our{" "}
-              <span className="font-medium" style={{ color: PRIMARY }}>Terms of Service</span>
+              <Link to="/terms" className="font-medium" style={{ color: PRIMARY }}>Terms of Service</Link>
               {" "}and{" "}
-              <span className="font-medium" style={{ color: PRIMARY }}>Privacy Policy</span>
+              <Link to="/terms#privacy" className="font-medium" style={{ color: PRIMARY }}>Privacy Policy</Link>
             </p>
           </div>
         </div>

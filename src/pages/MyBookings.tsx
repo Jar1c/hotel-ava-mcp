@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback } from "react"
 import { useNavigate, useSearchParams } from "react-router"
-import { CalendarDays, Users, Clock, X, ChevronRight, SlidersHorizontal, ChevronLeft, LayoutGrid, CheckCircle, BadgeCheck, XCircle, CreditCard, MapPin, FileText, Star } from "lucide-react"
+import { CalendarDays, Users, Clock, X, ChevronRight, SlidersHorizontal, ChevronLeft, LayoutGrid, CheckCircle, BadgeCheck, XCircle, CreditCard, MapPin, FileText, Star, Landmark, DoorOpen } from "lucide-react"
 import BookingQr from "@/components/BookingQr"
 import { Button } from "@/components/ui/button"
 import { userBookingsApi, ApiError, type UserBookingData } from "@/services/api"
 import { bookingsApi } from "@/services/api"
 import { useToast } from "@/contexts/ToastContext"
+import { useNotifications } from "@/contexts/NotificationContext"
 import LoadingDots from "@/components/LoadingDots"
 import ConfirmDialog from "@/components/ui/confirm-dialog"
 import ReviewModal from "@/components/ReviewModal"
@@ -13,6 +14,8 @@ import ReceiptDialog, { type ReceiptData } from "@/components/ReceiptDialog"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { usePolling } from "@/hooks/usePolling"
 import { formatPaymentMethod } from "@/lib/payment"
+import { deriveArrival, canCancel, startMomentLabel, arrivalTimeLabel, checkoutMomentLabel } from "@/lib/arrival"
+import { cn } from "@/lib/utils"
 
 const PRIMARY = "#82285f"
 const CANVAS = "#FBF9F8"
@@ -21,17 +24,29 @@ const PER_PAGE = 5
 const statusStyles: Record<string, { label: string; dot: string; text: string }> = {
   pending: { label: "Awaiting Payment", dot: "bg-amber-400", text: "text-amber-600" },
   confirmed: { label: "Confirmed", dot: "bg-emerald-400", text: "text-emerald-600" },
+  // Derived from the clock, not stored — see lib/arrival.ts
+  arrived: { label: "Arrived", dot: "bg-amber-500", text: "text-amber-600" },
+  "in-house": { label: "In-house", dot: "bg-[#3D6B4F]", text: "text-[#3D6B4F]" },
   completed: { label: "Completed", dot: "bg-gray-300", text: "text-muted" },
   "checked-out": { label: "Checked Out", dot: "bg-gray-300", text: "text-muted" },
   cancelled: { label: "Cancelled", dot: "bg-gray-300", text: "text-muted" },
 }
 
-type TabFilter = "all" | "pending" | "confirmed" | "completed" | "cancelled"
+/** Badge for a booking, including the arrival states the server derives. */
+function statusFor(b: UserBookingData) {
+  const state = deriveArrival(b)
+  if (state === "early") return statusStyles.arrived
+  if (state === "in_house") return statusStyles["in-house"]
+  return statusStyles[b.status.toLowerCase()] || statusStyles.pending
+}
+
+type TabFilter = "all" | "pending" | "confirmed" | "in-house" | "completed" | "cancelled"
 
 const tabs: { id: TabFilter; label: string; icon: React.ReactNode }[] = [
   { id: "all", label: "All", icon: <LayoutGrid className="h-4 w-4" /> },
   { id: "pending", label: "Pending", icon: <Clock className="h-4 w-4" /> },
   { id: "confirmed", label: "Confirmed", icon: <CheckCircle className="h-4 w-4" /> },
+  { id: "in-house", label: "In-house", icon: <DoorOpen className="h-4 w-4" /> },
   { id: "completed", label: "Completed", icon: <BadgeCheck className="h-4 w-4" /> },
   { id: "cancelled", label: "Cancelled", icon: <XCircle className="h-4 w-4" /> },
 ]
@@ -56,6 +71,9 @@ function receiptFor(b: BookingDetail): ReceiptData {
   const dayPrice = isDay && b.duration ? Math.round((rate * b.duration) / 24) : 0
   const fmtDate = (d?: string) =>
     d ? new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"
+  const down = b.payment_mode === "downpayment"
+  const amountPaid = Math.max(0, b.amount_paid ?? 0)
+  const balanceDue = Math.max(0, (b.total_price ?? 0) - amountPaid)
 
   return {
     reference: b.id.slice(0, 8).toUpperCase(),
@@ -79,8 +97,24 @@ function receiptFor(b: BookingDetail): ReceiptData {
       ? `${b.room_name} · day use`
       : `${b.room_name} × ${nights} night${nights === 1 ? "" : "s"}`,
     paymentMethod: formatPaymentMethod(b.payment_method, "N/A"),
+    paymentMode: down ? "downpayment" : "full",
+    amountPaid,
+    balanceDue,
+    refundedAt: b.refunded_at,
     paymentStatus:
-      b.status === "pending" ? "Unpaid" : b.status === "cancelled" ? "Cancelled" : "Paid",
+      b.refunded_at
+        ? "Refunded"
+        : b.status === "pending"
+        ? down
+          ? "Downpayment pending"
+          : "Unpaid"
+        : b.status === "cancelled"
+          ? "Cancelled"
+          : down
+            ? balanceDue > 0
+              ? "Partially paid"
+              : "Paid in full"
+            : "Paid",
   }
 }
 
@@ -97,6 +131,7 @@ export default function MyBookings() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const { toast } = useToast()
+  const { unreadBookingCount, markBookingNotificationsRead } = useNotifications()
   const [bookings, setBookings] = useState<UserBookingData[]>([])
   const [loading, setLoading] = useState(true)
   const [cancelling, setCancelling] = useState<string | null>(null)
@@ -174,6 +209,12 @@ export default function MyBookings() {
     bookingsApi.autoComplete().catch(() => {})
   }, [])
 
+  // You're looking at the bookings list, so the red badge on "My Bookings" is
+  // already seen — clear it instead of leaving a mystery count.
+  useEffect(() => {
+    if (unreadBookingCount > 0) void markBookingNotificationsRead()
+  }, [unreadBookingCount, markBookingNotificationsRead])
+
   const orderedBookings = [
     ...bookings.filter((b) => b.status === "pending" || b.status === "confirmed"),
     ...bookings.filter((b) => b.status !== "pending" && b.status !== "confirmed"),
@@ -183,14 +224,19 @@ export default function MyBookings() {
     ? orderedBookings
     : orderedBookings.filter((b) => {
         const status = b.status.toLowerCase()
+        // "In-house" is derived from the clock, not stored — see lib/arrival.ts
+        if (activeTab === "in-house") return deriveArrival(b) === "in_house"
         // Checked-out stays are finished too — group them under the Completed tab
         if (activeTab === "completed") return status === "completed" || status === "checked-out"
+        // Confirmed excludes anyone who is already in the room
+        if (activeTab === "confirmed") return status === "confirmed" && deriveArrival(b) !== "in_house"
         return status === activeTab
       })
 
-  // Finished stays that still owe us a rating
+  // Finished stays that still owe us a rating — only ones you actually
+  // checked in to. A booking that merely lapsed (no-show) is not reviewable.
   const isReviewable = (b: UserBookingData) =>
-    (b.status === "completed" || b.status === "checked-out") && !b.reviewed
+    (b.status === "completed" || b.status === "checked-out") && !!b.checked_in_at && !b.reviewed
   const pendingReviews = bookings.filter(isReviewable)
 
   const totalPages = Math.ceil(filteredBookings.length / PER_PAGE)
@@ -213,11 +259,17 @@ export default function MyBookings() {
   const handleCancel = async (id: string) => {
     setCancelling(id)
     try {
-      await userBookingsApi.cancel(id)
+      const res = await userBookingsApi.cancel(id)
       setBookings((prev) => prev.map((b) => (b.id === id ? { ...b, status: "cancelled" } : b)))
       // Update detail if open
       setDetailBooking((prev) => (prev?.id === id ? { ...prev, status: "cancelled" } : prev))
-      toast({ title: "Booking cancelled", description: "Your booking has been cancelled.", variant: "success" })
+      toast({
+        title: "Booking cancelled",
+        description: res.refunded
+          ? `₱${(res.refund_amount ?? 0).toLocaleString()} is on its way back to your original payment method — 7–14 banking days.`
+          : "Your booking has been cancelled.",
+        variant: "success",
+      })
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to cancel booking"
       toast({ title: "Cancel failed", description: msg, variant: "error" })
@@ -393,7 +445,7 @@ export default function MyBookings() {
           <>
           <div className="space-y-md">
             {pagedBookings.map((booking) => {
-              const status = statusStyles[booking.status.toLowerCase()] || statusStyles.pending
+              const status = statusFor(booking)
               return (
                 <div
                   key={booking.id}
@@ -454,7 +506,7 @@ export default function MyBookings() {
                           ₱{booking.total_price.toLocaleString()}
                         </span>
                         <div className="flex items-center gap-2">
-                          {booking.status.toLowerCase() === "confirmed" && (
+                          {booking.status.toLowerCase() === "confirmed" && canCancel(booking) && (
                             <Button
                               variant="ghost"
                               size="sm"
@@ -509,7 +561,7 @@ export default function MyBookings() {
                               </Button>
                             </>
                           )}
-                          {(booking.status === "completed" || booking.status === "checked-out") && (
+                          {(booking.status === "completed" || booking.status === "checked-out") && !!booking.checked_in_at && (
                             booking.reviewed ? (
                               <span className="inline-flex items-center gap-1 text-xs font-medium text-muted">
                                 <Star className="h-3.5 w-3.5 fill-star-rating text-star-rating" />
@@ -612,9 +664,9 @@ export default function MyBookings() {
                   <h3 className="font-display font-semibold text-ink text-lg truncate">{detailBooking.room_name}</h3>
                   <p className="text-sm text-muted">{detailBooking.room_type}</p>
                   <span className="inline-flex items-center gap-1.5 text-xs font-medium mt-1">
-                    <span className={`w-1.5 h-1.5 rounded-full ${(statusStyles[detailBooking.status.toLowerCase()] || statusStyles.pending).dot}`} />
-                    <span className={(statusStyles[detailBooking.status.toLowerCase()] || statusStyles.pending).text}>
-                      {(statusStyles[detailBooking.status.toLowerCase()] || statusStyles.pending).label}
+                    <span className={`w-1.5 h-1.5 rounded-full ${statusFor(detailBooking).dot}`} />
+                    <span className={statusFor(detailBooking).text}>
+                      {statusFor(detailBooking).label}
                     </span>
                   </span>
                 </div>
@@ -638,6 +690,11 @@ export default function MyBookings() {
                         ? `${detailBooking.duration} hours${detailBooking.start_time ? ` at ${detailBooking.start_time}` : ""}`
                         : `${detailBooking.nights} ${detailBooking.nights === 1 ? "night" : "nights"}`
                     }
+                  />
+                  <DetailRow
+                    icon={<CalendarDays className="h-4 w-4" />}
+                    label="Check-out"
+                    value={checkoutMomentLabel(detailBooking) || "—"}
                   />
                   <DetailRow
                     icon={<Users className="h-4 w-4" />}
@@ -685,6 +742,26 @@ export default function MyBookings() {
                       {detailBooking.total_price.toLocaleString()}
                     </span>
                   </div>
+                  {detailBooking.payment_mode === "downpayment" && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-muted">Paid online (50%)</span>
+                      <span className="text-sm font-semibold text-ink">
+                        ₱{Math.max(0, detailBooking.amount_paid ?? 0).toLocaleString()}
+                      </span>
+                    </div>
+                  )}
+                  {detailBooking.payment_mode === "downpayment" &&
+                    Math.max(0, (detailBooking.total_price ?? 0) - (detailBooking.amount_paid ?? 0)) > 0 && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-muted flex items-center gap-1.5">
+                        <Landmark className="h-3.5 w-3.5" />
+                        Balance due at the hotel
+                      </span>
+                      <span className="text-sm font-semibold text-ink">
+                        ₱{Math.max(0, detailBooking.total_price - (detailBooking.amount_paid ?? 0)).toLocaleString()}
+                      </span>
+                    </div>
+                  )}
                   <Button
                     variant="outline"
                     onClick={() => setReceiptOpen(true)}
@@ -695,10 +772,53 @@ export default function MyBookings() {
                 </div>
               </div>
 
+              {/* Refund notice — the money went back after a cancellation */}
+              {detailBooking.refunded_at && (
+                <div className="mb-6 flex items-start gap-2 rounded-[10px] border border-[#3D6B4F]/30 bg-[#3D6B4F]/5 px-4 py-3">
+                  <CheckCircle className="mt-0.5 size-4 shrink-0 text-[#3D6B4F]" />
+                  <span className="text-sm font-medium text-[#3D6B4F]">
+                    Refunded to your original payment method on{" "}
+                    {new Date(detailBooking.refunded_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                    . Please allow 7–14 banking days.
+                  </span>
+                </div>
+              )}
+
+              {/* Arrival status — mirrors what the front desk sees after your QR scan */}
+              {detailBooking.status === "confirmed" && (() => {
+                const state = deriveArrival(detailBooking)
+                const start = startMomentLabel(detailBooking)
+                const at = arrivalTimeLabel(detailBooking.checked_in_at)
+                const text =
+                  state === "none" ? (start ? `Not checked in yet · stay starts ${start}` : "Not checked in yet")
+                  : state === "early" ? `Checked in ${at} · stay starts ${start}`
+                  : state === "in_house" ? `In-house${start ? ` · stay started ${start}` : ""}`
+                  : `Checked in${at ? ` ${at}` : ""}`
+                const tone =
+                  state === "in_house" ? "text-[#3D6B4F]"
+                  : state === "early" ? "text-amber-600"
+                  : "text-muted"
+                return (
+                  <div className="mb-6 flex items-center gap-2 rounded-[10px] bg-gray-50 px-4 py-3">
+                    <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", state === "in_house" ? "bg-[#3D6B4F]" : state === "early" ? "bg-amber-500" : "bg-gray-300")} />
+                    <span className={cn("text-sm font-medium", tone)}>{text}</span>
+                  </div>
+                )
+              })()}
+
               {/* Check-in QR code — what the guest shows at the front desk */}
               {detailBooking.status === "confirmed" && (
                 <div className="space-y-3 mb-6">
                   <h4 className="text-xs font-semibold uppercase tracking-wider text-muted">Check-in QR Code</h4>
+                  {/* When they actually have to be out — the question the QR raises */}
+                  {checkoutMomentLabel(detailBooking) && (
+                    <div className="flex items-center gap-2 rounded-[10px] bg-gray-50 px-3 py-2">
+                      <CalendarDays className="h-4 w-4 shrink-0 text-muted" />
+                      <span className="text-sm font-medium text-ink">
+                        Check-out: {checkoutMomentLabel(detailBooking)}
+                      </span>
+                    </div>
+                  )}
                   <BookingQr bookingId={detailBooking.id} />
                 </div>
               )}
@@ -726,7 +846,7 @@ export default function MyBookings() {
                     {paying === detailBooking.id ? "Redirecting..." : "Pay Now"}
                   </Button>
                 )}
-                {(detailBooking.status.toLowerCase() === "confirmed" || detailBooking.status.toLowerCase() === "pending") && (
+                {(detailBooking.status.toLowerCase() === "confirmed" || detailBooking.status.toLowerCase() === "pending") && canCancel(detailBooking) && (
                   <Button
                     variant="outline"
                     onClick={() => { setDetailOpen(false); setCancelDialog({ open: true, id: detailBooking.id }) }}
@@ -736,7 +856,10 @@ export default function MyBookings() {
                     Cancel Booking
                   </Button>
                 )}
+                {/* Extend only makes sense once the guest is actually in the room —
+                    never for a booking that hasn't started yet. */}
                 {detailBooking.status.toLowerCase() === "confirmed" &&
+                  deriveArrival(detailBooking) === "in_house" &&
                   detailBooking.end_time &&
                   new Date(detailBooking.end_time).getTime() > Date.now() && (
                     <Button
@@ -913,6 +1036,12 @@ export default function MyBookings() {
         onClose={() => setReviewTarget(null)}
         bookingId={reviewTarget?.id ?? ""}
         roomName={reviewTarget?.room_name ?? ""}
+        roomImage={reviewTarget?.room_image}
+        stayLabel={
+          reviewTarget
+            ? formatDateRange(reviewTarget.check_in, reviewTarget.check_out, reviewTarget.stay_type)
+            : undefined
+        }
         onSaved={(rating) => {
           const id = reviewTarget?.id
           if (!id) return

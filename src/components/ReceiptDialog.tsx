@@ -34,6 +34,14 @@ export interface ReceiptData {
   itemLabel: string
   paymentMethod?: string
   paymentStatus?: string
+  /** "full" or "downpayment" — downpayment = 50% online, balance at the hotel */
+  paymentMode?: string
+  /** Collected online so far. Defaults to `total` when omitted. */
+  amountPaid?: number
+  /** Still owed at the hotel. Computed from `amountPaid` when omitted. */
+  balanceDue?: number
+  /** Set when the money went back to the guest after a cancellation. */
+  refundedAt?: string | null
 }
 
 export interface ReceiptDialogProps {
@@ -88,6 +96,13 @@ export default function ReceiptDialog({ open, onClose, data }: ReceiptDialogProp
   const net = total - vat
   const gross = data.gross && data.gross > 0 ? data.gross : net
   const discount = Math.max(0, gross - net)
+
+  // Downpayment bookings print what was handed over online and what is still
+  // owed at the front desk — the balance line disappears once it is settled.
+  const isDownpayment = data.paymentMode === "downpayment"
+  const paid = isDownpayment ? Math.max(0, data.amountPaid ?? 0) : total
+  const balance = isDownpayment ? Math.max(0, data.balanceDue ?? total - paid) : 0
+  const partial = isDownpayment && balance > 0
 
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!next) onClose() }}>
@@ -153,9 +168,31 @@ export default function ReceiptDialog({ open, onClose, data }: ReceiptDialogProp
               <span>{amount(total)}</span>
             </div>
 
+            {isDownpayment && (
+              <>
+                <Row label="Paid online (50%)" value={amount(paid)} />
+                <Row
+                  label={partial ? "Balance due at the hotel" : "Settled at the hotel"}
+                  value={amount(balance)}
+                  bold={partial}
+                  className={partial ? "text-[#b45309]" : ""}
+                />
+              </>
+            )}
+
             <Dashed />
 
             <Row label="Payment method" value={data.paymentMethod || "N/A"} />
+            {isDownpayment && (
+              <Row label="Payment terms" value={partial ? "Downpayment" : "Paid in full"} />
+            )}
+            {data.refundedAt && (
+              <Row
+                label="Refund"
+                value={`Sent ${formatStamp(data.refundedAt, true)}`}
+                className="text-[#3D6B4F]"
+              />
+            )}
 
             <Dashed />
 

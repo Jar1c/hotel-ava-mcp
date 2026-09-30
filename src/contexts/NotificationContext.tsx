@@ -1,19 +1,24 @@
-import { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from "react"
+import { createContext, useContext, useState, useCallback, useEffect, useMemo, useRef, type ReactNode } from "react"
 import { useNavigate } from "react-router"
 import { notificationsApi, type NotificationData } from "@/services/api"
 import { useAuth } from "@/contexts/AuthContext"
 import { useToast } from "@/contexts/ToastContext"
 import { supabase } from "@/lib/supabase"
+import { playNotificationSound, unlockNotificationSound } from "@/lib/notificationSound"
 
 interface NotificationContextValue {
   notifications: NotificationData[]
   unreadCount: number
+  /** Unread booking-type rows — drives the red "new bookings" nav badges. */
+  unreadBookingCount: number
   loading: boolean
   ringNonce: number
   fetchNotifications: () => Promise<void>
   fetchUnreadCount: () => Promise<void>
   markRead: (id: string) => Promise<void>
   markAllRead: () => Promise<void>
+  /** Clear the red "new bookings" nav badge once the Bookings screen is opened. */
+  markBookingNotificationsRead: () => Promise<void>
   deleteNotification: (id: string) => Promise<void>
 }
 
@@ -50,6 +55,23 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   const seenIdsRef = useRef<Set<string>>(new Set())
   const seededRef = useRef(false)
 
+  // Red nav badge on "Bookings" / "My Bookings" — capped at 9+ by the caller.
+  const unreadBookingCount = useMemo(
+    () => notifications.filter((n) => !n.read && n.type === "booking").length,
+    [notifications],
+  )
+
+  // Browsers only allow audio after a gesture — arm it on the first one.
+  useEffect(() => {
+    const arm = () => unlockNotificationSound()
+    window.addEventListener("pointerdown", arm, { once: true, capture: true })
+    window.addEventListener("keydown", arm, { once: true, capture: true })
+    return () => {
+      window.removeEventListener("pointerdown", arm, { capture: true })
+      window.removeEventListener("keydown", arm, { capture: true })
+    }
+  }, [])
+
   const markRead = useCallback(async (id: string) => {
     try {
       await notificationsApi.markRead(id)
@@ -83,6 +105,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     const bell = document.querySelector<HTMLElement>("[data-notification-bell]")
     const rect = bell?.getBoundingClientRect()
     setRingNonce((n) => n + 1)
+    playNotificationSound()
     toastRef.current({
       title: notif.title,
       description: notif.message,
@@ -136,6 +159,18 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       // silently fail
     }
   }, [])
+
+  const markBookingNotificationsRead = useCallback(async () => {
+    const targets = notifications.filter((n) => !n.read && n.type === "booking")
+    if (targets.length === 0) return
+    try {
+      await Promise.all(targets.map((n) => notificationsApi.markRead(n.id)))
+    } catch {
+      // Partial failure — the next poll reconciles the count.
+    }
+    setNotifications((prev) => prev.map((n) => (n.type === "booking" ? { ...n, read: true } : n)))
+    setUnreadCount((prev) => Math.max(0, prev - targets.length))
+  }, [notifications])
 
   const deleteNotification = useCallback(async (id: string) => {
     try {
@@ -232,12 +267,14 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       value={{
         notifications,
         unreadCount,
+        unreadBookingCount,
         loading,
         ringNonce,
         fetchNotifications,
         fetchUnreadCount,
         markRead,
         markAllRead,
+        markBookingNotificationsRead,
         deleteNotification,
       }}
     >

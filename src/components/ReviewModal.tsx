@@ -18,6 +18,10 @@ interface ReviewModalProps {
   onClose: () => void
   bookingId: string
   roomName: string
+  /** Room photo so the guest can see *which* stay they are rating */
+  roomImage?: string
+  /** e.g. "Oct 3 – Oct 5 · 2 nights" — sits under the room name */
+  stayLabel?: string
   /** Called after a successful save so the list can refresh instantly */
   onSaved?: (rating: number) => void
   /** When set, the modal edits this review instead of creating a new one */
@@ -35,7 +39,10 @@ const RATING_LABELS = ["", "Poor", "Fair", "Good", "Very Good", "Excellent"]
 /** Matches REVIEW_MAX_CHARS on the backend. */
 const REVIEW_MAX_CHARS = 250
 
-export default function ReviewModal({ open, onClose, bookingId, roomName, onSaved, editing }: ReviewModalProps) {
+const ROOM_FALLBACK =
+  "https://images.unsplash.com/photo-1631049307264-da0ec9d70304?w=400&h=300&fit=crop"
+
+export default function ReviewModal({ open, onClose, bookingId, roomName, roomImage, stayLabel, onSaved, editing }: ReviewModalProps) {
   const [rating, setRating] = useState(0)
   const [hovered, setHovered] = useState(0)
   const [comment, setComment] = useState("")
@@ -169,19 +176,23 @@ export default function ReviewModal({ open, onClose, bookingId, roomName, onSave
             {editing ? "Edit your review" : "Rate your stay"}
           </DialogTitle>
           <DialogDescription className="typo-body-sm text-muted">
-            {editing ? (
-              <>
-                Update what you shared about{" "}
-                <span className="font-semibold text-ink">{roomName}</span>.
-              </>
-            ) : (
-              <>
-                How was your stay at{" "}
-                <span className="font-semibold text-ink">{roomName}</span>?
-              </>
-            )}
+            {editing ? "Update what you shared with us." : "How was your stay?"}
           </DialogDescription>
         </DialogHeader>
+
+        {/* Which room am I rating? */}
+        <div className="flex items-center gap-3 rounded-[10px] border border-hairline bg-canvas p-2.5">
+          <img
+            src={roomImage || ROOM_FALLBACK}
+            alt={roomName}
+            onError={(e) => { e.currentTarget.src = ROOM_FALLBACK }}
+            className="h-24 w-36 shrink-0 rounded-[8px] object-cover bg-hairline"
+          />
+          <div className="min-w-0">
+            <p className="typo-body-sm font-semibold text-ink truncate">{roomName}</p>
+            <p className="typo-caption-sm text-muted truncate">{stayLabel || "Room you stayed in"}</p>
+          </div>
+        </div>
 
         <div className="flex flex-col gap-4 mt-1">
           {/* Stars */}

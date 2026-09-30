@@ -198,6 +198,9 @@ async function fetchBookings(): Promise<Booking[]> {
     start_time: b.start_time,
     createdAt: b.createdAt,
     payment_method: b.payment_method || "",
+    payment_mode: b.payment_mode || "full",
+    amount_paid: b.amount_paid ?? 0,
+    checked_in_at: b.checked_in_at ?? null,
   }))
   setCache("bookings", result)
   return result
@@ -228,7 +231,13 @@ async function fetchRecentBookings(limit: number): Promise<Booking[]> {
       amount: b.amount,
       status: b.status as BookingStatus,
       guests: b.guests ?? 1,
+      stay_type: b.stay_type,
+      duration: b.duration,
+      start_time: b.start_time,
       payment_method: b.payment_method || "",
+      payment_mode: b.payment_mode || "full",
+      amount_paid: b.amount_paid ?? 0,
+      checked_in_at: b.checked_in_at ?? null,
     }))
     setCache(`bookings-recent-${limit}`, result)
     return result

@@ -186,12 +186,28 @@ export default function BookingConfirmation() {
                 </div>
               )}
               {booking.total_price && (
-                <div className="flex justify-between font-semibold pt-sm border-t border-hairline">
-                  <span className="typo-body-md text-ink">Total Paid</span>
-                  <span className="typo-body-md" style={{ color: PRIMARY }}>
-                    ₱{booking.total_price.toLocaleString()}
-                  </span>
-                </div>
+                <>
+                  <div className="flex justify-between font-semibold pt-sm border-t border-hairline">
+                    <span className="typo-body-md text-ink">
+                      {booking.payment_mode === "downpayment" ? "Paid Now (50%)" : "Total Paid"}
+                    </span>
+                    <span className="typo-body-md" style={{ color: PRIMARY }}>
+                      ₱{(booking.payment_mode === "downpayment"
+                        ? Math.max(0, booking.amount_paid ?? 0)
+                        : booking.total_price
+                      ).toLocaleString()}
+                    </span>
+                  </div>
+                  {booking.payment_mode === "downpayment" &&
+                    Math.max(0, booking.total_price - (booking.amount_paid ?? 0)) > 0 && (
+                    <div className="flex justify-between typo-body-sm">
+                      <span className="text-muted">Balance due at the hotel</span>
+                      <span className="text-ink">
+                        ₱{Math.max(0, booking.total_price - (booking.amount_paid ?? 0)).toLocaleString()}
+                      </span>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </div>

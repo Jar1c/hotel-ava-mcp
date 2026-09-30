@@ -7,6 +7,7 @@ import { getBookings } from "@/services/adminService"
 import { bookingsApi, ApiError } from "@/services/api"
 import type { Booking } from "@/data/admin"
 import { usePolling } from "@/hooks/usePolling"
+import { useNotifications } from "@/contexts/NotificationContext"
 
 export default function Bookings() {
   const [bookings, setBookings] = useState<Booking[]>([])
@@ -14,6 +15,7 @@ export default function Bookings() {
   const [verifyOpen, setVerifyOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [expired, setExpired] = useState(false)
+  const { unreadBookingCount, markBookingNotificationsRead } = useNotifications()
 
   const fetchBookings = useCallback((force = false) => {
     setLoading(true)
@@ -52,6 +54,12 @@ export default function Bookings() {
       .catch(() => {})
       .then(() => fetchBookings())
   }, [fetchBookings])
+
+  // You're looking at the bookings list, so the red "new bookings" badge on the
+  // sidebar is already seen — clear it instead of leaving a mystery count.
+  useEffect(() => {
+    if (unreadBookingCount > 0) void markBookingNotificationsRead()
+  }, [unreadBookingCount, markBookingNotificationsRead])
 
   // Poll every 20 seconds for live updates
   usePolling(

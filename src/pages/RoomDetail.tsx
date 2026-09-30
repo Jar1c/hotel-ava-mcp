@@ -13,6 +13,7 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import DateInput from "@/components/ui/date-input"
 import GuestSelector, { type GuestCount } from "@/components/ui/guest-selector"
 import { publicRoomsApi, reviewsApi, type PublicRoomData, type RoomReviewsResponse } from "@/services/api"
@@ -26,6 +27,7 @@ import { useAuth } from "@/contexts/AuthContext"
 import { getRoomDiscount } from "@/lib/discountEngine"
 import { useDiscountApproval } from "@/hooks/useDiscountApproval"
 import { useDiscountRooms } from "@/hooks/useDiscountRooms"
+import { cn } from "@/lib/utils"
 
 const lucideIconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   Wifi, Wind, Wine, ConciergeBell, Building2, BedDouble,
@@ -33,6 +35,15 @@ const lucideIconMap: Record<string, React.ComponentType<{ className?: string }>>
   Baby, Waves, Fence, Droplets, Monitor, Armchair,
   Shirt, Fish, Sunset, UtensilsCrossed, Tv, Sparkles, Music, Car
 }
+
+type DetailTabId = "amenities" | "nearby" | "reviews"
+
+/** The three stacked sections below "About this room", now a tab strip. */
+const DETAIL_TABS: { id: DetailTabId; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+  { id: "amenities", label: "Amenities", icon: Sparkles },
+  { id: "nearby", label: "Nearby Places", icon: MapPin },
+  { id: "reviews", label: "Guest Reviews", icon: Star },
+]
 
 const DAY_USE_DURATIONS = [3, 6, 8, 12] as const
 const CLOSING_HOUR = 22 // 10 PM
@@ -157,6 +168,8 @@ export default function RoomDetail() {
   const [isAvailable, setIsAvailable] = useState<boolean | null>(null)
   const [checkingAvailability, setCheckingAvailability] = useState(false)
   const [showMoreDetails, setShowMoreDetails] = useState(false)
+  // Amenities / Nearby Places / Guest Reviews live behind one tab strip
+  const [detailTab, setDetailTab] = useState<DetailTabId>("amenities")
   // Live guest reviews for this room (average + list shown below)
   const [showAllNearby, setShowAllNearby] = useState(false)
   const [reviewSummary, setReviewSummary] = useState<RoomReviewsResponse | null>(null)
@@ -496,8 +509,52 @@ export default function RoomDetail() {
                   </div>
                 ) : null}
 
-                <div className="border-t border-hairline pt-lg mt-lg">
-                <h2 className="typo-display-sm text-ink mb-md">Amenities</h2>
+                {/* ── Detail tabs — Amenities / Nearby Places / Guest Reviews ── */}
+                <div className="mt-lg border-t border-hairline pt-lg">
+                  <div
+                    role="tablist"
+                    aria-label="Room details"
+                    className="flex items-center gap-0 overflow-x-auto border-b border-hairline"
+                  >
+                    {DETAIL_TABS.map((tab) => {
+                      const TabIcon = tab.icon
+                      const active = detailTab === tab.id
+                      return (
+                        <button
+                          key={tab.id}
+                          type="button"
+                          role="tab"
+                          aria-selected={active}
+                          onClick={() => setDetailTab(tab.id)}
+                          className={cn(
+                            "relative flex shrink-0 cursor-pointer items-center gap-1.5 px-3 py-3 typo-body-sm font-semibold transition-colors sm:px-4",
+                            active ? "text-primary" : "text-muted hover:text-ink",
+                          )}
+                        >
+                          <TabIcon className="h-4 w-4" />
+                          {tab.label}
+                          {tab.id === "reviews" && reviewCount != null && reviewCount > 0 && (
+                            <span
+                              className={cn(
+                                "ml-0.5 inline-flex items-center rounded-full px-1.5 py-0.5 typo-caption-sm",
+                                active ? "bg-primary/10 text-primary" : "bg-surface-soft text-muted",
+                              )}
+                            >
+                              {reviewCount}
+                            </span>
+                          )}
+                          {active && (
+                            <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-primary" />
+                          )}
+                        </button>
+                      )
+                    })}
+                  </div>
+
+                {/* ── Tab: Amenities ──────────────────────────────────────── */}
+                {detailTab === "amenities" && (
+                <>
+                <div className="pt-lg">
                 <div className="grid grid-cols-2 gap-sm">
                   {room.amenities.map((amenity) => {
                     const iconName = getAmenityIcon(amenity)
@@ -596,11 +653,13 @@ export default function RoomDetail() {
                   </div>
                 </>
               )}
+                </>
+                )}
 
-              {/* Nearby Places — 3 highlighted cards, "Show more" reveals the rest */}
-              <div className="border-t border-hairline pt-lg mt-lg">
-                <div className="mb-md flex items-center justify-between gap-3">
-                  <h2 className="typo-display-sm text-ink">Nearby Places</h2>
+                {/* ── Tab: Nearby Places ─────────────────────────────────── */}
+                {detailTab === "nearby" && (
+              <div className="pt-lg">
+                <div className="mb-md flex items-center justify-end">
                   <span className="typo-caption-sm text-muted">Malate, Manila</span>
                 </div>
 
@@ -659,12 +718,13 @@ export default function RoomDetail() {
                   Manila). Tap a place for directions. Photos: Wikimedia Commons.
                 </p>
               </div>
+                )}
 
-              {/* Guest Reviews — live ratings from completed stays */}
-              <div className="border-t border-hairline pt-lg mt-lg">
-                <div className="flex items-center justify-between gap-3 mb-md">
-                  <h2 className="typo-display-sm text-ink">Guest Reviews</h2>
-                  {reviewCount != null && reviewCount > 0 && (
+                {/* ── Tab: Guest Reviews ─────────────────────────────────── */}
+                {detailTab === "reviews" && (
+              <div className="pt-lg">
+                {reviewCount != null && reviewCount > 0 && (
+                  <div className="mb-md flex justify-end">
                     <div className="flex items-center gap-1.5 bg-surface-soft px-3 py-1 rounded-full shrink-0">
                       <Star className="h-4 w-4 fill-star-rating text-star-rating" />
                       <span className="typo-title-sm text-ink">{avgRating}</span>
@@ -672,8 +732,8 @@ export default function RoomDetail() {
                         ({reviewCount} {reviewCount === 1 ? "review" : "reviews"})
                       </span>
                     </div>
-                  )}
-                </div>
+                  </div>
+                )}
 
                 {reviewsLoading ? (
                   <div className="space-y-3">
@@ -915,6 +975,8 @@ export default function RoomDetail() {
                   </Dialog>
                 )}
               </div>
+                )}
+              </div>
             </div>
           </div>
 
@@ -945,39 +1007,54 @@ export default function RoomDetail() {
                 )}
               </div>
 
-              {/* Stay Type — locked to the home search choice, full toggle on direct browse */}
-              {stayLocked ? (
-                <div className="mb-lg">
+              {/* Stay Type — one bar with a dropdown; locked to the home search choice */}
+              <div className="mb-lg">
+                {stayLocked ? (
                   <div className="py-2.5 rounded-[12px] bg-primary text-on-primary shadow-sm text-sm font-semibold text-center">
                     {stayType === "overnight" ? "Overnight Stay" : "Day Use"}
                   </div>
-                </div>
-              ) : (
-                <div className="flex gap-2 mb-lg">
-                  <button
-                    type="button"
-                    onClick={() => setStayType("overnight")}
-                    className={`flex-1 py-2.5 rounded-[12px] text-sm font-semibold transition-all ${
-                      stayType === "overnight"
-                        ? "bg-primary text-on-primary shadow-sm"
-                        : "bg-white text-muted border border-hairline hover:border-primary/30"
-                    }`}
-                  >
-                    Overnight Stay
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setStayType("day")}
-                    className={`flex-1 py-2.5 rounded-[12px] text-sm font-semibold transition-all ${
-                      stayType === "day"
-                        ? "bg-primary text-on-primary shadow-sm"
-                        : "bg-white text-muted border border-hairline hover:border-primary/30"
-                    }`}
-                  >
-                    Day Use
-                  </button>
-                </div>
-              )}
+                ) : (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      aria-label="Stay type"
+                      className="group flex w-full items-center justify-between gap-2 rounded-[12px] border border-hairline bg-white px-4 py-2.5 text-sm font-semibold text-ink transition-colors cursor-pointer hover:border-primary/40 focus-visible:outline-2 focus-visible:outline-primary data-popup-open:border-primary data-popup-open:text-primary"
+                    >
+                      <span>{stayType === "overnight" ? "Overnight Stay" : "Day Use"}</span>
+                      <ChevronDown className="size-4 text-muted transition-transform duration-200 group-data-popup-open:rotate-180" />
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" sideOffset={6} className="rounded-[12px] p-1.5">
+                      <DropdownMenuItem
+                        onClick={() => setStayType("overnight")}
+                        className={`cursor-pointer rounded-[8px] py-2.5 ${
+                          stayType === "overnight"
+                            ? "bg-primary/10 text-primary font-semibold hover:bg-primary/10 focus:bg-primary/10"
+                            : ""
+                        }`}
+                      >
+                        <span className="flex items-center gap-2">
+                          <BedDouble className="size-4" />
+                          Overnight Stay
+                        </span>
+                        {stayType === "overnight" && <Check className="ml-auto size-4" />}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => setStayType("day")}
+                        className={`cursor-pointer rounded-[8px] py-2.5 ${
+                          stayType === "day"
+                            ? "bg-primary/10 text-primary font-semibold hover:bg-primary/10 focus:bg-primary/10"
+                            : ""
+                        }`}
+                      >
+                        <span className="flex items-center gap-2">
+                          <Sunrise className="size-4" />
+                          Day Use
+                        </span>
+                        {stayType === "day" && <Check className="ml-auto size-4" />}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+              </div>
 
               {/* Overnight: Date pickers + Time */}
               {stayType === "overnight" && (
@@ -1159,52 +1236,6 @@ export default function RoomDetail() {
                 </div>
               )}
 
-              {/* Book Now Button */}
-              {(() => {
-                const isMissingFields =
-                  (stayType === "overnight" && (!checkIn || !checkOut || !overnightStartTime)) ||
-                  (stayType === "day" && (!checkIn || !startTime))
-                const isUnavailable = isAvailable === false
-                const canBook = !isMissingFields && !isUnavailable && !checkingAvailability
-                return (
-                  <>
-                    {isUnavailable && (
-                      <div className="bg-red-50 border border-red-200 rounded-[12px] px-4 py-3 mb-3">
-                        <p className="text-sm text-red-600 font-medium">
-                          This room is not available for the selected dates/times. Please choose different dates.
-                        </p>
-                      </div>
-                    )}
-                    <motion.div whileHover={canBook ? { scale: 1.02 } : undefined} whileTap={canBook ? { scale: 0.98 } : undefined}>
-                      <Button
-                        className={`w-full bg-primary text-on-primary hover:bg-primary-active !rounded-[12px]${!canBook ? " opacity-50 cursor-not-allowed" : ""}`}
-                        disabled={!canBook}
-                      onClick={() => {
-                        if (!isAuthenticated) {
-                          setShowAuthModal(true)
-                        } else {
-                          const params = new URLSearchParams()
-                          params.set("stayType", stayType)
-                          if (checkIn) params.set("checkIn", checkIn.toISOString())
-                          if (stayType === "overnight" && checkOut) params.set("checkOut", checkOut.toISOString())
-                          if (stayType === "overnight" && overnightStartTime) params.set("overnightStartTime", overnightStartTime)
-                          if (stayType === "day") {
-                            params.set("duration", String(dayDuration))
-                            params.set("startTime", startTime)
-                          }
-    params.set("adults", String(guests.adults))
-    params.set("children", String(guests.children))
-                          navigate(`/booking/${id}?${params.toString()}`)
-                        }
-                      }}
-                    >
-                      Book Now
-                    </Button>
-                  </motion.div>
-                  </>
-                )
-              })()}
-
               {/* Price Breakdown */}
               <div className="mt-lg pt-lg border-t border-hairline">
                 {showDiscount && (
@@ -1248,6 +1279,54 @@ export default function RoomDetail() {
                     Pay at the property
                   </li>
                 </ul>
+              </div>
+
+              {/* Book Now Button — kept at the very bottom of the card */}
+              <div className="mt-lg">
+                {(() => {
+                  const isMissingFields =
+                    (stayType === "overnight" && (!checkIn || !checkOut || !overnightStartTime)) ||
+                    (stayType === "day" && (!checkIn || !startTime))
+                  const isUnavailable = isAvailable === false
+                  const canBook = !isMissingFields && !isUnavailable && !checkingAvailability
+                  return (
+                    <>
+                      {isUnavailable && (
+                        <div className="bg-red-50 border border-red-200 rounded-[12px] px-4 py-3 mb-3">
+                          <p className="text-sm text-red-600 font-medium">
+                            This room is not available for the selected dates/times. Please choose different dates.
+                          </p>
+                        </div>
+                      )}
+                      <motion.div whileHover={canBook ? { scale: 1.02 } : undefined} whileTap={canBook ? { scale: 0.98 } : undefined}>
+                        <Button
+                          className={`w-full bg-primary text-on-primary hover:bg-primary-active !rounded-[12px]${!canBook ? " opacity-50 cursor-not-allowed" : ""}`}
+                          disabled={!canBook}
+                          onClick={() => {
+                            if (!isAuthenticated) {
+                              setShowAuthModal(true)
+                            } else {
+                              const params = new URLSearchParams()
+                              params.set("stayType", stayType)
+                              if (checkIn) params.set("checkIn", checkIn.toISOString())
+                              if (stayType === "overnight" && checkOut) params.set("checkOut", checkOut.toISOString())
+                              if (stayType === "overnight" && overnightStartTime) params.set("overnightStartTime", overnightStartTime)
+                              if (stayType === "day") {
+                                params.set("duration", String(dayDuration))
+                                params.set("startTime", startTime)
+                              }
+                              params.set("adults", String(guests.adults))
+                              params.set("children", String(guests.children))
+                              navigate(`/booking/${id}?${params.toString()}`)
+                            }
+                          }}
+                        >
+                          Book Now
+                        </Button>
+                      </motion.div>
+                    </>
+                  )
+                })()}
               </div>
             </div>
           </div>
@@ -1332,9 +1411,9 @@ export default function RoomDetail() {
 
             <p className="text-[11px] text-muted/60 mt-5 leading-relaxed">
               By signing in, you agree to our{" "}
-              <span className="font-medium" style={{ color: "#82285f" }}>Terms of Service</span>
+              <Link to="/terms" className="font-medium" style={{ color: "#82285f" }}>Terms of Service</Link>
               {" "}and{" "}
-              <span className="font-medium" style={{ color: "#82285f" }}>Privacy Policy</span>
+              <Link to="/terms#privacy" className="font-medium" style={{ color: "#82285f" }}>Privacy Policy</Link>
             </p>
           </div>
         </div>

@@ -6,6 +6,7 @@ import type { Booking } from "@/data/admin"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { usePolling } from "@/hooks/usePolling"
 import { formatPaymentMethod } from "@/lib/payment"
+import { deriveArrival } from "@/lib/arrival"
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
@@ -22,10 +23,20 @@ const roomRates: Record<string, number> = {
 
 const statusStyles: Record<string, { label: string; dot: string; text: string; bg: string }> = {
   confirmed: { label: "Confirmed", dot: "bg-emerald-400", text: "text-emerald-600", bg: "bg-emerald-50 border-emerald-200" },
+  // Derived from the clock, not stored — see lib/arrival.ts
+  arrived: { label: "Arrived", dot: "bg-amber-500", text: "text-amber-600", bg: "bg-amber-50 border-amber-200" },
+  "in-house": { label: "In-house", dot: "bg-[#2f7d6d]", text: "text-[#2f7d6d]", bg: "bg-[#2f7d6d]/10 border-[#2f7d6d]/30" },
   pending: { label: "Pending", dot: "bg-amber-400", text: "text-amber-600", bg: "bg-amber-50 border-amber-200" },
   completed: { label: "Completed", dot: "bg-gray-300", text: "text-muted", bg: "bg-gray-50 border-gray-200" },
   "checked-out": { label: "Checked Out", dot: "bg-gray-300", text: "text-muted", bg: "bg-gray-50 border-gray-200" },
   cancelled: { label: "Cancelled", dot: "bg-gray-300", text: "text-muted", bg: "bg-gray-50 border-gray-200 line-through" },
+}
+
+function statusInfoFor(b: Booking) {
+  const state = deriveArrival(b)
+  if (state === "early") return statusStyles.arrived
+  if (state === "in_house") return statusStyles["in-house"]
+  return statusStyles[b.status] || statusStyles.pending
 }
 
 const roomTypeColors: Record<string, { bg: string; text: string; border: string }> = {
@@ -115,7 +126,7 @@ export default function AvailabilityCalendar() {
     setModalOpen(true)
   }
 
-  const statusInfo = selectedBooking ? (statusStyles[selectedBooking.status] || statusStyles.pending) : statusStyles.pending
+  const statusInfo = selectedBooking ? statusInfoFor(selectedBooking) : statusStyles.pending
   const roomColor = selectedBooking ? (roomTypeColors[selectedBooking.roomType] || { bg: "bg-gray-50", text: "text-gray-600", border: "border-gray-200" }) : { bg: "bg-gray-50", text: "text-gray-600", border: "border-gray-200" }
 
   return (

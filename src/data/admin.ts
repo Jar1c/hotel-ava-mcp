@@ -22,6 +22,10 @@ export interface Booking {
   start_time?: string
   createdAt?: string
   payment_method?: string
+  payment_mode?: string
+  amount_paid?: number
+  /** Front-desk check-in stamp (ISO). null = the guest has not arrived yet. */
+  checked_in_at?: string | null
 }
 
 export interface MonthlyRevenue {

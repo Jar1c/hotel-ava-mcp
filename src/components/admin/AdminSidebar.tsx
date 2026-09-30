@@ -2,6 +2,7 @@ import { NavLink } from "react-router"
 import { LayoutDashboard, Calendar, DoorOpen, Users, CalendarDays, LogOut, Settings, Brain, Star } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/contexts/AuthContext"
+import { useNotifications } from "@/contexts/NotificationContext"
 import { useNavigate } from "react-router"
 
 const mainItems = [
@@ -18,8 +19,19 @@ const otherItems = [
   { label: "Settings", path: "/admin/settings", icon: Settings },
 ]
 
+/** Red "new bookings" pill — 9 and up reads as 9+. */
+function CountBadge({ count }: { count: number }) {
+  if (count <= 0) return null
+  return (
+    <span className="ml-auto inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#A4423A] px-1.5 text-[10px] font-bold leading-none text-white shadow-sm">
+      {count >= 9 ? "9+" : count}
+    </span>
+  )
+}
+
 export default function AdminSidebar() {
   const { logout } = useAuth()
+  const { unreadBookingCount } = useNotifications()
   const navigate = useNavigate()
 
   const handleLogout = async () => {
@@ -56,6 +68,7 @@ export default function AdminSidebar() {
           >
             <item.icon className="size-[17px]" />
             {item.label}
+            {item.label === "Bookings" && <CountBadge count={unreadBookingCount} />}
           </NavLink>
         ))}
       </nav>

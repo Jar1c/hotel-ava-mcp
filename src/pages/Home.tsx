@@ -187,7 +187,7 @@ export default function Home() {
             >
               {featuredRooms.map((room) => (
                 <motion.div key={room.id} variants={cardItem}>
-                  <Link to={`/rooms?room=${room.id}`} className="group block">
+                  <Link to={`/rooms/${room.id}`} className="group block">
                     <div className="relative aspect-[3/4] overflow-hidden rounded-[10px] mb-base">
                       <ImageWithPlaceholder
                         src={room.images?.[0] || ""}

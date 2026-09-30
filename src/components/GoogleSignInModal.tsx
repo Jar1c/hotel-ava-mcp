@@ -1,5 +1,5 @@
-import { useState } from "react"
-import { useNavigate } from "react-router"
+import { useEffect, useRef, useState } from "react"
+import { Link, useLocation, useNavigate } from "react-router"
 import { X, Loader2, Mail } from "lucide-react"
 
 const PRIMARY = "#82285f"
@@ -12,6 +12,20 @@ interface GoogleSignInModalProps {
 export default function GoogleSignInModal({ open, onClose }: GoogleSignInModalProps) {
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
+  const location = useLocation()
+
+  // The modal lives in the Header, which survives every route change. The
+  // Terms / Privacy links inside it navigate away — without this the popup
+  // would keep overlaying the page the guest just opened (and block the sign-in
+  // options underneath). Keep onClose in a ref so only navigation retriggers it.
+  const onCloseRef = useRef(onClose)
+  useEffect(() => {
+    onCloseRef.current = onClose
+  }, [onClose])
+
+  useEffect(() => {
+    if (open) onCloseRef.current()
+  }, [location.pathname, location.search, location.hash])
 
   if (!open) return null
 
@@ -112,9 +126,9 @@ export default function GoogleSignInModal({ open, onClose }: GoogleSignInModalPr
 
         <p className="text-[11px] text-muted/60 mt-5 leading-relaxed">
           By signing in, you agree to our{" "}
-          <span className="font-medium" style={{ color: PRIMARY }}>Terms of Service</span>
+          <Link to="/terms" onClick={onClose} className="font-medium" style={{ color: PRIMARY }}>Terms of Service</Link>
           {" "}and{" "}
-          <span className="font-medium" style={{ color: PRIMARY }}>Privacy Policy</span>
+          <Link to="/terms#privacy" onClick={onClose} className="font-medium" style={{ color: PRIMARY }}>Privacy Policy</Link>
         </p>
       </div>
     </div>
