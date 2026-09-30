@@ -7,7 +7,8 @@ import { type Room } from "@/data/rooms"
 import { setCache, getCached } from "@/lib/cache"
 import { formatDate as toISODate, parseDateParam } from "@/lib/dates"
 import { rankRooms } from "@/lib/roomRanking"
-import RoomCard from "@/components/rooms/RoomCard"
+import RoomCard, { type RoomOfferDiscount } from "@/components/rooms/RoomCard"
+import { getActiveOffers, offerCoversDate, type ActiveOffer } from "@/services/discountService"
 import RoomFilters from "@/components/rooms/RoomFilters"
 import {
   DEFAULT_ROOM_FILTERS,
@@ -123,6 +124,17 @@ export default function Rooms() {
       .finally(() => setLoading(false))
   }, [])
 
+  // Scheduled offers the admin switched on - they must show on guest rooms,
+  // otherwise "Activate" in the admin table does nothing visible.
+  const [activeOffers, setActiveOffers] = useState<ActiveOffer[]>([])
+  useEffect(() => {
+    let cancelled = false
+    getActiveOffers()
+      .then((data) => { if (!cancelled) setActiveOffers(data) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+
   // Check availability for all rooms when date filters are present.
   // checkingAvailability stays true until every room answered, so the grid
   // shows skeletons instead of rooms that may turn out to be booked.
@@ -170,6 +182,30 @@ export default function Rooms() {
     () => roomsData.map((r) => ({ id: r.id, name: r.name, type: r.type, price: r.price })),
     [roomsData],
   )
+
+  // Room type -> the scheduled offer the admin switched on.
+  const offerByType = useMemo(() => {
+    const map = new Map<string, ActiveOffer>()
+    activeOffers.forEach((o) => map.set(o.roomType, o))
+    return map
+  }, [activeOffers])
+
+  /** The active scheduled offer for one room. Browsing shows every switched-on
+   *  offer; once the guest picks dates we only advertise the ones that cover
+   *  those dates, so the badge never promises a price the stay will not get. */
+  const offerFor = (room: Room): RoomOfferDiscount | null => {
+    const offer = offerByType.get(room.type)
+    if (!offer) return null
+    if (filters.checkIn) {
+      const day = parseDateParam(filters.checkIn)
+      if (!day || !offerCoversDate(offer, day)) return null
+    }
+    return {
+      percent: offer.discountPercent,
+      price: offer.discountedRate,
+      original: offer.baseRate,
+    }
+  }
 
   // Sidebar filter panel (Room type / price / rating / amenities / guest needs).
   const [filterState, setFilterState] = useState<RoomFilterState>(DEFAULT_ROOM_FILTERS)
@@ -378,7 +414,7 @@ export default function Rooms() {
                 >
                   {aiPicks.map((room, index) => (
                     <motion.div key={room.id} variants={cardItem} custom={index}>
-                      <RoomCard room={room} filters={filters} discountRooms={discountRooms} isApproved={isApproved} />
+                      <RoomCard room={room} filters={filters} discountRooms={discountRooms} isApproved={isApproved} offerDiscount={offerFor(room)} />
                     </motion.div>
                   ))}
                 </motion.div>
@@ -406,7 +442,7 @@ export default function Rooms() {
                 >
                   {belowRooms.map((room, index) => (
                     <motion.div key={room.id} variants={cardItem} custom={index}>
-                      <RoomCard room={room} filters={filters} discountRooms={discountRooms} isApproved={isApproved} />
+                      <RoomCard room={room} filters={filters} discountRooms={discountRooms} isApproved={isApproved} offerDiscount={offerFor(room)} />
                     </motion.div>
                   ))}
                 </motion.div>
@@ -452,7 +488,7 @@ export default function Rooms() {
               >
                 {suggestedRooms.map((room, index) => (
                   <motion.div key={room.id} variants={cardItem} custom={index}>
-                    <RoomCard room={room} filters={filters} discountRooms={discountRooms} isApproved={isApproved} />
+                    <RoomCard room={room} filters={filters} discountRooms={discountRooms} isApproved={isApproved} offerDiscount={offerFor(room)} />
                   </motion.div>
                 ))}
               </motion.div>

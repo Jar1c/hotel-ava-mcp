@@ -36,3 +36,33 @@ export async function dismissDiscount(eventRoomTypeKey: string): Promise<void> {
     body: JSON.stringify({ event_room_type_key: eventRoomTypeKey }),
   })
 }
+
+/** A scheduled offer the admin switched on - public, it drives the guest badge. */
+export interface ActiveOffer {
+  roomType: string
+  discountPercent: number
+  validFrom: string
+  validTo: string
+  baseRate: number
+  discountedRate: number
+}
+
+export async function getActiveOffers(): Promise<ActiveOffer[]> {
+  try {
+    const data = await apiFetch<ActiveOffer[]>("/discounts/active")
+    return Array.isArray(data) ? data : []
+  } catch {
+    return []
+  }
+}
+
+const isoDay = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+
+/** Inclusive YYYY-MM-DD window check for an offer. */
+export function offerCoversDate(offer: ActiveOffer, date: Date): boolean {
+  const day = isoDay(date)
+  if (offer.validFrom && day < offer.validFrom) return false
+  if (offer.validTo && day > offer.validTo) return false
+  return true
+}

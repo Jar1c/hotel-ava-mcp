@@ -259,89 +259,89 @@ export default function DiscountOffers({ offers: initialOffers, rooms, loading }
             <p className="text-sm text-muted mt-0.5">Price cuts for slow months — activate when you're ready</p>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-[#e2e4e8]">
-                  <th className="text-left px-6 py-3 font-medium text-muted">Room Type</th>
-                  <th className="text-right px-6 py-3 font-medium text-muted">Base</th>
-                  <th className="text-right px-6 py-3 font-medium text-muted">Discounted</th>
-                  <th className="text-right px-6 py-3 font-medium text-muted">Off</th>
-                  <th className="text-left px-6 py-3 font-medium text-muted">Valid Period</th>
-                  <th className="text-center px-6 py-3 font-medium text-muted">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {offers.map((offer) => {
-                  const isActive = offer.status === "active"
-                  return (
-                    <tr
-                      key={offer.id}
-                      className={cn(
-                        "border-b border-[#e2e4e8]/60 last:border-0 transition-colors",
-                        isActive && "bg-[#3D6B4F]/[0.03]"
-                      )}
-                    >
-                      <td className="px-6 py-3 font-medium text-foreground">{offer.roomType}</td>
-                      <td className="px-6 py-3 text-right text-muted">{formatCurrency(offer.baseRate)}</td>
-                      <td className="px-6 py-3 text-right font-medium text-[#3D6B4F]">
-                        {formatCurrency(offer.discountedRate)}
-                      </td>
-                      <td className="px-6 py-3 text-right">
-                        {editingOfferId === offer.id ? (
-                          <div className="flex items-center justify-end gap-1">
-                            <input
-                              aria-label={`Discount percent for ${offer.roomType}`}
-                              type="number"
-                              min={1}
-                              max={80}
-                              step={1}
-                              value={editPercent}
-                              onChange={(event) => setEditPercent(Number(event.target.value))}
-                              className="w-16 rounded-[4px] border border-[#e2e4e8] px-2 py-1 text-right text-xs text-foreground focus:border-[#82285f] focus:outline-none"
-                            />
-                            <span className="text-xs text-muted">%</span>
-                          </div>
-                        ) : (
-                        <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-[4px] bg-[#455d58]/10 text-[#455d58]">
-                          <Tag className="w-3 h-3" />
-                          {offer.discountPercent}%
+          <div className="p-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {offers.map((offer) => {
+                const isActive = offer.status === "active"
+                const editing = editingOfferId === offer.id
+                return (
+                  <div
+                    key={offer.id}
+                    className={cn(
+                      "border rounded-[8px] p-4 transition-colors",
+                      isActive
+                        ? "border-[#3D6B4F]/40 bg-[#3D6B4F]/[0.03]"
+                        : "border-[#e2e4e8] hover:border-[#82285f]/30"
+                    )}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[13px] font-bold text-foreground">{offer.roomType}</span>
+                      {editing ? (
+                        <span className="inline-flex items-center gap-1">
+                          <input
+                            aria-label={`Discount percent for ${offer.roomType}`}
+                            type="number"
+                            min={1}
+                            max={80}
+                            step={1}
+                            value={editPercent}
+                            onChange={(event) => setEditPercent(Number(event.target.value))}
+                            className="w-16 rounded-[4px] border border-[#e2e4e8] px-2 py-1 text-right text-xs text-foreground focus:border-[#82285f] focus:outline-none"
+                          />
+                          <span className="text-xs text-muted">%</span>
                         </span>
-                        )}
-                      </td>
-                      <td className="px-6 py-3 text-xs text-muted">
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-[4px] bg-[#A4423A]/10 text-[#A4423A]">
+                          <Tag className="w-3 h-3" />
+                          {offer.discountPercent}% OFF
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-1.5 mb-3">
+                      <Calendar className="w-3 h-3 text-muted" />
+                      <span className="text-[11px] text-muted">
                         {new Date(offer.validFrom).toLocaleDateString("en-PH", { month: "short", day: "numeric" })} –{" "}
                         {new Date(offer.validTo).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}
-                      </td>
-                      <td className="px-6 py-3 text-center">
-                        <div className="inline-flex items-center justify-center gap-1.5">
-                          {editingOfferId === offer.id ? (
-                            <>
-                              <button type="button" onClick={() => handleSaveOfferEdit(offer)} disabled={savingEdit} className="inline-flex items-center gap-1 rounded-[4px] bg-[#455d58] px-2.5 py-1.5 text-xs font-medium text-white hover:bg-[#374d48] disabled:opacity-50">
-                                <Save className="h-3 w-3" /> Save
-                              </button>
-                              <button type="button" onClick={() => setEditingOfferId(null)} disabled={savingEdit} aria-label="Cancel editing" className="rounded-[4px] border border-[#e2e4e8] p-1.5 text-muted hover:bg-[#f5f6f8] disabled:opacity-50"><X className="h-3 w-3" /></button>
-                            </>
-                          ) : (
-                            <>
-                              <button type="button" onClick={() => beginEditOffer(offer)} className="inline-flex items-center gap-1 rounded-[4px] border border-[#e2e4e8] px-2.5 py-1.5 text-xs font-medium text-muted hover:border-[#82285f]/40 hover:text-[#82285f]">
-                                <Pencil className="h-3 w-3" /> Edit
-                              </button>
-                              <button onClick={() => handleToggleOffer(offer.id)} className={cn(
-                                "inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-[4px] transition-all duration-200",
-                                isActive ? "bg-[#3D6B4F]/10 text-[#3D6B4F] hover:bg-[#3D6B4F]/20" : "bg-[#f0f1f3] text-muted hover:bg-[#e2e4e8]"
-                              )}>
-                                {isActive ? <><Check className="w-3 h-3" /> Deactivate</> : <><Tag className="w-3 h-3" /> Activate</>}
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+                      </span>
+                    </div>
+
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-[15px] font-bold text-[#A4423A]">{formatCurrency(offer.discountedRate)}</span>
+                      <span className="text-[11px] text-muted line-through">{formatCurrency(offer.baseRate)}</span>
+                      <span className="text-[10px] text-muted">/night</span>
+                    </div>
+
+                    <p className={cn("mt-1 text-[11px] font-medium", isActive ? "text-[#3D6B4F]" : "text-muted")}>
+                      {isActive ? "Live — guests see this on the Rooms page" : "Off — activate to show it to guests"}
+                    </p>
+
+                    <div className="flex items-center gap-2 mt-3 pt-3 border-t border-[#e2e4e8]">
+                      {editing ? (
+                        <>
+                          <button type="button" onClick={() => handleSaveOfferEdit(offer)} disabled={savingEdit} className="inline-flex items-center gap-1 rounded-[4px] bg-[#455d58] px-2.5 py-1.5 text-xs font-medium text-white hover:bg-[#374d48] disabled:opacity-50">
+                            <Save className="h-3 w-3" /> Save
+                          </button>
+                          <button type="button" onClick={() => setEditingOfferId(null)} disabled={savingEdit} aria-label="Cancel editing" className="rounded-[4px] border border-[#e2e4e8] p-1.5 text-muted hover:bg-[#f5f6f8] disabled:opacity-50"><X className="h-3 w-3" /></button>
+                        </>
+                      ) : (
+                        <>
+                          <button type="button" onClick={() => beginEditOffer(offer)} className="inline-flex items-center gap-1 rounded-[4px] border border-[#e2e4e8] px-2.5 py-1.5 text-xs font-medium text-muted hover:border-[#82285f]/40 hover:text-[#82285f]">
+                            <Pencil className="h-3 w-3" /> Edit
+                          </button>
+                          <button onClick={() => handleToggleOffer(offer.id)} className={cn(
+                            "inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-[4px] transition-all duration-200",
+                            isActive ? "bg-[#3D6B4F]/10 text-[#3D6B4F] hover:bg-[#3D6B4F]/20" : "bg-[#f0f1f3] text-muted hover:bg-[#e2e4e8]"
+                          )}>
+                            {isActive ? <><Check className="w-3 h-3" /> Deactivate</> : <><Tag className="w-3 h-3" /> Activate</>}
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
           </div>
         </div>
       )}

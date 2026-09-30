@@ -4467,6 +4467,21 @@ def get_approved_discounts():
     return jsonify({"approved": sorted(keys)}), 200
 
 
+@app.route("/api/discounts/active", methods=["GET"])
+def get_active_discount_offers():
+    """Scheduled offers the admin switched on.
+
+    Public on purpose: the guest Rooms page badges these. Activating an offer
+    in the admin table and the badge a guest sees were two separate systems
+    before, so switching an offer on never showed up for guests.
+    """
+    try:
+        return jsonify([o for o in _build_discount_offers() if o.get("status") == "active"]), 200
+    except Exception as e:
+        print(f"active discount offers error: {e}")
+        return jsonify([]), 200
+
+
 @app.route("/api/discounts/approve", methods=["POST"])
 def approve_discount():
     """Approve a discount by event-room-type key."""

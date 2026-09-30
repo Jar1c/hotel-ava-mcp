@@ -15,11 +15,20 @@ interface RoomFilters {
   pets?: number
 }
 
+/** A scheduled offer the admin switched on, resolved for one room. */
+export interface RoomOfferDiscount {
+  percent: number
+  price: number
+  original: number
+}
+
 interface RoomCardProps {
   room: Room
   filters?: RoomFilters
   discountRooms?: DiscountRoom[]
   isApproved?: (eventRoomTypeKey: string) => boolean
+  /** Active scheduled offer - shown without the holiday approval gate. */
+  offerDiscount?: RoomOfferDiscount | null
 }
 
 const amenityIcons: Record<string, React.ReactNode> = {
@@ -69,9 +78,19 @@ const amenityIcons: Record<string, React.ReactNode> = {
   "Cable TV": <Tv className="h-3 w-3" />,
 }
 
-export default function RoomCard({ room, filters, discountRooms, isApproved }: RoomCardProps) {
+export default function RoomCard({ room, filters, discountRooms, isApproved, offerDiscount }: RoomCardProps) {
   const discount = getRoomDiscount(discountRooms || [], room.id)
-  const showDiscount = discount && isApproved && isApproved(discount.eventRoomTypeKey) ? discount : null
+  // An activated scheduled offer wins: switching it on in the admin table IS
+  // the approval, so it does not need the holiday-promo approval gate.
+  const showDiscount = offerDiscount
+    ? {
+        discountPercent: offerDiscount.percent,
+        discountedPrice: offerDiscount.price,
+        originalPrice: offerDiscount.original,
+      }
+    : discount && isApproved && isApproved(discount.eventRoomTypeKey)
+      ? discount
+      : null
 
   const detailUrl = (() => {
     const params = new URLSearchParams()
