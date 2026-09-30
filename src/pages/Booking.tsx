@@ -463,10 +463,34 @@ export default function Booking() {
                       <Check className="h-3.5 w-3.5 text-success" />
                       Free cancellation up to 24 hours before check-in
                     </div>
-                    <div className="flex items-center gap-2 text-sm text-muted">
-                      <Check className="h-3.5 w-3.5 text-success" />
-                      No prepayment needed
-                    </div>
+                    {(() => {
+                      if (paymentMode === "downpayment") {
+                        return (
+                          <>
+                            <div className="flex items-center gap-2 text-sm text-muted">
+                              <Check className="h-3.5 w-3.5 text-success" />
+                              50% deposit paid online
+                            </div>
+                            <div className="flex items-center gap-2 text-sm text-muted">
+                              <Check className="h-3.5 w-3.5 text-success" />
+                              Remaining 50% due at hotel
+                            </div>
+                          </>
+                        );
+                      }
+                      return (
+                        <>
+                          <div className="flex items-center gap-2 text-sm text-muted">
+                            <Check className="h-3.5 w-3.5 text-success" />
+                            Full payment online
+                          </div>
+                          <div className="flex items-center gap-2 text-sm text-muted">
+                            <Check className="h-3.5 w-3.5 text-success" />
+                            No balance due at property
+                          </div>
+                        </>
+                      );
+                    })()}
                   </div>
                 </div>
               </div>
