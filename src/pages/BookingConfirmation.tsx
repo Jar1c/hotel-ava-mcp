@@ -59,21 +59,20 @@ export default function BookingConfirmation() {
        return
      }
 
-      const apiBase = API_BASE
-     const token = sessionStorage.getItem("access_token")
-     const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {}
+     const apiBase = API_BASE
 
+     // Both calls are public: PayMongo drops the guest back here possibly with
+     // an expired session, and a 401 used to render "Confirmation Failed" even
+    // though the payment and the booking were fine.
      fetch(`${apiBase}/bookings/confirm/${id}`, {
        method: "POST",
-       headers: { ...authHeaders, "Content-Type": "application/json" },
+       headers: { "Content-Type": "application/json" },
      })
        .then((res) => {
          if (!res.ok) throw new Error(`Confirm failed: ${res.status}`)
          return res.json()
        })
-       .then(() => {
-         return fetch(`${apiBase}/bookings/${id}`, { headers: authHeaders })
-       })
+       .then(() => fetch(`${apiBase}/bookings/verify/${id}`))
        .then((res) => {
          if (!res.ok) throw new Error("Failed to fetch booking")
          return res.json()
