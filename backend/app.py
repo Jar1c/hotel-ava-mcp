@@ -23,7 +23,17 @@ CORS(app, resources={r"/api/*": {"origins": [
 ]}})
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-supabase_admin: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY) if SUPABASE_SERVICE_KEY else supabase
+
+# Vercel ships SUPABASE_SERVICE_KEY empty (or pasted as the ANON key). A client
+# without service_role gets 0 rows back under RLS, which made booking confirmation
+# 404 ("Confirmation Failed") and every availability check answer "available".
+# Only trust the key when it is really different from the anon key.
+_SERVICE_ROLE_OK = bool(SUPABASE_SERVICE_KEY) and SUPABASE_SERVICE_KEY != SUPABASE_KEY
+if not _SERVICE_ROLE_OK:
+    print("WARNING: SUPABASE_SERVICE_KEY is missing or equals the anon key - "
+          "set the service_role key in Vercel (Settings -> Environment Variables). "
+          "Falling back to the shared client for now.")
+supabase_admin: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY) if _SERVICE_ROLE_OK else supabase
 
 # ── Simple in-memory TTL cache for heavy analytics/dashboard responses ─────────
 # Avoids re-running full-table scans + sklearn on every 20–30s poll.
@@ -70,7 +80,13 @@ def get_frontend_url() -> str:
 
 def set_auth(token):
     """Set auth session on Supabase client so RLS policies work."""
+    global supabase_admin
     if token:
+        # No service_role: supabase_admin aliases the shared client, and
+        # clear_auth() rebinds that client - re-attach so the caller's JWT
+        # actually reaches admin reads (otherwise they return 0 rows -> 404).
+        if not _SERVICE_ROLE_OK:
+            supabase_admin = supabase
         try:
             supabase.auth.set_session(access_token=token, refresh_token="")
         except Exception:
@@ -85,7 +101,7 @@ def set_auth(token):
 
 def clear_auth():
     """Clear auth on Supabase client for public (anon) queries."""
-    global supabase
+    global supabase, supabase_admin
     try:
         supabase.postgrest.auth(None)
     except Exception:
@@ -95,6 +111,8 @@ def clear_auth():
         supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
     except Exception:
         pass
+    if not _SERVICE_ROLE_OK:
+        supabase_admin = supabase
 
 
 def get_user_from_token(token):
