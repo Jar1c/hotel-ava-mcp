@@ -44,11 +44,11 @@ const isMobileUA = (ua: string | null) => /android|iphone|ipad|mobile/i.test(ua 
 
 export default function Settings() {
   const { mode, setMode, colorPreset, setColorPreset } = useTheme()
-  const [searchParams] = useSearchParams()
-  const [activeTab, setActiveTab] = useState<TabKey>(() => {
-    const t = searchParams.get("tab")
-    return TABS.find((tab) => tab.key === t)?.key ?? "appearance"
-  })
+  const [searchParams, setSearchParams] = useSearchParams()
+  // URL-driven (?tab=devices) — a reload or deep link lands on the same tab
+  const activeTab: TabKey =
+    TABS.find((tab) => tab.key === searchParams.get("tab"))?.key ?? "appearance"
+  const setActiveTab = (key: TabKey) => setSearchParams({ tab: key }, { replace: true })
 
   // Devices & activity
   const [sessions, setSessions] = useState<SessionInfo[]>([])
