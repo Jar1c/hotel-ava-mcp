@@ -255,12 +255,12 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     [trustDevice],
   )
 
-  /** Dialog: "No, secure my account" → read the alert + go to password change. */
+  /** Dialog: "No, secure my account" → read the alert + open device management. */
   const secureAccount = useCallback(
     (notif: NotificationData) => {
       void markRead(notif.id)
       setNewLoginNotif(null)
-      navigateRef.current(isAdminRef.current ? "/admin/settings" : "/settings")
+      navigateRef.current("/settings?tab=devices")
     },
     [markRead],
   )

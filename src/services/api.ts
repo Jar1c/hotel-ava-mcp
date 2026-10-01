@@ -147,7 +147,11 @@ export const authApi = {
   logout: () => apiFetch("/auth/logout", { method: "POST" }),
 
   /** Fire-and-forget device tracking for OAuth (Google) sign-ins. */
-  trackLogin: () => apiFetch("/auth/track-login", { method: "POST" }),
+  trackLogin: () =>
+    apiFetch("/auth/track-login", {
+      method: "POST",
+      body: JSON.stringify({ refresh_token: sessionStorage.getItem("refresh_token") || "" }),
+    }),
 
   uploadAvatar: async (file: File): Promise<{ avatar_url: string }> => {
     const token = sessionStorage.getItem("access_token")
@@ -185,6 +189,27 @@ export const authApi = {
       if (!r.ok) throw new Error("Refresh failed")
       return r.json() as Promise<LoginResponse>
     }),
+}
+
+// ── Devices & activity (sessions) ─────────────────────────────────────────────
+
+export interface SessionInfo {
+  id: string
+  device_name: string
+  ip: string | null
+  location: string | null
+  user_agent: string | null
+  created_at: string
+  last_used: string
+  is_current: boolean
+}
+
+export const sessionsApi = {
+  list: () => apiFetch<SessionInfo[]>("/auth/sessions"),
+  revoke: (id: string) =>
+    apiFetch<{ success: boolean; self?: boolean }>(`/auth/sessions/${id}/revoke`, { method: "POST" }),
+  revokeOthers: () =>
+    apiFetch<{ success: boolean; revoked: number }>("/auth/sessions/revoke-others", { method: "POST" }),
 }
 
 // ── Public Rooms (no auth required) ───────────────────────────────────────────

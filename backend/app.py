@@ -123,7 +123,7 @@ def clear_auth():
 
 
 def get_user_from_token(token):
-    """Decode JWT to get user ID. No DB query."""
+    """Decode JWT to get user ID. Revoked sessions fail here too (fail-open)."""
     if not token:
         return None
     try:
@@ -133,6 +133,8 @@ def get_user_from_token(token):
         )
         user_id = payload.get("sub")
         if not user_id:
+            return None
+        if _session_revoked(token):
             return None
         return user_id
     except Exception:
@@ -616,6 +618,71 @@ def _geolocate(ip: str) -> str:
         return ""
 
 
+def _sha256(value: str) -> str:
+    return hashlib.sha256((value or "").encode("utf-8")).hexdigest()
+
+
+def _session_revoked(token: str) -> bool:
+    """True when this access token belongs to a revoked session. Fail-open."""
+    try:
+        res = supabase_admin.table("user_sessions").select("id") \
+            .eq("access_hash", _sha256(token)).eq("revoked", True) \
+            .limit(1).execute()
+        return bool(res.data)
+    except Exception:
+        return False
+
+
+def _upsert_session(user_id, device_id, device_name, ip, user_agent,
+                    access_token, refresh_token=None):
+    """One active session row per device — the "Devices & activity" list."""
+    now = datetime.now(timezone.utc).isoformat()
+    payload = {
+        "device_name": device_name,
+        "ip": ip,
+        "location": _geolocate(ip) or None,
+        "access_hash": _sha256(access_token),
+        "last_used": now,
+    }
+    if refresh_token:
+        payload["refresh_hash"] = _sha256(refresh_token)
+    try:
+        if device_id:
+            # Clear revoked leftovers so re-login on a device starts fresh
+            supabase_admin.table("user_sessions").delete() \
+                .eq("user_id", user_id).eq("device_id", device_id) \
+                .eq("revoked", True).execute()
+        q = supabase_admin.table("user_sessions").select("id") \
+            .eq("user_id", user_id).eq("revoked", False)
+        if device_id:
+            q = q.eq("device_id", device_id)
+        else:
+            q = q.is_("device_id", None).eq("device_name", device_name)
+        existing = q.execute()
+        if existing.data:
+            supabase_admin.table("user_sessions").update(payload) \
+                .eq("id", existing.data[0]["id"]).execute()
+            return
+        supabase_admin.table("user_sessions").insert({
+            "user_id": user_id,
+            "device_id": device_id,
+            "device_name": device_name,
+            "user_agent": user_agent,
+            "ip": ip,
+            "created_at": now,
+            **payload,
+        }).execute()
+        # Keep the list bounded: newest 20 sessions per user
+        all_rows = supabase_admin.table("user_sessions").select("id") \
+            .eq("user_id", user_id).order("created_at", desc=True).execute()
+        if all_rows.data and len(all_rows.data) > 20:
+            old_ids = [r["id"] for r in all_rows.data[20:]]
+            supabase_admin.table("user_sessions").delete() \
+                .in_("id", old_ids).execute()
+    except Exception as sess_err:
+        print(f"Session upsert error: {sess_err}")
+
+
 def track_new_login(user_id):
     """Upsert the caller's device and alert on a sign-in from an unknown one.
 
@@ -648,7 +715,7 @@ def track_new_login(user_id):
         is_new = True
 
     if trusted:
-        return
+        return device_id
 
     # One alert at a time: skip while an unread one is pending, and don't
     # nag more than once a day until the user confirms "This was me".
@@ -661,13 +728,13 @@ def track_new_login(user_id):
     if recent.data:
         last = recent.data[0]
         if last.get("read") is False:
-            return
+            return device_id
         try:
             created = datetime.fromisoformat(str(last["created_at"]).replace("Z", "+00:00"))
             if (datetime.now(timezone.utc) - created).total_seconds() < 86400:
-                return
+                return device_id
         except Exception:
-            return
+            return device_id
 
     loc = _geolocate(ip)
     place = f" in {loc}" if loc else ""
@@ -678,6 +745,7 @@ def track_new_login(user_id):
         f"Signed in from {device_name}{place} ({ip}). Ignore this if this was you.",
         device_id=device_id,
     )
+    return device_id
 
 
 @app.route("/api/auth/devices", methods=["GET"])
@@ -736,7 +804,14 @@ def track_login():
         return jsonify({"error": "Unauthorized"}), 401
 
     try:
-        track_new_login(user_id)
+        device_id = track_new_login(user_id)
+        _, dname, dip = _request_device_info()
+        body = request.get_json(silent=True) or {}
+        _upsert_session(
+            user_id, device_id, dname, dip,
+            request.headers.get("User-Agent", ""),
+            token, body.get("refresh_token") or None,
+        )
         return jsonify({"success": True}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -774,10 +849,22 @@ def login():
                 profile_data = {}
 
         # New-device alert (non-fatal — never blocks the sign-in itself)
+        device_id = None
         try:
-            track_new_login(user.id)
+            device_id = track_new_login(user.id)
         except Exception as track_err:
             print(f"Device tracking error: {track_err}")
+
+        # Activity list: one session row per device (non-fatal)
+        try:
+            _, dname, dip = _request_device_info()
+            _upsert_session(
+                user.id, device_id, dname, dip,
+                request.headers.get("User-Agent", ""),
+                session.access_token, session.refresh_token,
+            )
+        except Exception as sess_err:
+            print(f"Session track error: {sess_err}")
 
         return jsonify({
             "access_token": session.access_token,
@@ -1179,11 +1266,33 @@ def refresh_token():
         return jsonify({"error": "refresh_token is required"}), 400
 
     try:
+        # Remote-logout enforcement: refuse a revoked session (fail-open)
+        sess_row = None
+        try:
+            found = supabase_admin.table("user_sessions").select("id", "revoked") \
+                .eq("refresh_hash", _sha256(refresh)).limit(1).execute()
+            sess_row = found.data[0] if found.data else None
+        except Exception:
+            sess_row = None
+        if sess_row and sess_row.get("revoked"):
+            return jsonify({"error": "Session revoked"}), 401
+
         res = supabase.auth.refresh_session(refresh)
         session = res.session
         user = res.user
         if not session or not user:
             return jsonify({"error": "Invalid refresh token"}), 401
+
+        # Rotate hashes so this device stays trackable after refresh
+        if sess_row:
+            try:
+                supabase_admin.table("user_sessions").update({
+                    "access_hash": _sha256(session.access_token),
+                    "refresh_hash": _sha256(session.refresh_token),
+                    "last_used": datetime.now(timezone.utc).isoformat(),
+                }).eq("id", sess_row["id"]).execute()
+            except Exception:
+                pass
 
         user_data = supabase.table("users").select("*").eq("id", user.id).single().execute()
         profile_data = user_data.data if user_data.data else {}
@@ -1209,10 +1318,92 @@ def logout():
     set_auth(token)
     if token:
         try:
+            supabase_admin.table("user_sessions").update({"revoked": True}) \
+                .eq("access_hash", _sha256(token)).eq("revoked", False).execute()
+        except Exception:
+            pass
+        try:
             supabase.auth.sign_out()
         except Exception:
             pass
     return jsonify({"message": "Logged out successfully"}), 200
+
+
+# ── Devices & activity (session manager) ──────────────────────────────────────
+
+@app.route("/api/auth/sessions", methods=["GET"])
+def list_sessions():
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    user_id = get_user_from_token(token)
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    try:
+        res = supabase_admin.table("user_sessions") \
+            .select("id,device_name,ip,location,user_agent,created_at,last_used,access_hash") \
+            .eq("user_id", user_id).eq("revoked", False) \
+            .order("last_used", desc=True).execute()
+        current = _sha256(token)
+        out = []
+        for r in (res.data or []):
+            out.append({
+                "id": r["id"],
+                "device_name": r.get("device_name") or "Unknown device",
+                "ip": r.get("ip"),
+                "location": r.get("location"),
+                "user_agent": r.get("user_agent"),
+                "created_at": r.get("created_at"),
+                "last_used": r.get("last_used"),
+                "is_current": r.get("access_hash") == current,
+            })
+        return jsonify(out), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/auth/sessions/<sid>/revoke", methods=["POST"])
+def revoke_session(sid):
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    user_id = get_user_from_token(token)
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    try:
+        current = _sha256(token)
+        res = supabase_admin.table("user_sessions") \
+            .select("id,access_hash") \
+            .eq("id", sid).eq("user_id", user_id).eq("revoked", False).execute()
+        if not res.data:
+            return jsonify({"error": "Session not found"}), 404
+        supabase_admin.table("user_sessions").update({"revoked": True}) \
+            .eq("id", sid).execute()
+        return jsonify({
+            "success": True,
+            "self": res.data[0].get("access_hash") == current,
+        }), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/auth/sessions/revoke-others", methods=["POST"])
+def revoke_other_sessions():
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    user_id = get_user_from_token(token)
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    try:
+        current = _sha256(token)
+        res = supabase_admin.table("user_sessions").select("id") \
+            .eq("user_id", user_id).eq("revoked", False) \
+            .neq("access_hash", current).execute()
+        ids = [r["id"] for r in (res.data or [])]
+        if ids:
+            supabase_admin.table("user_sessions").update({"revoked": True}) \
+                .in_("id", ids).execute()
+        return jsonify({"success": True, "revoked": len(ids)}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 # ── File Upload (Supabase Storage) ────────────────────────────────────────────

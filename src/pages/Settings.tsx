@@ -1,8 +1,10 @@
-import { useState } from "react"
-import { Lock, Save, Eye, EyeOff, Sun, Moon, Monitor, Palette } from "lucide-react"
+import { useEffect, useState } from "react"
+import { useSearchParams } from "react-router-dom"
+import { Lock, Save, Eye, EyeOff, Sun, Moon, Monitor, Palette, Smartphone } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import ConfirmDialog from "@/components/ui/confirm-dialog"
 import { useTheme, type ThemeMode, type ColorPreset } from "@/contexts/ThemeContext"
-import { authApi } from "@/services/api"
+import { authApi, sessionsApi, type SessionInfo } from "@/services/api"
 
 const COLOR_PRESETS: { key: ColorPreset; label: string; primary: string; secondary: string }[] = [
   { key: "royal-plum", label: "Royal Plum", primary: "#82285f", secondary: "#455d58" },
@@ -22,13 +24,40 @@ const MODE_OPTIONS: { key: ThemeMode; label: string; icon: typeof Sun }[] = [
 const TABS = [
   { key: "appearance", label: "Appearance", icon: Palette },
   { key: "security", label: "Change Password", icon: Lock },
+  { key: "devices", label: "Devices", icon: Smartphone },
 ] as const
 
 type TabKey = typeof TABS[number]["key"]
 
+function timeAgo(iso: string): string {
+  const s = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000))
+  if (s < 60) return "just now"
+  const m = Math.floor(s / 60)
+  if (m < 60) return `${m} minute${m === 1 ? "" : "s"} ago`
+  const h = Math.floor(m / 60)
+  if (h < 24) return `${h} hour${h === 1 ? "" : "s"} ago`
+  const d = Math.floor(h / 24)
+  return `${d} day${d === 1 ? "" : "s"} ago`
+}
+
+const isMobileUA = (ua: string | null) => /android|iphone|ipad|mobile/i.test(ua || "")
+
 export default function Settings() {
   const { mode, setMode, colorPreset, setColorPreset } = useTheme()
-  const [activeTab, setActiveTab] = useState<TabKey>("appearance")
+  const [searchParams] = useSearchParams()
+  const [activeTab, setActiveTab] = useState<TabKey>(() => {
+    const t = searchParams.get("tab")
+    return TABS.find((tab) => tab.key === t)?.key ?? "appearance"
+  })
+
+  // Devices & activity
+  const [sessions, setSessions] = useState<SessionInfo[]>([])
+  const [sessionsLoading, setSessionsLoading] = useState(false)
+  const [sessionsLoaded, setSessionsLoaded] = useState(false)
+  const [sessionsError, setSessionsError] = useState("")
+  const [revokingId, setRevokingId] = useState<string | null>(null)
+  const [confirmOthers, setConfirmOthers] = useState(false)
+  const [revokingOthers, setRevokingOthers] = useState(false)
 
   const [currentPassword, setCurrentPassword] = useState("")
   const [newPassword, setNewPassword] = useState("")
@@ -79,6 +108,50 @@ export default function Settings() {
   const hasLength = newPassword.length >= 8
   const hasUpper = /[A-Z]/.test(newPassword)
   const hasNumber = /[0-9]/.test(newPassword)
+
+  // Load the session list the first time the Devices tab opens
+  useEffect(() => {
+    if (activeTab !== "devices" || sessionsLoaded) return
+    setSessionsLoading(true)
+    sessionsApi
+      .list()
+      .then(setSessions)
+      .catch((err) => setSessionsError(err.message || "Failed to load devices"))
+      .finally(() => {
+        setSessionsLoading(false)
+        setSessionsLoaded(true)
+      })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, sessionsLoaded])
+
+  const handleRevoke = async (id: string) => {
+    setRevokingId(id)
+    setSessionsError("")
+    try {
+      await sessionsApi.revoke(id)
+      setSessions((prev) => prev.filter((s) => s.id !== id))
+    } catch (err: any) {
+      setSessionsError(err.message || "Failed to log out this device")
+    } finally {
+      setRevokingId(null)
+    }
+  }
+
+  const handleRevokeOthers = async () => {
+    setRevokingOthers(true)
+    setSessionsError("")
+    try {
+      await sessionsApi.revokeOthers()
+      setSessions((prev) => prev.filter((s) => s.is_current))
+      setConfirmOthers(false)
+    } catch (err: any) {
+      setSessionsError(err.message || "Failed to log out other devices")
+    } finally {
+      setRevokingOthers(false)
+    }
+  }
+
+  const otherSessions = sessions.filter((s) => !s.is_current)
 
   return (
     <div className="px-base py-section">
@@ -275,7 +348,101 @@ export default function Settings() {
                 </Button>
               </div>
             )}
+
+            {/* Devices & activity Tab */}
+            {activeTab === "devices" && (
+              <div className="bg-white border border-hairline rounded-[12px] p-md dark:bg-surface-soft dark:border-hairline">
+                <div className="flex items-center justify-between gap-3 mb-md flex-wrap">
+                  <h2 className="typo-title-sm text-ink flex items-center gap-2">
+                    <Smartphone className="h-4 w-4" />
+                    Devices &amp; activity
+                  </h2>
+                  {otherSessions.length > 0 && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setConfirmOthers(true)}
+                      className="!rounded-[8px] border-hairline text-ink"
+                    >
+                      Log out all others
+                    </Button>
+                  )}
+                </div>
+
+                {sessionsError && (
+                  <p className="text-xs text-red-500 mb-sm">{sessionsError}</p>
+                )}
+
+                {sessionsLoading ? (
+                  <p className="text-sm text-muted py-lg text-center">Loading devices...</p>
+                ) : (
+                  <div className="space-y-sm">
+                    {sessions.map((s) => {
+                      const Icon = isMobileUA(s.user_agent) ? Smartphone : Monitor
+                      return (
+                        <div
+                          key={s.id}
+                          className="flex items-start gap-3 p-3.5 rounded-[12px] border border-hairline bg-canvas dark:bg-surface"
+                        >
+                          <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                            <Icon className="h-4 w-4 text-primary" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-sm font-semibold text-ink truncate">
+                                {s.device_name}
+                              </span>
+                              {s.is_current && (
+                                <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                                  This device
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-muted truncate">
+                              {s.location || "Unknown location"}
+                              {s.ip ? ` · ${s.ip}` : ""}
+                            </p>
+                            <p className="text-xs text-muted">
+                              Last active {timeAgo(s.last_used)} · Joined{" "}
+                              {new Date(s.created_at).toLocaleDateString()}
+                            </p>
+                          </div>
+                          {!s.is_current && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={revokingId === s.id}
+                              onClick={() => handleRevoke(s.id)}
+                              className="!rounded-[8px] border-hairline text-ink shrink-0"
+                            >
+                              {revokingId === s.id ? "..." : "Log out"}
+                            </Button>
+                          )}
+                        </div>
+                      )
+                    })}
+                    {sessions.length === 0 && (
+                      <p className="text-sm text-muted py-lg text-center">
+                        No active sessions found.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
+
+          <ConfirmDialog
+            open={confirmOthers}
+            onOpenChange={setConfirmOthers}
+            title="Log out all other devices?"
+            description={`This will end ${otherSessions.length} other session${
+              otherSessions.length === 1 ? "" : "s"
+            }. You'll stay signed in on this device.`}
+            confirmLabel="Log out others"
+            loading={revokingOthers}
+            onConfirm={handleRevokeOthers}
+          />
       </div>
     </div>
   )
