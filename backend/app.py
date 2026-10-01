@@ -577,6 +577,8 @@ def track_new_login(user_id):
 
     # One alert at a time: skip while an unread one is pending, and don't
     # nag more than once a day until the user confirms "This was me".
+    # No prior alert for this device (even if the row already exists — e.g.
+    # the first alert insert failed) → always alert: self-heals muted devices.
     recent = supabase_admin.table("notifications") \
         .select("id", "read", "created_at") \
         .eq("user_id", user_id).eq("device_id", device_id) \
@@ -591,8 +593,6 @@ def track_new_login(user_id):
                 return
         except Exception:
             return
-    elif not is_new:
-        return
 
     create_notification(
         user_id,
