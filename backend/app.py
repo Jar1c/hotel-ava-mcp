@@ -3063,9 +3063,13 @@ def get_room_reviews(room_id):
         avatars: dict = {}
         if user_ids:
             users = supabase_admin.table("users").select("id, name, avatar_url").in_("id", user_ids).execute().data or []
-            # First name only — the public room page shouldn't leak full names.
-            names = {u["id"]: (u.get("name") or "").split(" ")[0] for u in users}
-            avatars = {u["id"]: _public_review_avatar(u, names[u["id"]]) for u in users}
+            # Full name on the card — the avatar seed still uses the first name
+            # only, so nobody's placeholder face changes because of this.
+            names = {u["id"]: (u.get("name") or "").strip() for u in users}
+            avatars = {
+                u["id"]: _public_review_avatar(u, (u.get("name") or "").split(" ")[0].strip())
+                for u in users
+            }
 
         reviews = [{
             "id": r["id"],
