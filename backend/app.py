@@ -646,6 +646,25 @@ def trust_device(device_id):
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/auth/track-login", methods=["POST"])
+def track_login():
+    """Called by the frontend after a Supabase OAuth (Google) sign-in.
+
+    Email/password logins are already tracked inside /api/auth/login; the
+    backend dedups by device so a double call is harmless.
+    """
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    user_id = get_user_from_token(token)
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    try:
+        track_new_login(user_id)
+        return jsonify({"success": True}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/auth/login", methods=["POST"])
 def login():
     data = request.get_json()

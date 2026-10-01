@@ -304,6 +304,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         sessionStorage.setItem("access_token", session.access_token)
         sessionStorage.setItem("refresh_token", session.refresh_token || "")
 
+        // Track new-device logins for OAuth/Google sign-ins (password logins
+        // are tracked server-side in /api/auth/login; backend dedups by device).
+        // INITIAL_SESSION is intentionally skipped — a restored session is not a login.
+        if (event === "SIGNED_IN") {
+          authApi.trackLogin().catch(() => {})
+        }
+
         // Check if we have a cached user with a valid identity (name or email)
         const cachedProfile = getCachedProfile()
 

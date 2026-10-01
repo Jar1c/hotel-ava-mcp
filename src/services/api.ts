@@ -115,6 +115,9 @@ export const authApi = {
 
   logout: () => apiFetch("/auth/logout", { method: "POST" }),
 
+  /** Fire-and-forget device tracking for OAuth (Google) sign-ins. */
+  trackLogin: () => apiFetch("/auth/track-login", { method: "POST" }),
+
   uploadAvatar: async (file: File): Promise<{ avatar_url: string }> => {
     const token = sessionStorage.getItem("access_token")
     const form = new FormData()
