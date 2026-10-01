@@ -374,7 +374,24 @@ export default function Settings() {
                 )}
 
                 {sessionsLoading ? (
-                  <p className="text-sm text-muted py-lg text-center">Loading devices...</p>
+                  <div className="space-y-sm" aria-hidden="true">
+                    {[0, 1, 2].map((i) => (
+                      <div
+                        key={i}
+                        className="flex items-start gap-3 p-3.5 rounded-[12px] border border-hairline bg-canvas dark:bg-surface animate-pulse"
+                      >
+                        <div className="w-9 h-9 rounded-full bg-gray-200 dark:bg-surface-strong shrink-0" />
+                        <div className="flex-1 min-w-0 space-y-2">
+                          <div className="h-3.5 w-44 max-w-full bg-gray-200 dark:bg-surface-strong rounded" />
+                          <div className="h-3 w-56 max-w-full bg-gray-100 dark:bg-surface-strong/60 rounded" />
+                          <div className="h-3 w-36 max-w-full bg-gray-100 dark:bg-surface-strong/60 rounded" />
+                        </div>
+                        {i > 0 && (
+                          <div className="h-7 w-16 rounded-[8px] bg-gray-100 dark:bg-surface-strong/60 shrink-0" />
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 ) : (
                   <div className="space-y-sm">
                     {sessions.map((s) => {
