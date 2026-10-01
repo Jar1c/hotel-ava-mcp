@@ -60,6 +60,9 @@ backend/venv/
 backend/.approved_discounts.json
 backend/.offer_status.json
 backend/.demand_insight_status.json
+# id lists from seed_history.py, only used by its --clear flag
+backend/.seed_ids.json
+backend/.seed_review_ids.json
 ai-forecast-shared
 dash-ai-cards
 
