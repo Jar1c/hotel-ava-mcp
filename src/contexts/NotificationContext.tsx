@@ -1,11 +1,14 @@
 import { createContext, useContext, useState, useCallback, useEffect, useMemo, useRef, type ReactNode } from "react"
 import { useNavigate } from "react-router"
+import { LogOut } from "lucide-react"
 import { notificationsApi, devicesApi, type NotificationData } from "@/services/api"
 import { useAuth } from "@/contexts/AuthContext"
 import { useToast } from "@/contexts/ToastContext"
 import { supabase } from "@/lib/supabase"
 import { playNotificationSound, unlockNotificationSound } from "@/lib/notificationSound"
 import NewLoginDialog from "@/components/security/NewLoginDialog"
+import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 
 interface NotificationContextValue {
   notifications: NotificationData[]
@@ -51,8 +54,16 @@ function isFresh(notif: NotificationData): boolean {
   return Date.now() - t < TOAST_FRESH_MS
 }
 
+/** Hex SHA-256 — matches the access_hash the backend stores per session. */
+async function sha256Hex(text: string): Promise<string> {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))
+  return Array.from(new Uint8Array(buf))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("")
+}
+
 export function NotificationProvider({ children }: { children: ReactNode }) {
-  const { isAuthenticated, user, isAdmin } = useAuth()
+  const { isAuthenticated, user, isAdmin, clearSession, consumeLogoutSuppress } = useAuth()
   const { toast } = useToast()
   const navigate = useNavigate()
   const [notifications, setNotifications] = useState<NotificationData[]>([])
@@ -265,6 +276,33 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     [markRead],
   )
 
+  // ── Remote-logout awareness (live, no reload) ──────────────────────────────
+  const [revokedOpen, setRevokedOpen] = useState(false)
+  const revocationHandledRef = useRef(false)
+
+  // Re-arm after every (re-)login so the next remote logout is caught
+  useEffect(() => {
+    if (isAuthenticated) revocationHandledRef.current = false
+  }, [isAuthenticated])
+
+  /** This device's session was ended elsewhere: tell the user + go to login. */
+  const handleRemoteRevoked = useCallback(() => {
+    // A sign-out started from this device — not a remote one
+    if (consumeLogoutSuppress()) return
+    if (revocationHandledRef.current) return
+    revocationHandledRef.current = true
+    clearSession()
+    setRevokedOpen(true)
+    navigateRef.current("/login")
+  }, [clearSession, consumeLogoutSuppress])
+
+  // Fallback when realtime misses it: api layer saw "Session revoked" on refresh
+  useEffect(() => {
+    const onRevoked = () => handleRemoteRevoked()
+    window.addEventListener("hotelava:session-revoked", onRevoked)
+    return () => window.removeEventListener("hotelava:session-revoked", onRevoked)
+  }, [handleRemoteRevoked])
+
   // Supabase Realtime — INSERT only (new events, not history replay)
   useEffect(() => {
     if (!isAuthenticated || !user?.id) return
@@ -293,7 +331,27 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
           })
           setUnreadCount((c) => c + 1)
           // Freshness gate: realtime should always be fresh; poll-fallback IDs are seeded
-          showToast(notif)
+          showToast(notif);
+        }
+      )
+      .on(
+        // Remote logout — fires the instant another device revokes a session.
+        // Match by access_hash: only THIS device's row triggers the dialog.
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "user_sessions",
+          filter: `user_id=eq.${user.id}`,
+        },
+        (payload) => {
+          const row = payload.new as { revoked?: boolean; access_hash?: string }
+          if (!row?.revoked || !row.access_hash) return
+          const token = sessionStorage.getItem("access_token")
+          if (!token) return
+          void sha256Hex(token).then((hash) => {
+            if (hash === row.access_hash) handleRemoteRevoked()
+          })
         }
       )
       .subscribe()
@@ -301,7 +359,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     return () => {
       void supabase.removeChannel(channel)
     }
-  }, [isAuthenticated, user?.id, showToast])
+  }, [isAuthenticated, user?.id, showToast, handleRemoteRevoked])
 
   // Initial fetch + light polling (list/badge only — toast via realtime + freshness)
   useEffect(() => {
@@ -367,6 +425,45 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         onTrust={confirmTrustedDevice}
         onSecureAccount={secureAccount}
       />
+      {/* Live awareness: session ended from another device */}
+      <Dialog
+        open={revokedOpen}
+        onOpenChange={(o) => {
+          if (!o) setRevokedOpen(false)
+        }}
+      >
+        <DialogContent className="!rounded-[16px] !max-w-[400px] !p-0 overflow-hidden">
+          <div className="p-6 pb-4">
+            <div className="flex justify-center mb-4">
+              <div
+                className="w-12 h-12 rounded-full flex items-center justify-center"
+                style={{
+                  backgroundColor: "color-mix(in srgb, var(--color-primary) 10%, transparent)",
+                }}
+              >
+                <LogOut className="h-6 w-6 text-ink" />
+              </div>
+            </div>
+            <DialogHeader className="text-center">
+              <DialogTitle className="text-lg font-semibold text-ink">
+                Signed out on this device
+              </DialogTitle>
+              <DialogDescription className="text-sm text-muted mt-2 leading-relaxed">
+                Your session was ended from another device. Please sign in again to continue.
+              </DialogDescription>
+            </DialogHeader>
+          </div>
+          <div className="px-6 pb-6">
+            <Button
+              onClick={() => setRevokedOpen(false)}
+              className="w-full !rounded-[10px] h-11 font-medium"
+              style={{ backgroundColor: "var(--color-primary)", color: "#FBF9F4" }}
+            >
+              Sign in again
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </NotificationContext.Provider>
   )
 }

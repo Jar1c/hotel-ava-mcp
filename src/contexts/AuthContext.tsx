@@ -24,6 +24,10 @@ interface AuthContextValue {
   setRole: (role: UserRole) => void
   updateUser: (fields: Partial<Pick<User, "name" | "avatar" | "name_changed_at">>) => void
   loading: boolean
+  /** Clear local auth state without touching the server. */
+  clearSession: () => void
+  /** True exactly once after a logout started from THIS device (consumes the flag). */
+  consumeLogoutSuppress: () => boolean
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
@@ -118,6 +122,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const verifyRef = useRef(0)
   // Live user snapshot — updated synchronously in applyUser (not in an effect)
   const userRef = useRef<User | null>(initialCached ?? null)
+  // Set while a logout started from THIS device so the remote-logout
+  // awareness listener never shows a dialog for the user's own sign-out.
+  const logoutSuppressRef = useRef(false)
 
   /** Single writer for user state — keeps userRef in sync immediately.
    *  Treat undefined as null so a bad call can never leave a phantom
@@ -308,6 +315,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // are tracked server-side in /api/auth/login; backend dedups by device).
         // INITIAL_SESSION is intentionally skipped — a restored session is not a login.
         if (event === "SIGNED_IN") {
+          logoutSuppressRef.current = false
           authApi.trackLogin().catch(() => {})
         }
 
@@ -434,6 +442,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     sessionStorage.setItem("access_token", res.access_token)
     sessionStorage.setItem("refresh_token", res.refresh_token)
+    logoutSuppressRef.current = false
 
     // Also open a Supabase session in the browser (best-effort). Without it an
     // email/password login leaves no persisted session, so onAuthStateChange
@@ -477,7 +486,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  /** Clear local auth state without touching the server. */
+  const clearSession = useCallback(() => {
+    sessionStorage.removeItem("access_token")
+    sessionStorage.removeItem("refresh_token")
+    localStorage.removeItem("auth_user")
+    applyUser(null)
+    setLoading(false)
+  }, [applyUser])
+
+  const consumeLogoutSuppress = useCallback(() => {
+    const wasSet = logoutSuppressRef.current
+    logoutSuppressRef.current = false
+    return wasSet
+  }, [])
+
   const logout = useCallback(async () => {
+    // Flag BEFORE the server revoke — its realtime UPDATE must not be
+    // mistaken for a remote logout on this same device.
+    logoutSuppressRef.current = true
     try {
       await authApi.logout()
     } catch {
@@ -489,12 +516,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       // ignore
     }
-    sessionStorage.removeItem("access_token")
-    sessionStorage.removeItem("refresh_token")
-    localStorage.removeItem("auth_user")
-    applyUser(null)
-    setLoading(false)
-  }, [applyUser])
+    clearSession()
+  }, [clearSession])
 
   const setRole = useCallback(
     (newRole: UserRole) => {
@@ -529,7 +552,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   )
 
   return (
-    <AuthContext.Provider value={{ user, role, isAuthenticated, isAdmin, login, register, logout, setRole, updateUser, loading }}>
+    <AuthContext.Provider value={{ user, role, isAuthenticated, isAdmin, login, register, logout, setRole, updateUser, loading, clearSession, consumeLogoutSuppress }}>
       {children}
     </AuthContext.Provider>
   )

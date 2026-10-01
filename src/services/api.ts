@@ -25,7 +25,16 @@ async function tryRefreshToken(): Promise<boolean> {
         body: JSON.stringify({ refresh_token: refreshToken }),
       })
 
-      if (!res.ok) return false
+      if (!res.ok) {
+        // Remote logout detected — tell the app so the user sees why
+        if (res.status === 401) {
+          const body = await res.json().catch(() => ({}) as { error?: string })
+          if (body?.error === "Session revoked") {
+            window.dispatchEvent(new Event("hotelava:session-revoked"))
+          }
+        }
+        return false
+      }
 
       const data = await res.json()
       sessionStorage.setItem("access_token", data.access_token)
