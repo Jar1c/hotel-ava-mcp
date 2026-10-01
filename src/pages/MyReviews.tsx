@@ -238,12 +238,16 @@ export default function MyReviews() {
 
                 {/* The hotel replied */}
                 {r.admin_reply && (
-                  <div className="mt-3 rounded-[8px] border-l-4 border-primary bg-surface-soft px-3 py-2">
-                    <p className="typo-caption-sm font-semibold text-primary">
-                      Hotel Ava replied
-                      {r.admin_replied_at ? ` · ${formatDate(r.admin_replied_at)}` : ""}
+                  <div className="mt-3 rounded-[8px] border border-hairline-soft bg-surface-soft px-3.5 py-2.5">
+                    <p className="typo-caption-sm text-ink">
+                      <span className="font-semibold">Hotel Ava replied</span>
+                      {r.admin_replied_at && (
+                        <span className="font-normal text-muted">
+                          {" "}· {formatDate(r.admin_replied_at)}
+                        </span>
+                      )}
                     </p>
-                    <p className="typo-body-sm mt-0.5 whitespace-pre-line text-body">
+                    <p className="typo-body-sm mt-1 whitespace-pre-line text-body">
                       {r.admin_reply}
                     </p>
                   </div>

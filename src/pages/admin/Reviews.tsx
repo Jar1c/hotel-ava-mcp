@@ -499,12 +499,16 @@ export default function Reviews() {
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
                         {r.admin_reply && (
-                          <div className="border-l-[3px] border-[#82285f] bg-[#f6f2f7] px-3 py-2">
-                            <p className="text-[12px] font-semibold text-[#82285f]">
+                          <div className="rounded-[5px] border border-[#e2e4e8] bg-[#F7F8FA] px-3.5 py-2.5">
+                            <p className="text-[12px] font-semibold text-ink">
                               Hotel Ava replied
-                              {r.admin_replied_at ? ` · ${formatDate(r.admin_replied_at)}` : ""}
+                              {r.admin_replied_at && (
+                                <span className="font-normal text-muted">
+                                  {" "}· {formatDate(r.admin_replied_at)}
+                                </span>
+                              )}
                             </p>
-                            <p className="mt-0.5 whitespace-pre-line text-[13px] text-[#4A4A45]">
+                            <p className="mt-1 whitespace-pre-line text-[13px] leading-relaxed text-[#4A4A45]">
                               {r.admin_reply}
                             </p>
                           </div>
