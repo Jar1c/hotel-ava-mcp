@@ -152,6 +152,14 @@ export default function Settings() {
   }
 
   const otherSessions = sessions.filter((s) => !s.is_current)
+  // "This device" always pinned on top; the rest by most recent activity
+  const sortedSessions = [...sessions].sort((a, b) =>
+    a.is_current === b.is_current
+      ? new Date(b.last_used).getTime() - new Date(a.last_used).getTime()
+      : a.is_current
+        ? -1
+        : 1,
+  )
 
   return (
     <div className="px-base py-section">
@@ -394,7 +402,7 @@ export default function Settings() {
                   </div>
                 ) : (
                   <div className="space-y-sm">
-                    {sessions.map((s) => {
+                    {sortedSessions.map((s) => {
                       const Icon = isMobileUA(s.user_agent) ? Smartphone : Monitor
                       return (
                         <div
