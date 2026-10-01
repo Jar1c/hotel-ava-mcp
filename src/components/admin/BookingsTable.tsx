@@ -6,7 +6,7 @@ import type { Booking } from "@/data/admin"
 import LoadingDots from "@/components/LoadingDots"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import ReceiptDialog, { type ReceiptData } from "@/components/ReceiptDialog"
-import { Mail, Phone, CalendarDays, PhilippinePeso, User, Clock, BedDouble, CreditCard, FileText, Landmark, LogIn } from "lucide-react"
+import { Mail, Phone, CalendarDays, PhilippinePeso, User, Clock, BedDouble, CreditCard, FileText, Landmark, LogIn, Search, X } from "lucide-react"
 import { getDiceBearUrl } from "@/lib/dicebear"
 import { formatPaymentMethod } from "@/lib/payment"
 import { deriveArrival, canCheckIn, arrivalTimeLabel, startMomentLabel } from "@/lib/arrival"
@@ -44,6 +44,28 @@ const statusFilters: { label: string; value: DisplayStatus | "all" }[] = [
   { label: "Checked Out", value: "checked-out" },
   { label: "Cancelled", value: "cancelled" },
 ]
+
+type SortKey = "newest" | "oldest" | "soonest" | "latest" | "amountDesc" | "amountAsc" | "guest"
+
+const sortOptions: { value: SortKey; label: string }[] = [
+  { value: "newest", label: "Newest booked" },
+  { value: "oldest", label: "Oldest booked" },
+  { value: "soonest", label: "Stay · soonest first" },
+  { value: "latest", label: "Stay · latest first" },
+  { value: "amountDesc", label: "Amount · high to low" },
+  { value: "amountAsc", label: "Amount · low to high" },
+  { value: "guest", label: "Guest name · A to Z" },
+]
+
+const sorters: Record<SortKey, (a: Booking, b: Booking) => number> = {
+  newest: (a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""),
+  oldest: (a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""),
+  soonest: (a, b) => (a.checkIn || "").localeCompare(b.checkIn || ""),
+  latest: (a, b) => (b.checkIn || "").localeCompare(a.checkIn || ""),
+  amountDesc: (a, b) => (b.amount ?? 0) - (a.amount ?? 0),
+  amountAsc: (a, b) => (a.amount ?? 0) - (b.amount ?? 0),
+  guest: (a, b) => a.guestName.localeCompare(b.guestName),
+}
 
 /**
  * The status the table filters and counts by. In-house stays are split out of
@@ -146,6 +168,9 @@ function receiptFor(b: Booking): ReceiptData {
 
 export default function BookingsTable({ bookings, showFilters = true, loading, onStatusChange }: BookingsTableProps) {
   const [filter, setFilter] = useState<DisplayStatus | "all">("all")
+  const [query, setQuery] = useState("")
+  const [roomFilter, setRoomFilter] = useState("")
+  const [sort, setSort] = useState<SortKey>("newest")
   const [page, setPage] = useState(1)
   const [actingId, setActingId] = useState<string | null>(null)
   const [confirmAction, setConfirmAction] = useState<{ bookingId: string; bookingIdShort: string; action: RowAction; label: string } | null>(null)
@@ -162,7 +187,26 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
     return () => window.clearInterval(id)
   }, [])
 
-  const filtered = filter === "all" ? bookings : bookings.filter((b) => displayStatus(b, now) === filter)
+  // Room names present in the data — drives the room dropdown.
+  const rooms = useMemo(
+    () => Array.from(new Set(bookings.map((b) => b.roomType).filter(Boolean))).sort((a, b) => a.localeCompare(b)),
+    [bookings],
+  )
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    const rows = bookings
+      .filter((b) => filter === "all" || displayStatus(b, now) === filter)
+      .filter((b) => !roomFilter || b.roomType === roomFilter)
+      .filter((b) => {
+        if (!q) return true
+        return [b.guestName, b.guestEmail, b.id, b.fullId, b.roomType, b.roomNumber, b.phone]
+          .filter((v): v is string => Boolean(v))
+          .some((v) => v.toLowerCase().includes(q))
+      })
+    return rows.sort(sorters[sort])
+  }, [bookings, filter, roomFilter, query, sort, now])
+
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const safePage = Math.min(page, totalPages)
   const paged = useMemo(
@@ -172,7 +216,7 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
 
   useEffect(() => {
     setPage(1)
-  }, [filter])
+  }, [filter, query, roomFilter, sort])
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages)
@@ -273,6 +317,13 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
             <div key={i} className="h-6 w-16 bg-[#f0f1f3] rounded-[4px]" />
           ))}
         </div>
+        <div className="flex items-center justify-between gap-3 border-b border-[#e2e4e8] px-5 py-2.5">
+          <div className="h-7 w-64 bg-[#f0f1f3] rounded-[5px]" />
+          <div className="flex gap-2">
+            <div className="h-7 w-24 bg-[#f0f1f3] rounded-[5px]" />
+            <div className="h-7 w-36 bg-[#f0f1f3] rounded-[5px]" />
+          </div>
+        </div>
         <div className="p-5 space-y-3">
           {Array.from({ length: 5 }).map((_, i) => (
             <div key={i} className="h-10 bg-[#f0f1f3] rounded" />
@@ -313,6 +364,55 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
             </div>
             <div className="text-[11px] text-[#9ca3af]">
               {filtered.length} {filtered.length === 1 ? "booking" : "bookings"}
+            </div>
+          </div>
+        )}
+
+        {/* Search / room filter / sort */}
+        {showFilters && (
+          <div className="flex items-center justify-between gap-3 border-b border-[#e2e4e8] px-5 py-2.5 shrink-0 flex-wrap">
+            <div className="relative w-full max-w-[300px] min-w-[180px]">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#9ca3af]" />
+              <input
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search name, email, booking ID, room…"
+                className="w-full rounded-[5px] border border-[#e2e4e8] bg-white py-1.5 pl-8 pr-7 text-[11px] text-[#1a1d26] placeholder:text-[#9ca3af] focus:border-[#82285f] focus:outline-none"
+              />
+              {query && (
+                <button
+                  type="button"
+                  onClick={() => setQuery("")}
+                  title="Clear search"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 cursor-pointer text-[#9ca3af] transition-colors hover:text-[#6b7280]"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <select
+                value={roomFilter}
+                onChange={(e) => setRoomFilter(e.target.value)}
+                title="Filter by room"
+                className="rounded-[5px] border border-[#e2e4e8] bg-white px-2.5 py-1.5 text-[11px] text-[#6b7280] focus:border-[#82285f] focus:outline-none cursor-pointer"
+              >
+                <option value="">All rooms</option>
+                {rooms.map((r) => (
+                  <option key={r} value={r}>{r}</option>
+                ))}
+              </select>
+              <select
+                value={sort}
+                onChange={(e) => setSort(e.target.value as SortKey)}
+                title="Sort bookings"
+                className="rounded-[5px] border border-[#e2e4e8] bg-white px-2.5 py-1.5 text-[11px] text-[#6b7280] focus:border-[#82285f] focus:outline-none cursor-pointer"
+              >
+                {sortOptions.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
             </div>
           </div>
         )}
@@ -409,7 +509,9 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
               {filtered.length === 0 && (
                 <tr>
                   <td colSpan={9} className="px-5 py-10 text-center text-[#9ca3af]">
-                    No bookings found.
+                    {query || roomFilter || filter !== "all"
+                      ? "No bookings match your search."
+                      : "No bookings found."}
                   </td>
                 </tr>
               )}
