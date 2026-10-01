@@ -285,7 +285,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     if (isAuthenticated) revocationHandledRef.current = false
   }, [isAuthenticated])
 
-  /** This device's session was ended elsewhere: tell the user + go to login. */
+  /** This device's session was ended elsewhere: tell the user + land on home. */
   const handleRemoteRevoked = useCallback(() => {
     // A sign-out started from this device — not a remote one
     if (consumeLogoutSuppress()) return
@@ -293,7 +293,9 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     revocationHandledRef.current = true
     clearSession()
     setRevokedOpen(true)
-    navigateRef.current("/login")
+    // No auto-redirect to /login — the modal is the awareness; home stays open.
+    // (Batched with clearSession, so a protected page never flashes /login first.)
+    navigateRef.current("/")
   }, [clearSession, consumeLogoutSuppress])
 
   // Fallback when realtime misses it: api layer saw "Session revoked" on refresh
@@ -455,7 +457,10 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
           </div>
           <div className="px-6 pb-6">
             <Button
-              onClick={() => setRevokedOpen(false)}
+              onClick={() => {
+                setRevokedOpen(false)
+                navigateRef.current("/login")
+              }}
               className="w-full !rounded-[10px] h-11 font-medium"
               style={{ backgroundColor: "var(--color-primary)", color: "#FBF9F4" }}
             >
