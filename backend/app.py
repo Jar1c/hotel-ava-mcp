@@ -9,6 +9,7 @@ import os
 import json
 import re
 import hashlib
+import ipaddress
 import jwt as pyjwt
 import uuid
 import time
@@ -21,6 +22,11 @@ CORS(app, resources={r"/api/*": {"origins": [
     "http://localhost:5174",
     "https://hotel-ava-mcp.vercel.app",
     "https://hotelava.vercel.app",
+], "allow_headers": [
+    "Content-Type",
+    "Authorization",
+    "X-Device-Model",
+    "Sec-CH-UA",
 ]}})
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -497,20 +503,47 @@ def register():
         return jsonify({"error": str(e)}), 400
 
 
-def describe_device(ua: str) -> str:
-    """Human-readable device label from a User-Agent header."""
+# Samsung model code → marketing name (common models; unknown codes keep the code).
+_SAMSUNG_MODELS = {
+    "SM-S921B": "Samsung Galaxy S24", "SM-S926B": "Samsung Galaxy S24+", "SM-S928B": "Samsung Galaxy S24 Ultra",
+    "SM-S911B": "Samsung Galaxy S23", "SM-S916B": "Samsung Galaxy S23+", "SM-S918B": "Samsung Galaxy S23 Ultra",
+    "SM-S901B": "Samsung Galaxy S22", "SM-S906B": "Samsung Galaxy S22+", "SM-S908B": "Samsung Galaxy S22 Ultra",
+    "SM-G991B": "Samsung Galaxy S21", "SM-G996B": "Samsung Galaxy S21+", "SM-G998B": "Samsung Galaxy S21 Ultra",
+    "SM-A556B": "Samsung Galaxy A55", "SM-A546B": "Samsung Galaxy A54", "SM-A536B": "Samsung Galaxy A53",
+    "SM-A346B": "Samsung Galaxy A34", "SM-A336B": "Samsung Galaxy A33", "SM-A256B": "Samsung Galaxy A25",
+    "SM-A165F": "Samsung Galaxy A16", "SM-A155F": "Samsung Galaxy A15", "SM-A145B": "Samsung Galaxy A14",
+}
+
+
+def _pretty_model(model: str) -> str:
+    """Clean a device-model string; drops UA placeholders ('K', 'Mobile', ...)."""
+    model = (model or "").strip()
+    if not model or model in ("K", "k", "Mobile", "Tablet", "M", "wv"):
+        return ""
+    if model in _SAMSUNG_MODELS:
+        return _SAMSUNG_MODELS[model]
+    if model.startswith("SM-"):
+        return "Samsung " + model
+    return model
+
+
+def describe_device(ua: str, model: str = "", brands: str = "") -> str:
+    """Human-readable device label: browser + device model (or OS fallback)."""
     ua = (ua or "").strip()
     if not ua:
         return "Unknown device"
-    if "Edg/" in ua:
+    # Brave/Chrome/Firefox/Edge/Opera variants (incl. iOS app UAs)
+    if "Brave" in (brands or ""):
+        browser = "Brave"
+    elif "Edg/" in ua or "EdgiOS/" in ua:
         browser = "Edge"
-    elif "OPR/" in ua or "Opera" in ua:
+    elif "OPR/" in ua or "OPiOS/" in ua or "Opera" in ua:
         browser = "Opera"
     elif "SamsungBrowser" in ua:
         browser = "Samsung Internet"
-    elif "Chrome/" in ua:
+    elif "CriOS/" in ua or "Chrome/" in ua:
         browser = "Chrome"
-    elif "Firefox/" in ua:
+    elif "FxiOS/" in ua or "Firefox/" in ua:
         browser = "Firefox"
     elif "Safari/" in ua:
         browser = "Safari"
@@ -529,16 +562,58 @@ def describe_device(ua: str) -> str:
         os_name = "Linux"
     else:
         os_name = "this device"
-    return f"{browser} on {os_name}"
+
+    # Device model wins over the OS: X-Device-Model (UA client hints, sent by
+    # the frontend) first, then the UA itself (Firefox/Samsung Internet still
+    # embed the model; Chrome's UA is reduced to "K" and relies on the hint).
+    device = _pretty_model(model)
+    if not device and "Android" in ua:
+        m = re.search(r"Android[^;)]*;\s*([^;)]+)", ua)
+        if m:
+            device = _pretty_model(m.group(1).split(" Build")[0].strip())
+    if not device and ("iPhone" in ua or "iPad" in ua):
+        device = "iPad" if "iPad" in ua else "iPhone"
+    return f"{browser} on {device or os_name}"
 
 
 def _request_device_info():
     """(device_key, device_name, ip) for the current request."""
     ua = request.headers.get("User-Agent", "") or ""
+    model = request.headers.get("X-Device-Model", "") or ""
+    brands = request.headers.get("Sec-CH-UA", "") or ""
     ip = (request.headers.get("X-Forwarded-For", "") or "").split(",")[0].strip()
     if not ip:
         ip = request.remote_addr or ""
-    return hashlib.sha256(ua.encode("utf-8")).hexdigest(), describe_device(ua), ip
+    return hashlib.sha256(ua.encode("utf-8")).hexdigest(), describe_device(ua, model, brands), ip
+
+
+_geo_cache: dict = {}
+
+
+def _geolocate(ip: str) -> str:
+    """Best-effort 'City, Country' for an IP — cached, silent on failure."""
+    if not ip:
+        return ""
+    if ip in _geo_cache:
+        return _geo_cache[ip]
+    try:
+        addr = ipaddress.ip_address(ip)
+        if addr.is_private or addr.is_loopback or addr.is_link_local:
+            return ""
+    except ValueError:
+        return ""
+    try:
+        r = http_requests.get(f"https://ipwho.is/{quote(ip, safe='')}", timeout=3,
+                              headers={"User-Agent": "HotelAva/1.0"})
+        data = r.json()
+        if not data.get("success"):
+            return ""
+        loc = ", ".join(p for p in (data.get("city"), data.get("country")) if p)
+        if loc:
+            _geo_cache[ip] = loc
+        return loc
+    except Exception:
+        return ""
 
 
 def track_new_login(user_id):
@@ -594,11 +669,13 @@ def track_new_login(user_id):
         except Exception:
             return
 
+    loc = _geolocate(ip)
+    place = f" in {loc}" if loc else ""
     create_notification(
         user_id,
         "system",
         "New login to your account",
-        f"Signed in from {device_name} ({ip}). Ignore this if this was you.",
+        f"Signed in from {device_name}{place} ({ip}). Ignore this if this was you.",
         device_id=device_id,
     )
 

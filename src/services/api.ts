@@ -42,6 +42,33 @@ async function tryRefreshToken(): Promise<boolean> {
   return refreshPromise
 }
 
+/**
+ * Device model for new-login alerts ("Samsung Galaxy S23" instead of just
+ * "Android"). Chrome exposes it via User-Agent client hints; iOS Safari has
+ * no model in its UA, so fall back to the platform name.
+ */
+let modelPromise: Promise<string> | null = null
+function deviceModel(): Promise<string> {
+  if (!modelPromise) {
+    modelPromise = (async () => {
+      try {
+        const uad = (navigator as Navigator & {
+          userAgentData?: { getHighEntropyValues?: (h: string[]) => Promise<{ model?: string }> }
+        }).userAgentData
+        if (uad?.getHighEntropyValues) {
+          const v = await uad.getHighEntropyValues(["model"])
+          if (v.model) return v.model
+        }
+      } catch { /* fall through */ }
+      const ua = navigator.userAgent
+      if (/iPad/.test(ua)) return "iPad"
+      if (/iPhone|iPod/.test(ua)) return "iPhone"
+      return ""
+    })()
+  }
+  return modelPromise
+}
+
 async function apiFetch<T>(path: string, options: RequestInit = {}, _isRetry = false): Promise<T> {
   const token = sessionStorage.getItem("access_token")
   const headers: Record<string, string> = {
@@ -50,6 +77,10 @@ async function apiFetch<T>(path: string, options: RequestInit = {}, _isRetry = f
   }
   if (token) {
     headers["Authorization"] = `Bearer ${token}`
+  }
+  const model = await deviceModel()
+  if (model) {
+    headers["X-Device-Model"] = model
   }
 
   const res = await fetch(`${API_BASE}${path}`, { ...options, headers })
