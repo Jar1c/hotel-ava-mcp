@@ -1,6 +1,13 @@
 import { createContext, useContext, useState, useCallback, type ReactNode } from "react"
 import { CheckCircle, XCircle, Info } from "lucide-react"
 
+export interface ToastAction {
+  label: string
+  onClick: () => void
+  /** Filled primary style — the recommended answer (e.g. "This was me"). */
+  primary?: boolean
+}
+
 interface Toast {
   id: number
   title: string
@@ -9,6 +16,8 @@ interface Toast {
   onClick?: () => void
   duration?: number
   origin?: { x: number; y: number }
+  /** Inline buttons (e.g. security alerts). Suppresses the "Tap to view" hint. */
+  actions?: ToastAction[]
   exiting?: boolean
 }
 
@@ -91,7 +100,27 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               {t.description && (
                 <p className="text-xs text-muted mt-0.5 leading-snug">{t.description}</p>
               )}
-              {t.onClick && (
+              {t.actions && t.actions.length > 0 && (
+                <div className="flex items-center gap-2 mt-2" onClick={(e) => e.stopPropagation()}>
+                  {t.actions.map((action) => (
+                    <button
+                      key={action.label}
+                      onClick={() => {
+                        action.onClick()
+                        dismissToast(t.id)
+                      }}
+                      className={`rounded-[6px] px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer ${
+                        action.primary
+                          ? "bg-primary text-white hover:bg-primary-active"
+                          : "border border-[#e2e4e8] text-ink hover:bg-gray-50 dark:border-hairline/60 dark:text-ink-dark dark:hover:bg-surface-strong"
+                      }`}
+                    >
+                      {action.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {t.onClick && !t.actions && (
                 <p className="text-[11px] text-primary mt-1 font-medium">Tap to view</p>
               )}
             </div>

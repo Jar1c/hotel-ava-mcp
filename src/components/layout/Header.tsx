@@ -1,6 +1,6 @@
 import { NavLink, Link, useLocation, useNavigate } from "react-router"
 import { useState, useCallback } from "react"
-import { User, LogOut, Settings, CalendarDays, ChevronDown, Bell, CheckCheck, Tag, Clock, Star } from "lucide-react"
+import { User, LogOut, Settings, CalendarDays, ChevronDown, Bell, CheckCheck, Tag, Clock, Star, ShieldAlert } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import {
@@ -29,7 +29,7 @@ const notifTypeStyles: Record<string, { bg: string; icon: React.ReactNode }> = {
 
 export default function Header() {
   const { isAuthenticated, user, logout, isAdmin, loading: authLoading } = useAuth()
-  const { notifications, unreadCount, loading, fetchNotifications, markRead, markAllRead } = useNotifications()
+  const { notifications, unreadCount, loading, fetchNotifications, markRead, markAllRead, trustDevice, openNewLoginDialog } = useNotifications()
   const { toast } = useToast()
   const location = useLocation()
   const navigate = useNavigate()
@@ -224,8 +224,12 @@ export default function Header() {
                           className={`flex items-start gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-surface-strong transition-colors cursor-pointer border-b border-gray-50 dark:border-hairline/50 last:border-b-0 ${!notif.read ? "bg-primary/5" : ""}`}
                         >
                           {/* Type icon */}
-                          <div className={`shrink-0 w-9 h-9 rounded-full flex items-center justify-center ${notifTypeStyles[notif.type]?.bg || "bg-gray-100"}`}>
-                            {notifTypeStyles[notif.type]?.icon || <Bell className="size-4 text-ink" />}
+                          <div className={`shrink-0 w-9 h-9 rounded-full flex items-center justify-center ${notif.device_id ? "bg-[#A4423A]/10" : notifTypeStyles[notif.type]?.bg || "bg-gray-100"}`}>
+                            {notif.device_id ? (
+                              <ShieldAlert className="size-4 text-[#A4423A]" />
+                            ) : (
+                              notifTypeStyles[notif.type]?.icon || <Bell className="size-4 text-ink" />
+                            )}
                           </div>
 
                           {/* Content */}
@@ -238,6 +242,22 @@ export default function Header() {
                             </div>
                             <p className="text-xs text-muted mt-0.5">{notif.message}</p>
                             <span className="text-[11px] text-muted-soft mt-1 block">{formatTime(notif.created_at)}</span>
+                            {notif.device_id && (
+                              <div className="flex items-center gap-2 mt-2" onClick={(e) => e.stopPropagation()}>
+                                <button
+                                  onClick={() => { void trustDevice(notif); setDropdownOpen(false) }}
+                                  className="rounded-[6px] bg-primary text-white px-2.5 py-1 text-xs font-medium hover:bg-primary-active transition-colors cursor-pointer"
+                                >
+                                  This was me
+                                </button>
+                                <button
+                                  onClick={() => { markRead(notif.id); setDropdownOpen(false); openNewLoginDialog(notif) }}
+                                  className="rounded-[6px] border border-hairline px-2.5 py-1 text-xs font-medium text-ink hover:bg-gray-50 transition-colors cursor-pointer"
+                                >
+                                  Not you?
+                                </button>
+                              </div>
+                            )}
                           </div>
                         </div>
                       ))

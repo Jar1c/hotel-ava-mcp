@@ -8,6 +8,7 @@ from math import ceil
 import os
 import json
 import re
+import hashlib
 import jwt as pyjwt
 import uuid
 import time
@@ -317,7 +318,7 @@ def parse_clock_label(minutes):
 MAX_NOTIFICATIONS = 30
 
 
-def create_notification(user_id, notif_type, title, message, booking_id=None):
+def create_notification(user_id, notif_type, title, message, booking_id=None, device_id=None):
     """Insert a notification and trim old ones to MAX_NOTIFICATIONS."""
     try:
         # Service-role client on purpose: the row belongs to ANOTHER user, and
@@ -335,7 +336,16 @@ def create_notification(user_id, notif_type, title, message, booking_id=None):
         }
         if booking_id:
             notif_data["booking_id"] = booking_id
-        supabase_admin.table("notifications").insert(notif_data).execute()
+        if device_id:
+            notif_data["device_id"] = device_id
+        try:
+            supabase_admin.table("notifications").insert(notif_data).execute()
+        except Exception:
+            # migrate-new-device-login.sql not run yet — still deliver the
+            # alert, just without the device link (action buttons hidden).
+            if notif_data.pop("device_id", None) is None:
+                raise
+            supabase_admin.table("notifications").insert(notif_data).execute()
 
         # Trim to MAX_NOTIFICATIONS: keep newest, delete oldest
         all_notifs = supabase_admin.table("notifications").select("id").eq("user_id", user_id).order("created_at", desc=True).execute()
@@ -487,6 +497,155 @@ def register():
         return jsonify({"error": str(e)}), 400
 
 
+def describe_device(ua: str) -> str:
+    """Human-readable device label from a User-Agent header."""
+    ua = (ua or "").strip()
+    if not ua:
+        return "Unknown device"
+    if "Edg/" in ua:
+        browser = "Edge"
+    elif "OPR/" in ua or "Opera" in ua:
+        browser = "Opera"
+    elif "SamsungBrowser" in ua:
+        browser = "Samsung Internet"
+    elif "Chrome/" in ua:
+        browser = "Chrome"
+    elif "Firefox/" in ua:
+        browser = "Firefox"
+    elif "Safari/" in ua:
+        browser = "Safari"
+    else:
+        browser = "Browser"
+
+    if "Windows" in ua:
+        os_name = "Windows"
+    elif "Android" in ua:
+        os_name = "Android"
+    elif "iPhone" in ua or "iPad" in ua or "CPU OS" in ua:
+        os_name = "iOS"
+    elif "Mac OS X" in ua or "Macintosh" in ua:
+        os_name = "macOS"
+    elif "Linux" in ua:
+        os_name = "Linux"
+    else:
+        os_name = "this device"
+    return f"{browser} on {os_name}"
+
+
+def _request_device_info():
+    """(device_key, device_name, ip) for the current request."""
+    ua = request.headers.get("User-Agent", "") or ""
+    ip = (request.headers.get("X-Forwarded-For", "") or "").split(",")[0].strip()
+    if not ip:
+        ip = request.remote_addr or ""
+    return hashlib.sha256(ua.encode("utf-8")).hexdigest(), describe_device(ua), ip
+
+
+def track_new_login(user_id):
+    """Upsert the caller's device and alert on a sign-in from an unknown one.
+
+    Non-fatal by design: called inside login() under its own try/except so a
+    missing migration or Supabase hiccup never blocks the actual sign-in.
+    """
+    device_key, device_name, ip = _request_device_info()
+    now = datetime.now(timezone.utc).isoformat()
+
+    res = supabase_admin.table("user_devices").select("*") \
+        .eq("user_id", user_id).eq("device_key", device_key).execute()
+    device_id = None
+    is_new = False
+    trusted = False
+    if res.data:
+        dev = res.data[0]
+        device_id = dev["id"]
+        trusted = bool(dev.get("trusted"))
+        supabase_admin.table("user_devices").update(
+            {"last_seen": now, "ip": ip, "device_name": device_name}
+        ).eq("id", device_id).execute()
+    else:
+        inserted = supabase_admin.table("user_devices").insert({
+            "user_id": user_id,
+            "device_key": device_key,
+            "device_name": device_name,
+            "ip": ip,
+        }).execute()
+        device_id = inserted.data[0]["id"]
+        is_new = True
+
+    if trusted:
+        return
+
+    # One alert at a time: skip while an unread one is pending, and don't
+    # nag more than once a day until the user confirms "This was me".
+    recent = supabase_admin.table("notifications") \
+        .select("id", "read", "created_at") \
+        .eq("user_id", user_id).eq("device_id", device_id) \
+        .order("created_at", desc=True).limit(1).execute()
+    if recent.data:
+        last = recent.data[0]
+        if last.get("read") is False:
+            return
+        try:
+            created = datetime.fromisoformat(str(last["created_at"]).replace("Z", "+00:00"))
+            if (datetime.now(timezone.utc) - created).total_seconds() < 86400:
+                return
+        except Exception:
+            return
+    elif not is_new:
+        return
+
+    create_notification(
+        user_id,
+        "system",
+        "New login to your account",
+        f"Signed in from {device_name} ({ip}). Ignore this if this was you.",
+        device_id=device_id,
+    )
+
+
+@app.route("/api/auth/devices", methods=["GET"])
+def list_devices():
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    user_id = get_user_from_token(token)
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    try:
+        res = supabase_admin.table("user_devices").select("*") \
+            .eq("user_id", user_id).order("last_seen", desc=True).execute()
+        current_key, _, _ = _request_device_info()
+        devices = [{
+            "id": d["id"],
+            "device_name": d.get("device_name") or "Unknown device",
+            "ip": d.get("ip"),
+            "trusted": bool(d.get("trusted")),
+            "first_seen": d.get("first_seen"),
+            "last_seen": d.get("last_seen"),
+            "current": d.get("device_key") == current_key,
+        } for d in (res.data or [])]
+        return jsonify(devices), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/auth/devices/<device_id>/trust", methods=["POST"])
+def trust_device(device_id):
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    user_id = get_user_from_token(token)
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    try:
+        supabase_admin.table("user_devices").update({"trusted": True}) \
+            .eq("id", device_id).eq("user_id", user_id).execute()
+        # Alert resolved — clear any still-pending notifications for it
+        supabase_admin.table("notifications").delete() \
+            .eq("user_id", user_id).eq("device_id", device_id).eq("read", False).execute()
+        return jsonify({"success": True}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/auth/login", methods=["POST"])
 def login():
     data = request.get_json()
@@ -517,6 +676,12 @@ def login():
                 profile_data = {"name": name_val, "role": "guest", "avatar_url": ""}
             except Exception:
                 profile_data = {}
+
+        # New-device alert (non-fatal — never blocks the sign-in itself)
+        try:
+            track_new_login(user.id)
+        except Exception as track_err:
+            print(f"Device tracking error: {track_err}")
 
         return jsonify({
             "access_token": session.access_token,

@@ -1,10 +1,11 @@
 import { createContext, useContext, useState, useCallback, useEffect, useMemo, useRef, type ReactNode } from "react"
 import { useNavigate } from "react-router"
-import { notificationsApi, type NotificationData } from "@/services/api"
+import { notificationsApi, devicesApi, type NotificationData } from "@/services/api"
 import { useAuth } from "@/contexts/AuthContext"
 import { useToast } from "@/contexts/ToastContext"
 import { supabase } from "@/lib/supabase"
 import { playNotificationSound, unlockNotificationSound } from "@/lib/notificationSound"
+import NewLoginDialog from "@/components/security/NewLoginDialog"
 
 interface NotificationContextValue {
   notifications: NotificationData[]
@@ -20,6 +21,12 @@ interface NotificationContextValue {
   /** Clear the red "new bookings" nav badge once the Bookings screen is opened. */
   markBookingNotificationsRead: () => Promise<void>
   deleteNotification: (id: string) => Promise<void>
+  /** Confirm a flagged sign-in: trust the device + remove its alert. */
+  trustDevice: (notif: NotificationData) => Promise<void>
+  /** The open "New login" security dialog, if any. */
+  newLoginNotif: NotificationData | null
+  openNewLoginDialog: (notif: NotificationData) => void
+  closeNewLoginDialog: () => void
 }
 
 const NotificationContext = createContext<NotificationContextValue | undefined>(undefined)
@@ -52,6 +59,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   const [unreadCount, setUnreadCount] = useState(0)
   const [loading, setLoading] = useState(false)
   const [ringNonce, setRingNonce] = useState(0)
+  const [newLoginNotif, setNewLoginNotif] = useState<NotificationData | null>(null)
   const seenIdsRef = useRef<Set<string>>(new Set())
   const seededRef = useRef(false)
 
@@ -82,17 +90,36 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  const trustDevice = useCallback(async (notif: NotificationData) => {
+    if (notif.device_id) {
+      try {
+        await devicesApi.trust(notif.device_id)
+      } catch {
+        // best effort — the alert is still resolved locally
+      }
+    }
+    try {
+      await notificationsApi.delete(notif.id)
+    } catch {
+      // silently fail
+    }
+    setNotifications((prev) => prev.filter((n) => n.id !== notif.id))
+    if (!notif.read) setUnreadCount((c) => Math.max(0, c - 1))
+  }, [])
+
   // Keep latest handlers in refs so fetch/realtime effects don't churn
   const toastRef = useRef(toast)
   const navigateRef = useRef(navigate)
   const isAdminRef = useRef(isAdmin)
   const markReadRef = useRef(markRead)
+  const trustDeviceRef = useRef(trustDevice)
   useEffect(() => {
     toastRef.current = toast
     navigateRef.current = navigate
     isAdminRef.current = isAdmin
     markReadRef.current = markRead
-  }, [toast, navigate, isAdmin, markRead])
+    trustDeviceRef.current = trustDevice
+  }, [toast, navigate, isAdmin, markRead, trustDevice])
 
   const showToast = useCallback((notif: NotificationData) => {
     if (seenIdsRef.current.has(notif.id)) return
@@ -106,16 +133,40 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     const rect = bell?.getBoundingClientRect()
     setRingNonce((n) => n + 1)
     playNotificationSound()
+    const isDeviceAlert = Boolean(notif.device_id)
     toastRef.current({
       title: notif.title,
       description: notif.message,
       variant: "default",
-      duration: 7000,
+      // Security alerts need reading time + a decision, not a quick glance
+      duration: isDeviceAlert ? 20000 : 7000,
       origin: rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } : undefined,
       onClick: () => {
         void markReadRef.current(notif.id)
+        if (isDeviceAlert) {
+          setNewLoginNotif(notif)
+          return
+        }
         navigateRef.current(notifTarget(isAdminRef.current, notif))
       },
+      ...(isDeviceAlert
+        ? {
+            actions: [
+              {
+                label: "This was me",
+                primary: true,
+                onClick: () => void trustDeviceRef.current(notif),
+              },
+              {
+                label: "Not you?",
+                onClick: () => {
+                  void markReadRef.current(notif.id)
+                  setNewLoginNotif(notif)
+                },
+              },
+            ],
+          }
+        : {}),
     })
   }, [])
 
@@ -186,6 +237,33 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       // silently fail
     }
   }, [])
+
+  const openNewLoginDialog = useCallback((notif: NotificationData) => setNewLoginNotif(notif), [])
+  const closeNewLoginDialog = useCallback(() => setNewLoginNotif(null), [])
+
+  /** Dialog: "Yes, this was me" → trust the device, clear the alert. */
+  const confirmTrustedDevice = useCallback(
+    async (notif: NotificationData) => {
+      await trustDevice(notif)
+      setNewLoginNotif(null)
+      toastRef.current({
+        title: "Device confirmed",
+        description: "You won't be asked about this device again.",
+        variant: "success",
+      })
+    },
+    [trustDevice],
+  )
+
+  /** Dialog: "No, secure my account" → read the alert + go to password change. */
+  const secureAccount = useCallback(
+    (notif: NotificationData) => {
+      void markRead(notif.id)
+      setNewLoginNotif(null)
+      navigateRef.current(isAdminRef.current ? "/admin/settings" : "/settings")
+    },
+    [markRead],
+  )
 
   // Supabase Realtime — INSERT only (new events, not history replay)
   useEffect(() => {
@@ -276,9 +354,19 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         markAllRead,
         markBookingNotificationsRead,
         deleteNotification,
+        trustDevice,
+        newLoginNotif,
+        openNewLoginDialog,
+        closeNewLoginDialog,
       }}
     >
       {children}
+      <NewLoginDialog
+        notif={newLoginNotif}
+        onClose={closeNewLoginDialog}
+        onTrust={confirmTrustedDevice}
+        onSecureAccount={secureAccount}
+      />
     </NotificationContext.Provider>
   )
 }

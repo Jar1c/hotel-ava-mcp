@@ -754,6 +754,8 @@ export interface NotificationData {
   message: string
   read: boolean
   booking_id: string | null
+  /** Set on "New login to your account" alerts — links to user_devices.id */
+  device_id?: string | null
   created_at: string
 }
 
@@ -770,4 +772,23 @@ export const notificationsApi = {
 
   delete: (id: string) =>
     apiFetch(`/notifications/${id}`, { method: "DELETE" }),
+}
+
+// ── Devices (new-login security) ───────────────────────────────────────────────
+
+export interface DeviceInfo {
+  id: string
+  device_name: string
+  ip: string | null
+  trusted: boolean
+  first_seen: string
+  last_seen: string
+  current: boolean
+}
+
+export const devicesApi = {
+  list: () => apiFetch<DeviceInfo[]>("/auth/devices"),
+
+  trust: (id: string) =>
+    apiFetch<{ success: boolean }>(`/auth/devices/${id}/trust`, { method: "POST" }),
 }
