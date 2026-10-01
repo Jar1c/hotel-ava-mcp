@@ -85,33 +85,30 @@ export default function Settings() {
       <div className="max-w-3xl mx-auto">
         <h1 className="typo-display-lg text-ink mb-lg">Settings</h1>
 
-        <div className="flex gap-lg">
-          {/* Sidebar */}
-              <nav className="w-48 shrink-0">
-            <div className="bg-white border border-hairline rounded-[12px] p-2 dark:bg-surface-soft dark:border-hairline">
-              {TABS.map((tab) => {
-                const Icon = tab.icon
-                const active = activeTab === tab.key
-                return (
-                  <button
-                    key={tab.key}
-                    onClick={() => setActiveTab(tab.key)}
-                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-[8px] text-sm font-medium transition-all ${
-                      active
-                        ? "bg-primary/10 text-primary"
-                        : "text-muted hover:text-ink hover:bg-gray-50 dark:hover:bg-surface"
-                    }`}
-                  >
-                    <Icon className="h-4 w-4" />
-                    {tab.label}
-                  </button>
-                )
-              })}
-            </div>
-          </nav>
+        {/* Top tabs — same pattern as admin settings; works on mobile + desktop */}
+        <div className="flex gap-1 border-b border-hairline mb-lg overflow-x-auto">
+          {TABS.map((tab) => {
+            const Icon = tab.icon
+            const active = activeTab === tab.key
+            return (
+              <button
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
+                className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-all whitespace-nowrap cursor-pointer ${
+                  active
+                    ? "border-primary text-primary"
+                    : "border-transparent text-muted hover:text-ink"
+                }`}
+              >
+                <Icon className="h-4 w-4" />
+                {tab.label}
+              </button>
+            )
+          })}
+        </div>
 
-          {/* Content */}
-          <div className="flex-1 min-w-0">
+        {/* Content */}
+        <div>
             {/* Appearance Tab */}
             {activeTab === "appearance" && (
               <div className="bg-white border border-hairline rounded-[12px] p-md dark:bg-surface-soft dark:border-hairline">
@@ -279,7 +276,6 @@ export default function Settings() {
               </div>
             )}
           </div>
-        </div>
       </div>
     </div>
   )
