@@ -1,5 +1,5 @@
-import { useState, useEffect, useMemo } from "react"
-import { Star, Trash2, MessageSquareText, Inbox } from "lucide-react"
+import { useState, useEffect, useMemo, type ReactNode } from "react"
+import { Star, Trash2, MessageSquareText, Inbox, ChevronRight, X } from "lucide-react"
 import { getDiceBearUrl } from "@/lib/dicebear"
 import {
   reviewsApi,
@@ -41,11 +41,19 @@ const ratingFilters = [
   { label: "1★", value: 1 },
 ]
 
+type TabId = "rooms" | "reviews"
+
+const tabs: { id: TabId; label: string; icon: ReactNode }[] = [
+  { id: "rooms", label: "Ratings by room", icon: <Star className="h-4 w-4" /> },
+  { id: "reviews", label: "All reviews", icon: <MessageSquareText className="h-4 w-4" /> },
+]
+
 export default function Reviews() {
   const [data, setData] = useState<AdminReviewsResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [roomFilter, setRoomFilter] = useState("")
   const [ratingFilter, setRatingFilter] = useState(0)
+  const [activeTab, setActiveTab] = useState<TabId>("rooms")
   const [page, setPage] = useState(1)
   const [deleteTarget, setDeleteTarget] = useState<AdminReview | null>(null)
   const [deleting, setDeleting] = useState(false)
@@ -79,6 +87,13 @@ export default function Reviews() {
     setRoomFilter(roomId)
     setPage(1)
     load(roomId || undefined)
+  }
+
+  // Click a room row → jump to that room's reviews list.
+  const openRoomReviews = (roomId: string) => {
+    setRatingFilter(0)
+    changeRoom(roomId)
+    setActiveTab("reviews")
   }
 
   const pickRating = (value: number) => {
@@ -185,6 +200,7 @@ export default function Reviews() {
   const stats = data?.stats ?? []
   const totals = data?.totals ?? { reviews: 0, average: 0 }
   const ratedRooms = stats.filter((s) => s.reviews > 0)
+  const activeRoomName = stats.find((s) => s.room_id === roomFilter)?.room_name ?? "this room"
 
   return (
     <div className="flex flex-col gap-6">
@@ -224,7 +240,27 @@ export default function Reviews() {
         )}
       </div>
 
-      {/* Per-room rating breakdown */}
+      {/* Tabs */}
+      <div className="flex items-center gap-0 border-b border-[#e2e4e8]">
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setActiveTab(t.id)}
+            className={`relative flex items-center gap-1.5 px-4 py-3 text-sm font-medium transition-colors duration-200 cursor-pointer ${
+              activeTab === t.id ? "text-[#82285f]" : "text-[#7A7A70] hover:text-[#1a1d26]"
+            }`}
+          >
+            {t.icon}
+            {t.label}
+            {activeTab === t.id && (
+              <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#82285f]" />
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Tab: Ratings by room ─────────────────────────────── */}
+      {activeTab === "rooms" && (
       <div className="bg-white rounded-[6px] border border-[#e2e4e8] overflow-hidden">
         <div className="px-5 py-4 border-b border-[#e2e4e8] flex items-center justify-between gap-3 flex-wrap">
           <h3 className="font-display text-lg font-semibold text-foreground">Ratings by room</h3>
@@ -252,7 +288,12 @@ export default function Reviews() {
             stats
               .filter((s) => !roomFilter || s.room_id === roomFilter)
               .map((s) => (
-                <div key={s.room_id} className="px-5 py-3 flex items-center justify-between gap-4">
+                <button
+                  key={s.room_id}
+                  onClick={() => openRoomReviews(s.room_id)}
+                  title={`See reviews for ${s.room_name}`}
+                  className="w-full px-5 py-3 flex items-center justify-between gap-4 text-left cursor-pointer transition-colors hover:bg-[#f6f2f7]"
+                >
                   <div className="min-w-0">
                     <p className="text-[13px] font-semibold text-ink truncate">{s.room_name}</p>
                     <p className="text-[11px] text-muted">{s.room_type}</p>
@@ -269,14 +310,17 @@ export default function Reviews() {
                     ) : (
                       <span className="text-[12px] text-muted">No reviews yet</span>
                     )}
+                    <ChevronRight className="h-4 w-4 text-[#D5DADF]" />
                   </div>
-                </div>
+                </button>
               ))
           )}
         </div>
       </div>
+      )}
 
-      {/* Review list */}
+      {/* ── Tab: All reviews ─────────────────────────────────── */}
+      {activeTab === "reviews" && (
       <div>
         <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
           <h3 className="font-display text-lg font-semibold text-foreground">
@@ -299,6 +343,27 @@ export default function Reviews() {
             ))}
           </div>
         </div>
+
+        {roomFilter && (
+          <div className="mb-3 flex items-center gap-3">
+            <span className="inline-flex items-center gap-1.5 rounded-[5px] border border-[#82285f]/40 bg-[#f6f2f7] px-2.5 py-1 text-[12px] font-medium text-[#82285f]">
+              Only: {activeRoomName}
+              <button
+                onClick={() => changeRoom("")}
+                title="Show all rooms"
+                className="cursor-pointer opacity-70 transition-opacity hover:opacity-100"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </span>
+            <button
+              onClick={() => setActiveTab("rooms")}
+              className="cursor-pointer text-[12px] text-muted transition-colors hover:text-ink"
+            >
+              ← Back to ratings by room
+            </button>
+          </div>
+        )}
 
         {loading && !data ? (
           <div className="space-y-3">
@@ -477,6 +542,7 @@ export default function Reviews() {
           className="mt-4"
         />
       </div>
+      )}
 
       <ConfirmDialog
         open={deleteTarget !== null}
