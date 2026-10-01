@@ -1061,6 +1061,22 @@ def _select_reviews(make_query):
         return make_query(REVIEW_COLUMNS_LEGACY).execute().data or []
 
 
+def fetch_by_ids(table: str, ids: list, cols: str, chunk: int = 80):
+    """Read rows for a list of ids, a batch at a time.
+
+    One in.() filter holding hundreds of uuids runs past the API gateway's
+    header limit and comes back as 400 "JSON could not be generated" - which
+    used to make the whole reviews page report a missing migration.
+    """
+    rows = []
+    for i in range(0, len(ids), chunk):
+        rows.extend(
+            supabase_admin.table(table).select(cols)
+            .in_("id", ids[i:i + chunk]).execute().data or []
+        )
+    return rows
+
+
 def _upload_review_image(file_bytes: bytes, content_type: str, user_id: str, ext: str) -> str:
     """Store one review photo and return its public URL.
 
@@ -3111,14 +3127,13 @@ def get_reviews():
         user_ids = list({r["user_id"] for r in rows if r.get("user_id")})
         users_map = {}
         if user_ids:
-            users = supabase_admin.table("users").select("id, name, email, avatar_url").in_("id", user_ids).execute().data or []
+            users = fetch_by_ids("users", user_ids, "id, name, email, avatar_url")
             users_map = {u["id"]: u for u in users}
 
         booking_ids = list({r["booking_id"] for r in rows if r.get("booking_id")})
         bookings_map = {}
         if booking_ids:
-            bres = supabase_admin.table("bookings").select("id, check_in, check_out") \
-                .in_("id", booking_ids).execute().data or []
+            bres = fetch_by_ids("bookings", booking_ids, "id, check_in, check_out")
             bookings_map = {b["id"]: b for b in bres}
 
         items = []
@@ -3187,9 +3202,7 @@ def get_my_reviews():
         booking_ids = list({r["booking_id"] for r in rows if r.get("booking_id")})
         bookings_map = {}
         if booking_ids:
-            bres = supabase_admin.table("bookings") \
-                .select("id, room_id, check_in, check_out, status") \
-                .in_("id", booking_ids).execute().data or []
+            bres = fetch_by_ids("bookings", booking_ids, "id, room_id, check_in, check_out, status")
             bookings_map = {b["id"]: b for b in bres}
 
         room_ids = []
@@ -3199,8 +3212,7 @@ def get_my_reviews():
                 room_ids.append(rid)
         rooms_map = {}
         if room_ids:
-            rres = supabase_admin.table("rooms") \
-                .select("id, name, type, images").in_("id", room_ids).execute().data or []
+            rres = fetch_by_ids("rooms", room_ids, "id, name, type, images")
             rooms_map = {rm["id"]: rm for rm in rres}
 
         items = []
