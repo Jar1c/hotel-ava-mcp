@@ -24,6 +24,7 @@ import { formatDate as toISODate, parseDateParam } from "@/lib/dates"
 import { overnightWindow, dayUseWindow } from "@/lib/stayWindow"
 import { getDiceBearUrl } from "@/lib/dicebear"
 import PhotoGallery from "@/components/rooms/PhotoGallery"
+import { Pagination } from "@/components/ui/pagination"
 import { useAuth } from "@/contexts/AuthContext"
 import { getRoomDiscount } from "@/lib/discountEngine"
 import { useDiscountApproval } from "@/hooks/useDiscountApproval"
@@ -48,6 +49,7 @@ const DETAIL_TABS: { id: DetailTabId; label: string; icon: React.ComponentType<{
 
 const DAY_USE_DURATIONS = [3, 6, 8, 12] as const
 const CLOSING_HOUR = 22 // 10 PM
+const REVIEW_PAGE_SIZE = 6
 
 function generateStartTimes(maxHour: number = 20): string[] {
   const times: string[] = []
@@ -177,6 +179,7 @@ export default function RoomDetail() {
   const [reviewsLoading, setReviewsLoading] = useState(false)
   // Shopee-style rating filter ("All" + 5★…1★) and the photo lightbox
   const [ratingFilter, setRatingFilter] = useState<number | null>(null)
+  const [reviewPage, setReviewPage] = useState(1)
   const [lightbox, setLightbox] = useState<{ images: string[]; index: number } | null>(null)
   const { isAuthenticated } = useAuth()
   const navigate = useNavigate()
@@ -445,6 +448,17 @@ export default function RoomDetail() {
   const visibleReviews = ratingFilter
     ? allReviews.filter((r) => r.rating === ratingFilter)
     : allReviews
+  const reviewPageCount = Math.max(1, Math.ceil(visibleReviews.length / REVIEW_PAGE_SIZE))
+  // Clamp instead of trusting reviewPage, so a tighter filter stays in range.
+  const safeReviewPage = Math.min(reviewPage, reviewPageCount)
+  const pagedReviews = visibleReviews.slice(
+    (safeReviewPage - 1) * REVIEW_PAGE_SIZE,
+    safeReviewPage * REVIEW_PAGE_SIZE,
+  )
+  const pickRatingFilter = (value: number | null) => {
+    setRatingFilter(value)
+    setReviewPage(1)
+  }
   const filterChips: { value: number | null; label: string }[] = [
     { value: null, label: `All (${allReviews.length})` },
     ...starCounts.map(({ star, count }) => ({ value: star, label: `${star}★ (${count})` })),
@@ -777,7 +791,7 @@ export default function RoomDetail() {
                             <button
                               key={star}
                               type="button"
-                              onClick={() => setRatingFilter(active ? null : star)}
+                              onClick={() => pickRatingFilter(active ? null : star)}
                               className={`flex w-full cursor-pointer items-center gap-2 rounded-[6px] px-1 py-0.5 transition-colors ${
                                 active ? "bg-surface-soft" : "hover:bg-surface-soft"
                               }`}
@@ -812,7 +826,7 @@ export default function RoomDetail() {
                           <button
                             key={chip.label}
                             type="button"
-                            onClick={() => setRatingFilter(chip.value)}
+                            onClick={() => pickRatingFilter(chip.value)}
                             className={`cursor-pointer rounded-full border px-3 py-1 typo-caption-sm transition-colors ${
                               active
                                 ? "border-primary bg-primary font-semibold text-canvas"
@@ -827,7 +841,7 @@ export default function RoomDetail() {
 
                     {visibleReviews.length > 0 ? (
                       <div className="space-y-3">
-                        {visibleReviews.map((r) => (
+                        {pagedReviews.map((r) => (
                           <div key={r.id} className="rounded-[12px] border border-hairline bg-white p-4">
                             <div className="flex items-center justify-between gap-3 mb-1.5">
                               <div className="flex items-center gap-2.5 min-w-0">
@@ -907,13 +921,20 @@ export default function RoomDetail() {
                         </p>
                         <button
                           type="button"
-                          onClick={() => setRatingFilter(null)}
+                          onClick={() => pickRatingFilter(null)}
                           className="typo-caption-sm mt-1 cursor-pointer text-primary underline underline-offset-2"
                         >
                           Show all reviews
                         </button>
                       </div>
                     )}
+
+                    <Pagination
+                      page={safeReviewPage}
+                      pageCount={reviewPageCount}
+                      onPageChange={setReviewPage}
+                      className="mt-4"
+                    />
                   </>
                 ) : (
                   <div className="rounded-[12px] border border-dashed border-hairline p-6 text-center">

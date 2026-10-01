@@ -7,7 +7,10 @@ import {
   type AdminReview,
 } from "@/services/api"
 import ConfirmDialog from "@/components/ui/confirm-dialog"
+import { Pagination } from "@/components/ui/pagination"
 import { useToast } from "@/contexts/ToastContext"
+
+const REVIEW_PAGE_SIZE = 10
 
 function formatDate(iso: string | null | undefined): string {
   if (!iso) return "—"
@@ -43,6 +46,7 @@ export default function Reviews() {
   const [loading, setLoading] = useState(true)
   const [roomFilter, setRoomFilter] = useState("")
   const [ratingFilter, setRatingFilter] = useState(0)
+  const [page, setPage] = useState(1)
   const [deleteTarget, setDeleteTarget] = useState<AdminReview | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [replyTarget, setReplyTarget] = useState<AdminReview | null>(null)
@@ -73,7 +77,13 @@ export default function Reviews() {
 
   const changeRoom = (roomId: string) => {
     setRoomFilter(roomId)
+    setPage(1)
     load(roomId || undefined)
+  }
+
+  const pickRating = (value: number) => {
+    setRatingFilter(value)
+    setPage(1)
   }
 
   const visibleReviews = useMemo(() => {
@@ -81,6 +91,14 @@ export default function Reviews() {
     if (!ratingFilter) return rows
     return rows.filter((r) => r.rating === ratingFilter)
   }, [data, ratingFilter])
+
+  const pageCount = Math.max(1, Math.ceil(visibleReviews.length / REVIEW_PAGE_SIZE))
+  // Clamp instead of trusting page, so shrinking lists (filter/delete) stay valid.
+  const safePage = Math.min(page, pageCount)
+  const pagedReviews = visibleReviews.slice(
+    (safePage - 1) * REVIEW_PAGE_SIZE,
+    safePage * REVIEW_PAGE_SIZE,
+  )
 
   const confirmDelete = async () => {
     if (!deleteTarget) return
@@ -269,7 +287,7 @@ export default function Reviews() {
             {ratingFilters.map((f) => (
               <button
                 key={f.value}
-                onClick={() => setRatingFilter(f.value)}
+                onClick={() => pickRating(f.value)}
                 className={`rounded-[5px] px-2.5 py-1 text-[12px] font-medium transition-colors cursor-pointer ${
                   ratingFilter === f.value
                     ? "bg-[#82285f] text-white"
@@ -298,7 +316,7 @@ export default function Reviews() {
           </div>
         ) : (
           <div className="space-y-3">
-            {visibleReviews.map((r) => (
+            {pagedReviews.map((r) => (
               <div key={r.id} className="bg-white rounded-[6px] border border-[#e2e4e8] p-5">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
@@ -451,6 +469,13 @@ export default function Reviews() {
             ))}
           </div>
         )}
+
+        <Pagination
+          page={safePage}
+          pageCount={pageCount}
+          onPageChange={setPage}
+          className="mt-4"
+        />
       </div>
 
       <ConfirmDialog
