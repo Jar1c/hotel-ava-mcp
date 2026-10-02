@@ -294,7 +294,7 @@ export default function Settings() {
             {/* Security Tab */}
             {activeTab === "security" && (
               <div className="bg-white border border-hairline rounded-[12px] p-md dark:bg-surface-soft dark:border-hairline">
-                <h2 className="typo-title-sm text-ink mb-md flex items-center gap-2">
+                <h2 className="typo-title-sm text-ink mb-sm flex items-center gap-2">
                   <Lock className="h-4 w-4" />
                   Change Password
                 </h2>
@@ -321,55 +321,66 @@ export default function Settings() {
                     </div>
                   </div>
 
-                  {/* New password */}
-                  <div>
-                    <label className="block text-xs font-medium text-muted mb-1">New Password</label>
-                    <div className="relative">
-                      <input
-                        type={showNew ? "text" : "password"}
-                        value={newPassword}
-                        onChange={(e) => setNewPassword(e.target.value)}
-                        className="w-full px-3 py-2 border border-hairline rounded-[8px] text-sm bg-canvas focus:outline-none focus:border-primary/50 transition-colors dark:bg-surface"
-                        placeholder="Enter new password"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowNew(!showNew)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-ink"
-                      >
-                        {showNew ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                      </button>
-                    </div>
-                    {/* Password requirements */}
-                    {newPassword && (
-                      <div className="mt-2 space-y-1">
-                        <p className={`text-xs flex items-center gap-1.5 ${hasLength ? "text-emerald-600" : "text-muted"}`}>
-                          <span className={`w-1.5 h-1.5 rounded-full ${hasLength ? "bg-emerald-500" : "bg-gray-300"}`} />
-                          At least 8 characters
-                        </p>
-                        <p className={`text-xs flex items-center gap-1.5 ${hasUpper ? "text-emerald-600" : "text-muted"}`}>
-                          <span className={`w-1.5 h-1.5 rounded-full ${hasUpper ? "bg-emerald-500" : "bg-gray-300"}`} />
-                          One uppercase letter
-                        </p>
-                        <p className={`text-xs flex items-center gap-1.5 ${hasNumber ? "text-emerald-600" : "text-muted"}`}>
-                          <span className={`w-1.5 h-1.5 rounded-full ${hasNumber ? "bg-emerald-500" : "bg-gray-300"}`} />
-                          One number
-                        </p>
+                  {/* New + confirm — side by side on desktop */}
+                  <div className="grid gap-sm sm:grid-cols-2">
+                    <div>
+                      <label className="block text-xs font-medium text-muted mb-1">New Password</label>
+                      <div className="relative">
+                        <input
+                          type={showNew ? "text" : "password"}
+                          value={newPassword}
+                          onChange={(e) => setNewPassword(e.target.value)}
+                          className="w-full px-3 py-2 border border-hairline rounded-[8px] text-sm bg-canvas focus:outline-none focus:border-primary/50 transition-colors dark:bg-surface"
+                          placeholder="Enter new password"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowNew(!showNew)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-ink"
+                        >
+                          {showNew ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
                       </div>
-                    )}
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-muted mb-1">Confirm New Password</label>
+                      <div className="relative">
+                        <input
+                          type={showNew ? "text" : "password"}
+                          value={confirmPassword}
+                          onChange={(e) => setConfirmPassword(e.target.value)}
+                          className="w-full px-3 py-2 border border-hairline rounded-[8px] text-sm bg-canvas focus:outline-none focus:border-primary/50 transition-colors dark:bg-surface"
+                          placeholder="Confirm new password"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowNew(!showNew)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-ink"
+                        >
+                          {showNew ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      </div>
+                    </div>
                   </div>
 
-                  {/* Confirm password */}
-                  <div>
-                    <label className="block text-xs font-medium text-muted mb-1">Confirm New Password</label>
-                    <input
-                      type="password"
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
-                      className="w-full px-3 py-2 border border-hairline rounded-[8px] text-sm bg-canvas focus:outline-none focus:border-primary/50 transition-colors dark:bg-surface"
-                      placeholder="Confirm new password"
-                    />
-                  </div>
+                  {/* Password requirements — one compact row */}
+                  {newPassword && (
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-0.5">
+                      <p className={`text-xs flex items-center gap-1.5 ${hasLength ? "text-emerald-600" : "text-muted"}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${hasLength ? "bg-emerald-500" : "bg-gray-300"}`} />
+                        8+ characters
+                      </p>
+                      <p className={`text-xs flex items-center gap-1.5 ${hasUpper ? "text-emerald-600" : "text-muted"}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${hasUpper ? "bg-emerald-500" : "bg-gray-300"}`} />
+                        Uppercase
+                      </p>
+                      <p className={`text-xs flex items-center gap-1.5 ${hasNumber ? "text-emerald-600" : "text-muted"}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${hasNumber ? "bg-emerald-500" : "bg-gray-300"}`} />
+                        Number
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 {passwordError && (
