@@ -564,14 +564,14 @@ export default function Settings() {
                     <QrCode className="h-6 w-6 text-primary" />
                   </div>
                   <h2 className="typo-title-sm text-ink mt-4">Approve another device</h2>
-                  <p className="mt-1 max-w-sm text-sm leading-relaxed text-muted">
+                  <p className="mt-1 max-w-[24rem] text-sm leading-relaxed text-muted">
                     Enter the code shown on the other device's Login page — it signs in as
                     you, no password needed.
                   </p>
                 </div>
 
                 {/* Code + actions */}
-                <div className="mx-auto mt-6 flex max-w-sm flex-col gap-3">
+                <div className="mx-auto mt-6 flex max-w-[24rem] flex-col gap-3">
                   <label
                     htmlFor="qs-code"
                     className="text-center text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-soft"
@@ -631,7 +631,7 @@ export default function Settings() {
                 </div>
 
                 {/* Status */}
-                <div className="mx-auto mt-4 min-h-[20px] max-w-md text-center">
+                <div className="mx-auto mt-4 min-h-[20px] max-w-[28rem] text-center">
                   {qsError && (
                     <p className="flex items-center justify-center gap-1.5 text-xs text-red-500">
                       <CircleAlert className="h-3.5 w-3.5 shrink-0" />
