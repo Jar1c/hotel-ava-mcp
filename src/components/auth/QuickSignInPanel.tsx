@@ -144,11 +144,17 @@ export default function QuickSignInPanel({ onSignedIn, onBack }: QuickSignInPane
         </div>
       )}
 
-      <p className="mx-auto mt-3 max-w-[300px] text-xs leading-relaxed text-muted">
-        Scan the QR with your other signed-in device, or open{" "}
-        <span className="font-semibold text-ink">Settings → Quick Sign-In</span> and enter
-        this code.
-      </p>
+      <ol className="mx-auto mt-3 max-w-[300px] space-y-1 text-left text-xs leading-relaxed text-muted list-inside list-decimal marker:font-semibold marker:text-primary">
+        <li>
+          On your signed-in phone, open{" "}
+          <span className="font-semibold text-ink">Settings → Quick Sign-In</span>.
+        </li>
+        <li>
+          Tap <span className="font-semibold text-ink">Scan QR</span> and point it at this QR
+          code — or type the code above.
+        </li>
+        <li>It approves automatically — you're signed in.</li>
+      </ol>
 
       {(message || needsRestart) && (
         <p className="mt-3 text-sm text-red-500">{message}</p>

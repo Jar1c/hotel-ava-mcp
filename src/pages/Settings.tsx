@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react"
 import { useSearchParams } from "react-router-dom"
-import { Lock, Save, Eye, EyeOff, Sun, Moon, Monitor, Palette, Smartphone, QrCode, Camera } from "lucide-react"
+import { Lock, Save, Eye, EyeOff, Sun, Moon, Monitor, Palette, Smartphone, QrCode, Camera, Fingerprint, Lightbulb, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import ConfirmDialog from "@/components/ui/confirm-dialog"
 import QrScannerDialog from "@/components/QrScannerDialog"
 import { useTheme, type ThemeMode, type ColorPreset } from "@/contexts/ThemeContext"
+import { useAuth } from "@/contexts/AuthContext"
+import { isBiometricSupported, verifyWithBiometric } from "@/lib/webauthn"
 import { authApi, sessionsApi, quickSigninApi, type SessionInfo } from "@/services/api"
 
 const COLOR_PRESETS: { key: ColorPreset; label: string; primary: string; secondary: string }[] = [
@@ -54,6 +56,7 @@ function extractQsCode(raw: string): string | null {
 
 export default function Settings() {
   const { mode, setMode, colorPreset, setColorPreset } = useTheme()
+  const { user } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
   // URL-driven (?tab=devices) — a reload or deep link lands on the same tab
   const activeTab: TabKey =
@@ -91,25 +94,10 @@ export default function Settings() {
   const [qsError, setQsError] = useState("")
   const [qsDone, setQsDone] = useState(false)
   const [qsScannerOpen, setQsScannerOpen] = useState(false)
+  const [qsBioBusy, setQsBioBusy] = useState(false)
+  const [bioSupported] = useState(() => isBiometricSupported())
 
-  const handleQsScan = (raw: string) => {
-    const code = extractQsCode(raw)
-    setQsScannerOpen(false)
-    if (!code) {
-      setQsError("That QR code isn't a quick sign-in code.")
-      return
-    }
-    setQsCode(code)
-    setQsError("")
-    setQsDone(false)
-  }
-
-  const handleApproveQuickSignin = async () => {
-    const code = qsCode.replace(/[^A-Za-z0-9]/g, "").toUpperCase()
-    if (code.length !== 8) {
-      setQsError("Enter the 8-character code shown on the other device.")
-      return
-    }
+  const approveQsCode = async (code: string) => {
     setQsBusy(true)
     setQsError("")
     setQsDone(false)
@@ -121,6 +109,55 @@ export default function Settings() {
       setQsError(err.message || "Could not approve that code.")
     } finally {
       setQsBusy(false)
+    }
+  }
+
+  const handleApproveQuickSignin = async () => {
+    const code = qsCode.replace(/[^A-Za-z0-9]/g, "").toUpperCase()
+    if (code.length !== 8) {
+      setQsError("Enter the 8-character code shown on the other device.")
+      return
+    }
+    await approveQsCode(code)
+  }
+
+  // A successful scan IS the confirmation — approve without an extra tap.
+  const handleQsScan = (raw: string) => {
+    const code = extractQsCode(raw)
+    setQsScannerOpen(false)
+    if (!code) {
+      setQsError("That QR code isn't a quick sign-in code.")
+      return
+    }
+    setQsCode(code)
+    void approveQsCode(code)
+  }
+
+  // Fingerprint (WebAuthn) confirmation, then auto-approve.
+  const handleQsBiometric = async () => {
+    const code = qsCode.replace(/[^A-Za-z0-9]/g, "").toUpperCase()
+    if (code.length !== 8) {
+      setQsError("Enter or scan the 8-character code first.")
+      return
+    }
+    setQsBioBusy(true)
+    setQsError("")
+    setQsDone(false)
+    try {
+      const result = await verifyWithBiometric(user?.id ?? "", user?.email ?? "guest")
+      if (result === "unsupported") {
+        setQsError("Fingerprint sign-in isn't supported in this browser — use Sign in device instead.")
+        return
+      }
+      await approveQsCode(code)
+    } catch (err) {
+      setQsError(
+        err instanceof DOMException && (err.name === "NotAllowedError" || err.name === "UnknownError")
+          ? "Fingerprint verification was cancelled or unavailable — use Sign in device instead."
+          : "Fingerprint verification failed — use Sign in device instead.",
+      )
+    } finally {
+      setQsBioBusy(false)
     }
   }
 
@@ -543,10 +580,29 @@ export default function Settings() {
                     <Camera className="h-4 w-4" />
                     Scan QR
                   </Button>
+                </div>
+
+                <div className="flex flex-col gap-sm sm:flex-row sm:items-center mt-sm">
+                  {bioSupported && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => void handleQsBiometric()}
+                      disabled={qsBusy || qsBioBusy || qsCode.length < 8}
+                      className="!rounded-[8px] border-hairline text-ink gap-2 shrink-0 flex-1 sm:flex-none"
+                    >
+                      {qsBioBusy ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Fingerprint className="h-4 w-4" />
+                      )}
+                      {qsBioBusy ? "Verifying..." : "Use fingerprint"}
+                    </Button>
+                  )}
                   <Button
                     onClick={handleApproveQuickSignin}
-                    disabled={qsBusy || qsCode.length < 8}
-                    className="!rounded-[8px] bg-primary text-primary-foreground hover:bg-primary-active disabled:opacity-50"
+                    disabled={qsBusy || qsBioBusy || qsCode.length < 8}
+                    className="!rounded-[8px] bg-primary text-primary-foreground hover:bg-primary-active disabled:opacity-50 flex-1 sm:flex-none"
                   >
                     {qsBusy ? "Signing in device..." : "Sign in device"}
                   </Button>
@@ -558,6 +614,31 @@ export default function Settings() {
                     Approved — the other device is now signed in.
                   </p>
                 )}
+
+                {/* Usage guide */}
+                <div className="mt-md rounded-[8px] border border-hairline bg-canvas p-4 dark:bg-surface dark:border-hairline">
+                  <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-ink">
+                    <Lightbulb className="h-3.5 w-3.5 text-primary" />
+                    How to use Quick Sign-In
+                  </p>
+                  <ol className="list-inside list-decimal space-y-1.5 text-xs leading-relaxed text-muted marker:font-semibold marker:text-primary">
+                    <li>
+                      On the device you want signed in, open the{" "}
+                      <span className="font-semibold text-ink">Login</span> page and choose{" "}
+                      <span className="font-semibold text-ink">Quick Sign-In</span> — it shows a
+                      QR code and an 8-character code.
+                    </li>
+                    <li>
+                      Tap <span className="font-semibold text-ink">Scan QR</span> above and point
+                      the camera at that QR code — or type the code in the field.
+                    </li>
+                    <li>
+                      A successful scan approves automatically. You can also confirm with{" "}
+                      <span className="font-semibold text-ink">Use fingerprint</span> or the{" "}
+                      <span className="font-semibold text-ink">Sign in device</span> button.
+                    </li>
+                  </ol>
+                </div>
               </div>
             )}
           </div>
