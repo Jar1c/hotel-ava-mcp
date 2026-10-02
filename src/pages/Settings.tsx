@@ -1,13 +1,12 @@
 import { useEffect, useState } from "react"
 import { useSearchParams } from "react-router-dom"
-import { Lock, Save, Eye, EyeOff, Sun, Moon, Monitor, Palette, Smartphone, QrCode, Camera, Fingerprint, Loader2, CircleCheck, CircleAlert } from "lucide-react"
+import { Lock, Save, Eye, EyeOff, Sun, Moon, Monitor, Palette, Smartphone, QrCode, Camera, CircleCheck, CircleAlert } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import ConfirmDialog from "@/components/ui/confirm-dialog"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import QrScannerDialog from "@/components/QrScannerDialog"
 import { useTheme, type ThemeMode, type ColorPreset } from "@/contexts/ThemeContext"
 import { useAuth } from "@/contexts/AuthContext"
-import { isBiometricSupported, verifyWithBiometric } from "@/lib/webauthn"
 import { authApi, sessionsApi, quickSigninApi, type SessionInfo } from "@/services/api"
 
 const COLOR_PRESETS: { key: ColorPreset; label: string; primary: string; secondary: string }[] = [
@@ -95,10 +94,7 @@ export default function Settings() {
   const [qsError, setQsError] = useState("")
   const [qsDone, setQsDone] = useState(false)
   const [qsScannerOpen, setQsScannerOpen] = useState(false)
-  const [qsBioBusy, setQsBioBusy] = useState(false)
-  const [qsBioVerified, setQsBioVerified] = useState(false)
   const [qsSuccessOpen, setQsSuccessOpen] = useState(false)
-  const [bioSupported] = useState(() => isBiometricSupported())
 
   const approveQsCode = async (code: string) => {
     setQsBusy(true)
@@ -108,7 +104,6 @@ export default function Settings() {
       await quickSigninApi.approve(code)
       setQsDone(true)
       setQsSuccessOpen(true)
-      setQsBioVerified(false)
       setQsCode("")
     } catch (err: any) {
       setQsError(err.message || "Could not approve that code.")
@@ -136,36 +131,6 @@ export default function Settings() {
     }
     setQsCode(code)
     void approveQsCode(code)
-  }
-
-  // Fingerprint (WebAuthn) — works before OR after the code is entered.
-  // No code yet: verify identity first, then the code input/scan finishes the sign-in.
-  // Code already entered: verify and approve in one step.
-  const handleQsBiometric = async () => {
-    const code = qsCode.replace(/[^A-Za-z0-9]/g, "").toUpperCase()
-    setQsBioBusy(true)
-    setQsError("")
-    setQsDone(false)
-    try {
-      const result = await verifyWithBiometric(user?.id ?? "", user?.email ?? "guest")
-      if (result === "unsupported") {
-        setQsError("Fingerprint sign-in isn't supported in this browser — use Sign in device instead.")
-        return
-      }
-      if (code.length === 8) {
-        await approveQsCode(code)
-      } else {
-        setQsBioVerified(true)
-      }
-    } catch (err) {
-      setQsError(
-        err instanceof DOMException && (err.name === "NotAllowedError" || err.name === "UnknownError")
-          ? "Fingerprint verification was cancelled or unavailable — use Sign in device instead."
-          : "Fingerprint verification failed — use Sign in device instead.",
-      )
-    } finally {
-      setQsBioBusy(false)
-    }
   }
 
   const handlePasswordChange = async () => {
@@ -586,7 +551,6 @@ export default function Settings() {
                       setQsCode(next)
                       setQsError("")
                       setQsDone(false)
-                      if (qsBioVerified && next.length === 8) void approveQsCode(next)
                     }}
                     placeholder="ABCD2345"
                     autoComplete="off"
@@ -596,38 +560,20 @@ export default function Settings() {
                   />
                   <Button
                     onClick={handleApproveQuickSignin}
-                    disabled={qsBusy || qsBioBusy || qsCode.length < 8}
+                    disabled={qsBusy || qsCode.length < 8}
                     className="!rounded-[12px] w-full bg-primary text-primary-foreground hover:bg-primary-active disabled:opacity-50"
                   >
                     {qsBusy ? "Signing in device..." : "Sign in device"}
                   </Button>
-                  <div className={`grid gap-3 ${bioSupported ? "grid-cols-2" : "grid-cols-1"}`}>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setQsScannerOpen(true)}
-                      className="!rounded-[12px] border-hairline text-ink gap-2"
-                    >
-                      <Camera className="h-4 w-4" />
-                      Scan QR
-                    </Button>
-                    {bioSupported && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => void handleQsBiometric()}
-                        disabled={qsBusy || qsBioBusy}
-                        className="!rounded-[12px] border-hairline text-ink gap-2"
-                      >
-                        {qsBioBusy ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Fingerprint className="h-4 w-4" />
-                        )}
-                        {qsBioBusy ? "Verifying..." : "Use fingerprint"}
-                      </Button>
-                    )}
-                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setQsScannerOpen(true)}
+                    className="!rounded-[12px] border-hairline text-ink gap-2"
+                  >
+                    <Camera className="h-4 w-4" />
+                    Scan QR
+                  </Button>
                 </div>
 
                 {/* Status */}
@@ -636,12 +582,6 @@ export default function Settings() {
                     <p className="flex items-center justify-center gap-1.5 text-xs text-red-500">
                       <CircleAlert className="h-3.5 w-3.5 shrink-0" />
                       {qsError}
-                    </p>
-                  )}
-                  {!qsError && qsBioVerified && !qsDone && (
-                    <p className="flex items-center justify-center gap-1.5 text-xs text-emerald-600">
-                      <Fingerprint className="h-3.5 w-3.5 shrink-0" />
-                      Fingerprint verified — scan or type the code to finish.
                     </p>
                   )}
                   {!qsError && qsDone && (
@@ -687,7 +627,7 @@ export default function Settings() {
                       <div>
                         <p className="text-xs font-semibold text-ink">Device signs in</p>
                         <p className="mt-0.5 text-xs leading-relaxed text-muted">
-                          A scan approves instantly — or use fingerprint or the button.
+                          A scan approves instantly — or type the code and use the button.
                         </p>
                       </div>
                     </li>
