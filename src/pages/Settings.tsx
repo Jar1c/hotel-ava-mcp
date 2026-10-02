@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { useSearchParams } from "react-router-dom"
-import { Lock, Save, Eye, EyeOff, Sun, Moon, Monitor, Palette, Smartphone, QrCode, Camera, Fingerprint, Lightbulb, Loader2, CircleCheck } from "lucide-react"
+import { Lock, Save, Eye, EyeOff, Sun, Moon, Monitor, Palette, Smartphone, QrCode, Camera, Fingerprint, Loader2, CircleCheck, CircleAlert } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import ConfirmDialog from "@/components/ui/confirm-dialog"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
@@ -557,18 +557,29 @@ export default function Settings() {
 
             {/* Quick Sign-In Tab */}
             {activeTab === "quick-signin" && (
-              <div className="bg-white border border-hairline rounded-[12px] p-md dark:bg-surface-soft dark:border-hairline">
-                <h2 className="typo-title-sm text-ink mb-sm flex items-center gap-2">
-                  <QrCode className="h-4 w-4" />
-                  Quick Sign-In
-                </h2>
-                <p className="text-sm text-muted mb-md leading-relaxed">
-                  Signing in on another device? Scan the QR code it shows, or enter its
-                  8-character code — the device is signed in as you, no password needed.
-                </p>
+              <div className="bg-white border border-hairline rounded-[12px] p-6 dark:bg-surface-soft dark:border-hairline sm:p-8">
+                {/* Hero */}
+                <div className="flex flex-col items-center text-center">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-[14px] bg-primary/10">
+                    <QrCode className="h-6 w-6 text-primary" />
+                  </div>
+                  <h2 className="typo-title-sm text-ink mt-4">Approve another device</h2>
+                  <p className="mt-1 max-w-sm text-sm leading-relaxed text-muted">
+                    Enter the code shown on the other device's Login page — it signs in as
+                    you, no password needed.
+                  </p>
+                </div>
 
-                <div className="flex flex-col gap-sm sm:flex-row sm:items-center">
+                {/* Code + actions */}
+                <div className="mx-auto mt-6 flex max-w-sm flex-col gap-3">
+                  <label
+                    htmlFor="qs-code"
+                    className="text-center text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-soft"
+                  >
+                    Device code
+                  </label>
                   <input
+                    id="qs-code"
                     value={qsCode}
                     onChange={(e) => {
                       const next = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8)
@@ -578,81 +589,107 @@ export default function Settings() {
                       if (qsBioVerified && next.length === 8) void approveQsCode(next)
                     }}
                     placeholder="ABCD2345"
-                    className="flex-1 rounded-[8px] border border-hairline bg-canvas px-3 py-2.5 text-center font-mono text-lg tracking-[0.3em] text-ink placeholder:text-muted-soft placeholder:tracking-normal placeholder:font-body focus:outline-none focus:border-primary/50 transition-colors dark:bg-surface"
+                    autoComplete="off"
+                    spellCheck={false}
+                    maxLength={8}
+                    className="w-full rounded-[12px] border border-hairline bg-canvas px-4 py-3.5 pl-[calc(1rem+0.35em)] text-center font-mono text-xl font-semibold tracking-[0.35em] text-ink transition-colors placeholder:font-body placeholder:text-base placeholder:font-normal placeholder:tracking-[0.15em] placeholder:text-muted-soft focus:border-primary/50 focus:outline-none dark:bg-surface"
                   />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setQsScannerOpen(true)}
-                    className="!rounded-[8px] border-hairline text-ink gap-2 shrink-0"
-                  >
-                    <Camera className="h-4 w-4" />
-                    Scan QR
-                  </Button>
-                </div>
-
-                <div className="flex flex-col gap-sm sm:flex-row sm:items-center mt-sm">
-                  {bioSupported && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => void handleQsBiometric()}
-                      disabled={qsBusy || qsBioBusy}
-                      className="!rounded-[8px] border-hairline text-ink gap-2 shrink-0 flex-1 sm:flex-none"
-                    >
-                      {qsBioBusy ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Fingerprint className="h-4 w-4" />
-                      )}
-                      {qsBioBusy ? "Verifying..." : "Use fingerprint"}
-                    </Button>
-                  )}
                   <Button
                     onClick={handleApproveQuickSignin}
                     disabled={qsBusy || qsBioBusy || qsCode.length < 8}
-                    className="!rounded-[8px] bg-primary text-primary-foreground hover:bg-primary-active disabled:opacity-50 flex-1 sm:flex-none"
+                    className="!rounded-[12px] w-full bg-primary text-primary-foreground hover:bg-primary-active disabled:opacity-50"
                   >
                     {qsBusy ? "Signing in device..." : "Sign in device"}
                   </Button>
+                  <div className={`grid gap-3 ${bioSupported ? "grid-cols-2" : "grid-cols-1"}`}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setQsScannerOpen(true)}
+                      className="!rounded-[12px] border-hairline text-ink gap-2"
+                    >
+                      <Camera className="h-4 w-4" />
+                      Scan QR
+                    </Button>
+                    {bioSupported && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => void handleQsBiometric()}
+                        disabled={qsBusy || qsBioBusy}
+                        className="!rounded-[12px] border-hairline text-ink gap-2"
+                      >
+                        {qsBioBusy ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Fingerprint className="h-4 w-4" />
+                        )}
+                        {qsBioBusy ? "Verifying..." : "Use fingerprint"}
+                      </Button>
+                    )}
+                  </div>
                 </div>
 
-                {qsError && <p className="text-xs text-red-500 mt-sm">{qsError}</p>}
-                {qsBioVerified && !qsDone && !qsError && (
-                  <p className="text-xs text-emerald-600 mt-sm">
-                    Fingerprint verified — scan the QR code or enter the 8-character code to
-                    finish signing the other device in.
-                  </p>
-                )}
-                {qsDone && (
-                  <p className="text-xs text-emerald-600 mt-sm">
-                    Approved — the other device is now signed in.
-                  </p>
-                )}
+                {/* Status */}
+                <div className="mx-auto mt-4 min-h-[20px] max-w-md text-center">
+                  {qsError && (
+                    <p className="flex items-center justify-center gap-1.5 text-xs text-red-500">
+                      <CircleAlert className="h-3.5 w-3.5 shrink-0" />
+                      {qsError}
+                    </p>
+                  )}
+                  {!qsError && qsBioVerified && !qsDone && (
+                    <p className="flex items-center justify-center gap-1.5 text-xs text-emerald-600">
+                      <Fingerprint className="h-3.5 w-3.5 shrink-0" />
+                      Fingerprint verified — scan or type the code to finish.
+                    </p>
+                  )}
+                  {!qsError && qsDone && (
+                    <p className="flex items-center justify-center gap-1.5 text-xs text-emerald-600">
+                      <CircleCheck className="h-3.5 w-3.5 shrink-0" />
+                      Approved — the other device is now signed in.
+                    </p>
+                  )}
+                </div>
 
-                {/* Usage guide */}
-                <div className="mt-md rounded-[8px] border border-hairline bg-canvas p-4 dark:bg-surface dark:border-hairline">
-                  <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-ink">
-                    <Lightbulb className="h-3.5 w-3.5 text-primary" />
-                    How to use Quick Sign-In
+                {/* How it works */}
+                <div className="mt-7 border-t border-hairline-soft pt-5">
+                  <p className="text-center text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-soft">
+                    How it works
                   </p>
-                  <ol className="list-inside list-decimal space-y-1.5 text-xs leading-relaxed text-muted marker:font-semibold marker:text-primary">
-                    <li>
-                      On the device you want signed in, open the{" "}
-                      <span className="font-semibold text-ink">Login</span> page and choose{" "}
-                      <span className="font-semibold text-ink">Quick Sign-In</span> — it shows a
-                      QR code and an 8-character code.
+                  <ol className="mx-auto mt-3 grid max-w-3xl gap-3 sm:grid-cols-3">
+                    <li className="flex items-start gap-2.5 rounded-[12px] border border-hairline-soft bg-canvas px-3.5 py-3 dark:bg-surface">
+                      <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary">
+                        1
+                      </span>
+                      <div>
+                        <p className="text-xs font-semibold text-ink">Open Quick Sign-In</p>
+                        <p className="mt-0.5 text-xs leading-relaxed text-muted">
+                          On the other device's Login page, choose Quick Sign-In.
+                        </p>
+                      </div>
                     </li>
-                    <li>
-                      Tap <span className="font-semibold text-ink">Scan QR</span> above and point
-                      the camera at that QR code — or type the code in the field.
+                    <li className="flex items-start gap-2.5 rounded-[12px] border border-hairline-soft bg-canvas px-3.5 py-3 dark:bg-surface">
+                      <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary">
+                        2
+                      </span>
+                      <div>
+                        <p className="text-xs font-semibold text-ink">Scan or type the code</p>
+                        <p className="mt-0.5 text-xs leading-relaxed text-muted">
+                          Point the camera at its QR code, or enter the code above.
+                        </p>
+                      </div>
                     </li>
-                    <li>
-                      A successful scan approves automatically. Tap{" "}
-                      <span className="font-semibold text-ink">Use fingerprint</span> first (even
-                      before typing the code) and it finishes once the code is in — or confirm
-                      with the <span className="font-semibold text-ink">Sign in device</span>{" "}
-                      button.
+                    <li className="flex items-start gap-2.5 rounded-[12px] border border-hairline-soft bg-canvas px-3.5 py-3 dark:bg-surface">
+                      <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary">
+                        3
+                      </span>
+                      <div>
+                        <p className="text-xs font-semibold text-ink">Device signs in</p>
+                        <p className="mt-0.5 text-xs leading-relaxed text-muted">
+                          A scan approves instantly — or use fingerprint or the button.
+                        </p>
+                      </div>
                     </li>
                   </ol>
                 </div>
