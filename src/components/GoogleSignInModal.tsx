@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { Link, useLocation, useNavigate } from "react-router"
-import { X, Loader2, Mail } from "lucide-react"
+import { X, Loader2, Mail, QrCode } from "lucide-react"
+import QuickSignInPanel from "@/components/auth/QuickSignInPanel"
 
 const PRIMARY = "#82285f"
 
@@ -11,8 +12,14 @@ interface GoogleSignInModalProps {
 
 export default function GoogleSignInModal({ open, onClose }: GoogleSignInModalProps) {
   const [loading, setLoading] = useState(false)
+  const [mode, setMode] = useState<"default" | "quick">("default")
   const navigate = useNavigate()
   const location = useLocation()
+
+  // Always start from the default options whenever the popup opens
+  useEffect(() => {
+    if (open) setMode("default")
+  }, [open])
 
   // The modal lives in the Header, which survives every route change. The
   // Terms / Privacy links inside it navigate away — without this the popup
@@ -82,8 +89,16 @@ export default function GoogleSignInModal({ open, onClose }: GoogleSignInModalPr
         </div>
 
         <h2 className="text-lg font-semibold text-ink mb-2">Sign in to Hotel Ava</h2>
-        <p className="text-sm text-muted mb-6">Continue with your Google account to start booking.</p>
+        <p className="text-sm text-muted mb-6">
+          {mode === "quick"
+            ? "Sign this device in from an already-signed-in device."
+            : "Continue with your Google account to start booking."}
+        </p>
 
+        {mode === "quick" ? (
+          <QuickSignInPanel onSignedIn={() => onClose()} onBack={() => setMode("default")} />
+        ) : (
+          <>
         <button
           type="button"
           onClick={handleGoogleSignIn}
@@ -123,6 +138,18 @@ export default function GoogleSignInModal({ open, onClose }: GoogleSignInModalPr
           <Mail className="w-4 h-4" />
           Sign in with Email
         </button>
+
+        {/* Quick Sign-In */}
+        <button
+          type="button"
+          onClick={() => setMode("quick")}
+          className="mt-3 w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-[10px] border border-hairline bg-white hover:bg-surface-soft transition-colors cursor-pointer text-sm text-ink/80"
+        >
+          <QrCode className="w-4 h-4" />
+          Quick Sign-In
+        </button>
+          </>
+        )}
 
         <p className="text-[11px] text-muted/60 mt-5 leading-relaxed">
           By signing in, you agree to our{" "}

@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from "react"
-import { authApi } from "@/services/api"
+import { authApi, type LoginChallenge, type LoginResponse, type TrackLoginResult } from "@/services/api"
 import { supabase } from "@/lib/supabase"
+import LoginChallengeDialog from "@/components/auth/LoginChallengeDialog"
 
 export type UserRole = "public" | "guest" | "admin"
 
@@ -28,6 +29,11 @@ interface AuthContextValue {
   clearSession: () => void
   /** True exactly once after a logout started from THIS device (consumes the flag). */
   consumeLogoutSuppress: () => boolean
+  /** Pending step-up verification (unfamiliar device/location) — drives the dialog. */
+  pendingChallenge: LoginChallenge | null
+  setChallenge: (challenge: LoginChallenge | null) => void
+  /** Finish a sign-in verified server-side (OTP step-up / quick sign-in). */
+  completeSession: (res: LoginResponse) => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
@@ -125,6 +131,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Set while a logout started from THIS device so the remote-logout
   // awareness listener never shows a dialog for the user's own sign-out.
   const logoutSuppressRef = useRef(false)
+
+  // Step-up verification for unfamiliar device/location logins — persisted so
+  // a reload while waiting for the email still shows the code screen.
+  const [pendingChallenge, setPendingChallenge] = useState<LoginChallenge | null>(() => {
+    try {
+      const raw = localStorage.getItem("pending_login_challenge")
+      return raw ? (JSON.parse(raw) as LoginChallenge) : null
+    } catch {
+      return null
+    }
+  })
+
+  const setChallenge = useCallback((challenge: LoginChallenge | null) => {
+    try {
+      if (challenge) localStorage.setItem("pending_login_challenge", JSON.stringify(challenge))
+      else localStorage.removeItem("pending_login_challenge")
+    } catch {
+      /* ignore */
+    }
+    setPendingChallenge(challenge)
+  }, [])
 
   /** Single writer for user state — keeps userRef in sync immediately.
    *  Treat undefined as null so a bad call can never leave a phantom
@@ -316,7 +343,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // INITIAL_SESSION is intentionally skipped — a restored session is not a login.
         if (event === "SIGNED_IN") {
           logoutSuppressRef.current = false
-          authApi.trackLogin().catch(() => {})
+          // Step-up gate: unfamiliar device/location → tear down this fresh
+          // session and ask for the emailed code. Plain fetch only (calling a
+          // supabase auth method inside this callback can deadlock the client);
+          // signOut is deferred out of the callback for the same reason.
+          let gate: TrackLoginResult | null = null
+          try {
+            gate = await authApi.trackLogin()
+          } catch {
+            gate = null
+          }
+          if (gate?.verification_required && gate.challenge_id) {
+            sessionStorage.removeItem("access_token")
+            sessionStorage.removeItem("refresh_token")
+            setChallenge({
+              challenge: "otp",
+              challenge_id: gate.challenge_id,
+              email_masked: gate.email_masked || "",
+              reason: gate.reason || "",
+            })
+            setTimeout(() => {
+              supabase.auth.signOut().catch(() => {})
+            }, 0)
+            return
+          }
         }
 
         // Check if we have a cached user with a valid identity (name or email)
@@ -431,7 +481,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       mounted = false
       subscription.unsubscribe()
     }
-  }, [syncSupabaseSession, verifySession, applyUser])
+  }, [syncSupabaseSession, verifySession, applyUser, setChallenge])
 
   const role: UserRole = user?.role ?? "public"
   const isAuthenticated = user !== null
@@ -519,6 +569,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearSession()
   }, [clearSession])
 
+  /** Finish a sign-in that was verified server-side (OTP step-up / quick sign-in). */
+  const completeSession = useCallback(async (res: LoginResponse) => {
+    sessionStorage.setItem("access_token", res.access_token)
+    sessionStorage.setItem("refresh_token", res.refresh_token)
+    logoutSuppressRef.current = false
+    setChallenge(null)
+    const userObj: User = {
+      id: res.user.id,
+      email: res.user.email,
+      name: res.user.name,
+      role: (res.user.role || "guest") as UserRole,
+      avatar: res.user.avatar_url || "",
+      name_changed_at: res.user.name_changed_at || "",
+    }
+    applyUser(userObj)
+    setCachedProfile(userObj)
+    setLoading(false)
+    // Browser Supabase session (best-effort) — keeps reload/re-verify working
+    try {
+      const { error } = await supabase.auth.setSession({
+        access_token: res.access_token,
+        refresh_token: res.refresh_token,
+      })
+      if (error) console.debug("[auth] setSession:", error.message)
+    } catch {
+      /* Flask session above already works on its own */
+    }
+  }, [applyUser, setChallenge])
+
   const setRole = useCallback(
     (newRole: UserRole) => {
       const prev = userRef.current
@@ -552,8 +631,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   )
 
   return (
-    <AuthContext.Provider value={{ user, role, isAuthenticated, isAdmin, login, register, logout, setRole, updateUser, loading, clearSession, consumeLogoutSuppress }}>
+    <AuthContext.Provider value={{ user, role, isAuthenticated, isAdmin, login, register, logout, setRole, updateUser, loading, clearSession, consumeLogoutSuppress, pendingChallenge, setChallenge, completeSession }}>
       {children}
+      {pendingChallenge && (
+        <LoginChallengeDialog
+          challenge={pendingChallenge}
+          onVerified={completeSession}
+          onClose={() => setChallenge(null)}
+        />
+      )}
     </AuthContext.Provider>
   )
 }

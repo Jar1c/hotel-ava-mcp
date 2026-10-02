@@ -1,15 +1,17 @@
 import { useState, useEffect } from "react"
 import { Link, useNavigate, useSearchParams } from "react-router"
-import { Mail, Lock, Eye, EyeOff } from "lucide-react"
+import { Mail, Lock, Eye, EyeOff, QrCode } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useAuth } from "@/contexts/AuthContext"
 import LoadingDots from "@/components/LoadingDots"
+import QuickSignInPanel from "@/components/auth/QuickSignInPanel"
+import { LoginChallengeError } from "@/services/api"
 import hotelLogo from "@/assets/images/Hotel Ava logo.png"
 
 const PRIMARY = "#82285f"
 
 export default function Login() {
-  const { login, isAuthenticated, loading } = useAuth()
+  const { login, isAuthenticated, loading, setChallenge } = useAuth()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const returnTo = searchParams.get("returnTo") || "/"
@@ -20,6 +22,7 @@ export default function Login() {
   const [password, setPassword] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [mode, setMode] = useState<"password" | "quick">("password")
 
   // Auto-redirect after Google OAuth completes (or already authenticated)
   useEffect(() => {
@@ -47,7 +50,12 @@ export default function Login() {
       } else {
         navigate(returnTo)
       }
-    } catch {
+    } catch (err) {
+      if (err instanceof LoginChallengeError) {
+        // Unfamiliar device/location — the shared OTP dialog takes over
+        setChallenge(err.challenge)
+        return
+      }
       setError("Invalid email or password.")
     } finally {
       setSubmitting(false)
@@ -164,6 +172,16 @@ export default function Login() {
             Sign in to your account
           </p>
 
+          {mode === "quick" ? (
+            <QuickSignInPanel
+              onSignedIn={(res) => {
+                if (res.user.role === "admin") navigate("/admin/dashboard")
+                else navigate(returnTo)
+              }}
+              onBack={() => setMode("password")}
+            />
+          ) : (
+          <>
           {/* Google SSO */}
           <button
             type="button"
@@ -178,6 +196,17 @@ export default function Login() {
               <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
             </svg>
             <span className="text-sm text-ink/80">Continue with Google</span>
+          </button>
+
+          {/* Quick Sign-In */}
+          <button
+            type="button"
+            disabled={submitting}
+            onClick={() => setMode("quick")}
+            className="mt-3 w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-[10px] border border-hairline bg-white hover:bg-surface-soft transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <QrCode className="w-4 h-4 shrink-0" />
+            <span className="text-sm text-ink/80">Sign in with Quick Sign-In</span>
           </button>
 
           {/* Divider */}
@@ -270,6 +299,8 @@ export default function Login() {
               <p className="text-sm text-error text-center">{error}</p>
             )}
           </form>
+          </>
+          )}
 
           <p className="text-center text-sm text-muted mt-6">
             Don't have an account?{" "}

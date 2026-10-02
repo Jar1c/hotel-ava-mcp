@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react"
 import { useSearchParams } from "react-router-dom"
-import { Lock, Save, Eye, EyeOff, Sun, Moon, Monitor, Palette, Smartphone } from "lucide-react"
+import { Lock, Save, Eye, EyeOff, Sun, Moon, Monitor, Palette, Smartphone, QrCode } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import ConfirmDialog from "@/components/ui/confirm-dialog"
 import { useTheme, type ThemeMode, type ColorPreset } from "@/contexts/ThemeContext"
-import { authApi, sessionsApi, type SessionInfo } from "@/services/api"
+import { authApi, sessionsApi, quickSigninApi, type SessionInfo } from "@/services/api"
 
 const COLOR_PRESETS: { key: ColorPreset; label: string; primary: string; secondary: string }[] = [
   { key: "royal-plum", label: "Royal Plum", primary: "#82285f", secondary: "#455d58" },
@@ -25,6 +25,7 @@ const TABS = [
   { key: "appearance", label: "Appearance", icon: Palette },
   { key: "security", label: "Change Password", icon: Lock },
   { key: "devices", label: "Devices", icon: Smartphone },
+  { key: "quick-signin", label: "Quick Sign-In", icon: QrCode },
 ] as const
 
 type TabKey = typeof TABS[number]["key"]
@@ -68,6 +69,32 @@ export default function Settings() {
 
   const [passwordError, setPasswordError] = useState("")
   const [passwordSuccess, setPasswordSuccess] = useState("")
+
+  // Quick Sign-In approval (enter the code shown on the other device)
+  const [qsCode, setQsCode] = useState("")
+  const [qsBusy, setQsBusy] = useState(false)
+  const [qsError, setQsError] = useState("")
+  const [qsDone, setQsDone] = useState(false)
+
+  const handleApproveQuickSignin = async () => {
+    const code = qsCode.replace(/[^A-Za-z0-9]/g, "").toUpperCase()
+    if (code.length !== 8) {
+      setQsError("Enter the 8-character code shown on the other device.")
+      return
+    }
+    setQsBusy(true)
+    setQsError("")
+    setQsDone(false)
+    try {
+      await quickSigninApi.approve(code)
+      setQsDone(true)
+      setQsCode("")
+    } catch (err: any) {
+      setQsError(err.message || "Could not approve that code.")
+    } finally {
+      setQsBusy(false)
+    }
+  }
 
   const handlePasswordChange = async () => {
     setPasswordError("")
@@ -452,6 +479,47 @@ export default function Settings() {
                       </p>
                     )}
                   </div>
+                )}
+              </div>
+            )}
+
+            {/* Quick Sign-In Tab */}
+            {activeTab === "quick-signin" && (
+              <div className="bg-white border border-hairline rounded-[12px] p-md dark:bg-surface-soft dark:border-hairline">
+                <h2 className="typo-title-sm text-ink mb-sm flex items-center gap-2">
+                  <QrCode className="h-4 w-4" />
+                  Quick Sign-In
+                </h2>
+                <p className="text-sm text-muted mb-md leading-relaxed">
+                  Signing in on another device? Enter the 8-character code it shows to
+                  sign it in as you — no password needed.
+                </p>
+
+                <div className="flex flex-col gap-sm sm:flex-row sm:items-center">
+                  <input
+                    value={qsCode}
+                    onChange={(e) => {
+                      setQsCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8))
+                      setQsError("")
+                      setQsDone(false)
+                    }}
+                    placeholder="ABCD2345"
+                    className="flex-1 rounded-[8px] border border-hairline bg-canvas px-3 py-2.5 text-center font-mono text-lg tracking-[0.3em] text-ink placeholder:text-muted-soft placeholder:tracking-normal placeholder:font-body focus:outline-none focus:border-primary/50 transition-colors dark:bg-surface"
+                  />
+                  <Button
+                    onClick={handleApproveQuickSignin}
+                    disabled={qsBusy || qsCode.length < 8}
+                    className="!rounded-[8px] bg-primary text-primary-foreground hover:bg-primary-active disabled:opacity-50"
+                  >
+                    {qsBusy ? "Signing in device..." : "Sign in device"}
+                  </Button>
+                </div>
+
+                {qsError && <p className="text-xs text-red-500 mt-sm">{qsError}</p>}
+                {qsDone && (
+                  <p className="text-xs text-emerald-600 mt-sm">
+                    Approved — the other device is now signed in.
+                  </p>
                 )}
               </div>
             )}

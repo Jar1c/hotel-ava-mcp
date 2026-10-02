@@ -13,6 +13,7 @@ import ipaddress
 import jwt as pyjwt
 import uuid
 import time
+import secrets
 import requests as http_requests
 from urllib.parse import quote
 
@@ -633,6 +634,96 @@ def _session_revoked(token: str) -> bool:
         return False
 
 
+def _mask_email(email: str) -> str:
+    """j***@gmail.com — shown on the challenge screen."""
+    try:
+        local, domain = email.split("@", 1)
+        head = local[:2] if len(local) > 2 else local[:1]
+        return f"{head}{'*' * max(3, len(local) - len(head))}@{domain}"
+    except ValueError:
+        return "***"
+
+
+def _step_up_reason(user_id) -> str:
+    """'' when this device+location already belong to the user.
+
+    unknown_device — this browser has never signed in as this user.
+    new_location   — known device, but a location never seen for this account.
+    Fail-open: any DB/geo error must never lock a user out of their own account.
+    """
+    try:
+        device_key, _, ip = _request_device_info()
+        dev = supabase_admin.table("user_devices") \
+            .select("id").eq("user_id", user_id) \
+            .eq("device_key", device_key).limit(1).execute()
+        if not dev.data:
+            return "unknown_device"
+        # Known device — only compare locations once at least one is recorded,
+        # so the first login after this migration learns silently instead of
+        # challenging every existing device.
+        known = supabase_admin.table("user_devices") \
+            .select("id").eq("user_id", user_id) \
+            .not_.is_("location", None).limit(1).execute()
+        if not known.data:
+            return ""
+        loc = _geolocate(ip)
+        if not loc:
+            return ""
+        hit = supabase_admin.table("user_devices") \
+            .select("id").eq("user_id", user_id) \
+            .eq("location", loc).limit(1).execute()
+        return "" if hit.data else "new_location"
+    except Exception as step_err:
+        print(f"Step-up check error: {step_err}")
+        return ""
+
+
+def _create_login_challenge(user_id, email, reason):
+    """Create/reuse a pending challenge and email the OTP code.
+
+    Returns the challenge id, or None when the email could not be sent —
+    callers then fail open and log the user in normally (never brick login).
+    Resends are throttled to one per 60s (GoTrue rate-limits OTP anyway).
+    """
+    now = datetime.now(timezone.utc)
+    challenge_id = None
+    try:
+        pending = supabase_admin.table("login_challenges").select("*") \
+            .eq("user_id", user_id).eq("reason", reason) \
+            .gt("expires_at", now.isoformat()) \
+            .order("created_at", desc=True).limit(1).execute()
+        if pending.data:
+            row = pending.data[0]
+            challenge_id = row["id"]
+            sent = datetime.fromisoformat(str(row["created_at"]).replace("Z", "+00:00"))
+            if (now - sent).total_seconds() < 60:
+                return challenge_id  # reuse without sending another email
+        else:
+            challenge_id = str(uuid.uuid4())
+            supabase_admin.table("login_challenges").insert({
+                "id": challenge_id,
+                "user_id": user_id,
+                "email": email,
+                "reason": reason,
+                "attempts": 0,
+                "created_at": now.isoformat(),
+                "expires_at": (now + timedelta(minutes=10)).isoformat(),
+            }).execute()
+        supabase.auth.sign_in_with_otp({
+            "email": email,
+            "options": {"should_create_user": False},
+        })
+        if pending.data:
+            # Resend — bump created_at so the 60s throttle starts fresh
+            supabase_admin.table("login_challenges") \
+                .update({"created_at": now.isoformat()}) \
+                .eq("id", challenge_id).execute()
+        return challenge_id
+    except Exception as ch_err:
+        print(f"Login challenge error: {ch_err}")
+        return None
+
+
 def _upsert_session(user_id, device_id, device_name, ip, user_agent,
                     access_token, refresh_token=None):
     """One active session row per device — the "Devices & activity" list."""
@@ -690,6 +781,7 @@ def track_new_login(user_id):
     missing migration or Supabase hiccup never blocks the actual sign-in.
     """
     device_key, device_name, ip = _request_device_info()
+    loc = _geolocate(ip)
     now = datetime.now(timezone.utc).isoformat()
 
     res = supabase_admin.table("user_devices").select("*") \
@@ -701,16 +793,21 @@ def track_new_login(user_id):
         dev = res.data[0]
         device_id = dev["id"]
         trusted = bool(dev.get("trusted"))
-        supabase_admin.table("user_devices").update(
-            {"last_seen": now, "ip": ip, "device_name": device_name}
-        ).eq("id", device_id).execute()
+        upd = {"last_seen": now, "ip": ip, "device_name": device_name}
+        if loc:
+            upd["location"] = loc
+        supabase_admin.table("user_devices").update(upd) \
+            .eq("id", device_id).execute()
     else:
-        inserted = supabase_admin.table("user_devices").insert({
+        new_dev = {
             "user_id": user_id,
             "device_key": device_key,
             "device_name": device_name,
             "ip": ip,
-        }).execute()
+        }
+        if loc:
+            new_dev["location"] = loc
+        inserted = supabase_admin.table("user_devices").insert(new_dev).execute()
         device_id = inserted.data[0]["id"]
         is_new = True
 
@@ -736,7 +833,6 @@ def track_new_login(user_id):
         except Exception:
             return device_id
 
-    loc = _geolocate(ip)
     place = f" in {loc}" if loc else ""
     create_notification(
         user_id,
@@ -804,9 +900,28 @@ def track_login():
         return jsonify({"error": "Unauthorized"}), 401
 
     try:
+        body = request.get_json(silent=True) or {}
+
+        # Step-up gate FIRST — before any device/session row is written, or the
+        # unverified device would look familiar on the next attempt. Fail-open:
+        # when the OTP email can't be sent, sign in normally instead.
+        reason = _step_up_reason(user_id)
+        if reason:
+            urow = supabase_admin.table("users") \
+                .select("email").eq("id", user_id).limit(1).execute()
+            email = urow.data[0]["email"] if urow.data else ""
+            if email:
+                challenge_id = _create_login_challenge(user_id, email, reason)
+                if challenge_id:
+                    return jsonify({
+                        "verification_required": True,
+                        "challenge_id": challenge_id,
+                        "email_masked": _mask_email(email),
+                        "reason": reason,
+                    }), 200
+
         device_id = track_new_login(user_id)
         _, dname, dip = _request_device_info()
-        body = request.get_json(silent=True) or {}
         _upsert_session(
             user_id, device_id, dname, dip,
             request.headers.get("User-Agent", ""),
@@ -848,6 +963,23 @@ def login():
             except Exception:
                 profile_data = {}
 
+        # Step-up verification — unfamiliar device or a brand-new location →
+        # email a one-time code instead of handing back tokens. Fail-open when
+        # the challenge email can't be sent: a login must never be bricked.
+        try:
+            reason = _step_up_reason(user.id)
+        except Exception:
+            reason = ""
+        if reason:
+            challenge_id = _create_login_challenge(user.id, user.email, reason)
+            if challenge_id:
+                return jsonify({
+                    "challenge": "otp",
+                    "challenge_id": challenge_id,
+                    "email_masked": _mask_email(user.email),
+                    "reason": reason,
+                }), 202
+
         # New-device alert (non-fatal — never blocks the sign-in itself)
         device_id = None
         try:
@@ -881,6 +1013,140 @@ def login():
     except Exception as e:
         print(f"Login error: {type(e).__name__}: {e}")
         return jsonify({"error": "Invalid email or password"}), 401
+
+
+def _load_login_challenge(challenge_id):
+    """Challenge row when it exists and is still valid, else None."""
+    if not challenge_id:
+        return None
+    res = supabase_admin.table("login_challenges").select("*") \
+        .eq("id", str(challenge_id)).limit(1).execute()
+    if not res.data:
+        return None
+    row = res.data[0]
+    expires = datetime.fromisoformat(str(row["expires_at"]).replace("Z", "+00:00"))
+    if datetime.now(timezone.utc) > expires:
+        try:
+            supabase_admin.table("login_challenges") \
+                .delete().eq("id", row["id"]).execute()
+        except Exception:
+            pass
+        return None
+    return row
+
+
+@app.route("/api/auth/login/verify", methods=["POST"])
+def verify_login_challenge():
+    """Exchange the emailed OTP for a full session — the step-up gate."""
+    data = request.get_json()
+    challenge_id = data.get("challenge_id", "")
+    code = (data.get("code", "") or "").strip()
+
+    if not challenge_id or not code:
+        return jsonify({"error": "Code is required"}), 400
+
+    try:
+        ch = _load_login_challenge(challenge_id)
+        if not ch:
+            return jsonify({"error": "Verification expired. Please sign in again."}), 410
+        if int(ch.get("attempts") or 0) >= 5:
+            return jsonify({"error": "Too many attempts. Please sign in again."}), 429
+
+        session = None
+        try:
+            try:
+                v = supabase.auth.verify_otp(
+                    {"email": ch["email"], "token": code, "type": "magiclink"})
+            except Exception:
+                # Older template/type naming — same endpoint, different tag
+                v = supabase.auth.verify_otp(
+                    {"email": ch["email"], "token": code, "type": "email"})
+            session = v.session
+        except Exception:
+            session = None
+
+        if not session or not session.access_token:
+            try:
+                supabase_admin.table("login_challenges").update(
+                    {"attempts": int(ch.get("attempts") or 0) + 1}
+                ).eq("id", ch["id"]).execute()
+            except Exception:
+                pass
+            return jsonify({"error": "Incorrect code. Please try again."}), 400
+
+        # One-time use
+        try:
+            supabase_admin.table("login_challenges") \
+                .delete().eq("id", ch["id"]).execute()
+        except Exception:
+            pass
+
+        user_id = ch["user_id"]
+
+        # This device is now verified — create its rows exactly like a normal
+        # login so the next sign-in from here passes the step-up check.
+        device_id = None
+        try:
+            device_id = track_new_login(user_id)
+        except Exception as track_err:
+            print(f"Device tracking error: {track_err}")
+        try:
+            _, dname, dip = _request_device_info()
+            _upsert_session(
+                user_id, device_id, dname, dip,
+                request.headers.get("User-Agent", ""),
+                session.access_token, session.refresh_token,
+            )
+        except Exception as sess_err:
+            print(f"Session track error: {sess_err}")
+
+        ures = supabase_admin.table("users").select("*") \
+            .eq("id", user_id).limit(1).execute()
+        profile_data = ures.data[0] if ures.data else {}
+
+        return jsonify({
+            "access_token": session.access_token,
+            "refresh_token": session.refresh_token,
+            "user": {
+                "id": user_id,
+                "email": profile_data.get("email") or ch["email"],
+                "name": profile_data.get("name") or ch["email"].split("@")[0],
+                "role": profile_data.get("role", "guest"),
+                "avatar_url": profile_data.get("avatar_url", ""),
+                "name_changed_at": profile_data.get("name_changed_at", ""),
+            }
+        }), 200
+    except Exception as e:
+        print(f"Login verify error: {type(e).__name__}: {e}")
+        return jsonify({"error": "Verification failed. Please try again."}), 500
+
+
+@app.route("/api/auth/login/resend", methods=["POST"])
+def resend_login_challenge():
+    data = request.get_json()
+    challenge_id = data.get("challenge_id", "")
+
+    try:
+        ch = _load_login_challenge(challenge_id)
+        if not ch:
+            return jsonify({"error": "Verification expired. Please sign in again."}), 410
+
+        sent = datetime.fromisoformat(str(ch["created_at"]).replace("Z", "+00:00"))
+        if (datetime.now(timezone.utc) - sent).total_seconds() < 60:
+            return jsonify({"error": "Please wait a moment before resending."}), 429
+
+        supabase.auth.sign_in_with_otp({
+            "email": ch["email"],
+            "options": {"should_create_user": False},
+        })
+        supabase_admin.table("login_challenges") \
+            .update({"created_at": datetime.now(timezone.utc).isoformat(),
+                     "attempts": 0}) \
+            .eq("id", ch["id"]).execute()
+        return jsonify({"message": "A new sign-in code has been sent."}), 200
+    except Exception as e:
+        print(f"Login resend error: {type(e).__name__}: {e}")
+        return jsonify({"error": "Could not resend the code. Please try again."}), 500
 
 
 @app.route("/api/auth/verify-email", methods=["POST"])
@@ -1404,6 +1670,201 @@ def revoke_other_sessions():
         return jsonify({"success": True, "revoked": len(ids)}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+# ── Quick Sign-In (Roblox-style code approval) ────────────────────────────────
+
+_SIGNIN_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"  # no 0/O/1/I/L
+
+
+def _gen_signin_code() -> str:
+    return "".join(secrets.choice(_SIGNIN_CODE_ALPHABET) for _ in range(8))
+
+
+def _mint_session_for(user_id):
+    """Fresh session for a user WITHOUT their password (quick-sign-in approve).
+
+    admin.generate_link returns the OTP directly — verify it like an email
+    code. Returns (session, email) or (None, None).
+    """
+    ures = supabase_admin.table("users").select("email") \
+        .eq("id", user_id).limit(1).execute()
+    if not ures.data:
+        return None, None
+    email = ures.data[0]["email"]
+    # Admin API — must go through the service-role client
+    link = supabase_admin.auth.admin.generate_link(
+        {"type": "magic_link", "email": email})
+    otp = link.properties.email_otp
+    v = supabase.auth.verify_otp({"email": email, "token": otp, "type": "magiclink"})
+    if not v.session or not v.session.access_token:
+        return None, None
+    return v.session, email
+
+
+@app.route("/api/auth/quick-signin/request", methods=["POST"])
+def quick_signin_request():
+    """Device A (signed-out) generates a short-lived code to approve elsewhere."""
+    device_key, device_name, _ = _request_device_info()
+    now = datetime.now(timezone.utc)
+    try:
+        # One active code per requesting device; prune dead rows
+        supabase_admin.table("quick_signin_codes").delete() \
+            .eq("device_key", device_key).eq("status", "pending").execute()
+        supabase_admin.table("quick_signin_codes").delete() \
+            .lt("expires_at", (now - timedelta(minutes=5)).isoformat()).execute()
+
+        expires = now + timedelta(seconds=120)
+        code = _gen_signin_code()
+        for _ in range(3):
+            try:
+                supabase_admin.table("quick_signin_codes").insert({
+                    "code": code,
+                    "device_key": device_key,
+                    "device_name": device_name,
+                    "status": "pending",
+                    "created_at": now.isoformat(),
+                    "expires_at": expires.isoformat(),
+                }).execute()
+                break
+            except Exception:
+                code = _gen_signin_code()  # rare PK collision — retry
+        else:
+            return jsonify({"error": "Could not create a sign-in code."}), 500
+
+        return jsonify({"code": code, "expires_at": expires.isoformat()}), 200
+    except Exception as e:
+        print(f"Quick sign-in request error: {e}")
+        return jsonify({"error": "Could not create a sign-in code."}), 500
+
+
+@app.route("/api/auth/quick-signin/status", methods=["GET"])
+def quick_signin_status():
+    """Device A polls. On approval it consumes the code and gets its session."""
+    code = (request.args.get("code", "") or "").strip().upper()
+    if not code:
+        return jsonify({"status": "invalid"}), 200
+
+    try:
+        res = supabase_admin.table("quick_signin_codes").select("*") \
+            .eq("code", code).limit(1).execute()
+        if not res.data:
+            return jsonify({"status": "invalid"}), 200
+        row = res.data[0]
+        expires = datetime.fromisoformat(str(row["expires_at"]).replace("Z", "+00:00"))
+        now = datetime.now(timezone.utc)
+
+        # Codes only work on the device that generated them
+        device_key, _, _ = _request_device_info()
+        if row.get("device_key") != device_key:
+            return jsonify({"status": "invalid"}), 200
+
+        if now > expires:
+            if row["status"] == "pending":
+                supabase_admin.table("quick_signin_codes") \
+                    .update({"status": "expired"}) \
+                    .eq("code", code).eq("status", "pending").execute()
+            return jsonify({"status": "expired"}), 200
+
+        if row["status"] == "pending":
+            left = max(0, int((expires - now).total_seconds()))
+            return jsonify({"status": "waiting", "seconds_left": left}), 200
+        if row["status"] == "expired":
+            return jsonify({"status": "expired"}), 200
+        if row["status"] == "consumed":
+            return jsonify({"status": "consumed"}), 200
+        if row["status"] != "approved":
+            return jsonify({"status": "invalid"}), 200
+
+        # Approved — mint the session BEFORE burning the code, so a transient
+        # mint failure can be retried by the next poll.
+        session, _ = _mint_session_for(row["user_id"])
+        if not session:
+            return jsonify({"status": "waiting",
+                            "seconds_left": max(0, int((expires - now).total_seconds()))}), 200
+
+        taken = supabase_admin.table("quick_signin_codes") \
+            .update({"status": "consumed"}) \
+            .eq("code", code).eq("status", "approved").execute()
+        if not taken.data:
+            return jsonify({"status": "consumed"}), 200  # another tab won
+
+        user_id = row["user_id"]
+        device_id = None
+        try:
+            device_id = track_new_login(user_id)
+        except Exception as track_err:
+            print(f"Device tracking error: {track_err}")
+        try:
+            _, dname, dip = _request_device_info()
+            _upsert_session(
+                user_id, device_id, dname, dip,
+                request.headers.get("User-Agent", ""),
+                session.access_token, session.refresh_token,
+            )
+        except Exception as sess_err:
+            print(f"Session track error: {sess_err}")
+
+        ures = supabase_admin.table("users").select("*") \
+            .eq("id", user_id).limit(1).execute()
+        profile_data = ures.data[0] if ures.data else {}
+
+        return jsonify({
+            "status": "approved",
+            "access_token": session.access_token,
+            "refresh_token": session.refresh_token,
+            "user": {
+                "id": user_id,
+                "email": profile_data.get("email", ""),
+                "name": profile_data.get("name", ""),
+                "role": profile_data.get("role", "guest"),
+                "avatar_url": profile_data.get("avatar_url", ""),
+                "name_changed_at": profile_data.get("name_changed_at", ""),
+            },
+        }), 200
+    except Exception as e:
+        print(f"Quick sign-in status error: {e}")
+        return jsonify({"error": "Could not check the code."}), 500
+
+
+@app.route("/api/auth/quick-signin/approve", methods=["POST"])
+def quick_signin_approve():
+    """Device B (signed in) approves the code shown on device A."""
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    user_id = get_user_from_token(token)
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.get_json()
+    code = (data.get("code", "") or "").strip().upper()
+    if not code:
+        return jsonify({"error": "Enter the code from the other device."}), 400
+
+    try:
+        res = supabase_admin.table("quick_signin_codes").select("*") \
+            .eq("code", code).limit(1).execute()
+        if not res.data:
+            return jsonify({"error": "That code is not valid."}), 404
+        row = res.data[0]
+        if row["status"] != "pending":
+            return jsonify({"error": "That code is no longer active."}), 409
+        expires = datetime.fromisoformat(str(row["expires_at"]).replace("Z", "+00:00"))
+        if datetime.now(timezone.utc) > expires:
+            supabase_admin.table("quick_signin_codes") \
+                .update({"status": "expired"}) \
+                .eq("code", code).eq("status", "pending").execute()
+            return jsonify({"error": "That code has expired. Generate a new one."}), 410
+
+        approved = supabase_admin.table("quick_signin_codes") \
+            .update({"status": "approved", "user_id": user_id}) \
+            .eq("code", code).eq("status", "pending").execute()
+        if not approved.data:
+            return jsonify({"error": "That code is no longer active."}), 409
+
+        return jsonify({"success": True}), 200
+    except Exception as e:
+        print(f"Quick sign-in approve error: {e}")
+        return jsonify({"error": "Could not approve the code."}), 500
 
 
 # ── File Upload (Supabase Storage) ────────────────────────────────────────────

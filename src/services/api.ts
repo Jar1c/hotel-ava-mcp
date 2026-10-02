@@ -141,12 +141,57 @@ export interface LoginResponse {
   user: AuthUser
 }
 
+/** Step-up challenge — login accepted the credentials but wants an email code. */
+export interface LoginChallenge {
+  challenge: "otp"
+  challenge_id: string
+  email_masked: string
+  reason: string
+}
+
+export type LoginOrChallenge = LoginResponse | LoginChallenge
+
+export class LoginChallengeError extends Error {
+  challenge: LoginChallenge
+  constructor(challenge: LoginChallenge) {
+    super("Verification code required")
+    this.name = "LoginChallengeError"
+    this.challenge = challenge
+  }
+}
+
+export interface TrackLoginResult {
+  success?: boolean
+  verification_required?: boolean
+  challenge_id?: string
+  email_masked?: string
+  reason?: string
+}
+
 export const authApi = {
   register: (data: { email: string; password: string; name: string }) =>
     apiFetch<{ user: AuthUser }>("/auth/register", { method: "POST", body: JSON.stringify(data) }),
 
-  login: (data: { email: string; password: string }) =>
-    apiFetch<LoginResponse>("/auth/login", { method: "POST", body: JSON.stringify(data) }),
+  login: async (data: { email: string; password: string }) => {
+    const res = await apiFetch<LoginOrChallenge>("/auth/login", {
+      method: "POST",
+      body: JSON.stringify(data),
+    })
+    if ((res as LoginChallenge).challenge === "otp") {
+      throw new LoginChallengeError(res as LoginChallenge)
+    }
+    return res as LoginResponse
+  },
+
+  /** Complete a step-up challenge with the emailed 6-digit code. */
+  verifyLoginChallenge: (data: { challenge_id: string; code: string }) =>
+    apiFetch<LoginResponse>("/auth/login/verify", { method: "POST", body: JSON.stringify(data) }),
+
+  resendLoginChallenge: (challenge_id: string) =>
+    apiFetch<{ message: string }>("/auth/login/resend", {
+      method: "POST",
+      body: JSON.stringify({ challenge_id }),
+    }),
 
   getProfile: () => apiFetch<AuthUser>("/auth/profile"),
 
@@ -155,9 +200,10 @@ export const authApi = {
 
   logout: () => apiFetch("/auth/logout", { method: "POST" }),
 
-  /** Fire-and-forget device tracking for OAuth (Google) sign-ins. */
-  trackLogin: () =>
-    apiFetch("/auth/track-login", {
+  /** Device tracking for OAuth (Google) sign-ins — also returns the step-up
+   *  challenge when the device/location is unfamiliar. */
+  trackLogin: (): Promise<TrackLoginResult> =>
+    apiFetch<TrackLoginResult>("/auth/track-login", {
       method: "POST",
       body: JSON.stringify({ refresh_token: sessionStorage.getItem("refresh_token") || "" }),
     }),
@@ -219,6 +265,33 @@ export const sessionsApi = {
     apiFetch<{ success: boolean; self?: boolean }>(`/auth/sessions/${id}/revoke`, { method: "POST" }),
   revokeOthers: () =>
     apiFetch<{ success: boolean; revoked: number }>("/auth/sessions/revoke-others", { method: "POST" }),
+}
+
+// ── Quick Sign-In (Roblox-style cross-device approval) ────────────────────────
+
+export interface QuickSigninStatus {
+  status: "waiting" | "approved" | "consumed" | "expired" | "invalid"
+  seconds_left?: number
+  access_token?: string
+  refresh_token?: string
+  user?: AuthUser
+}
+
+export const quickSigninApi = {
+  /** Device A generates a fresh 8-character code (invalidates its old one). */
+  request: () =>
+    apiFetch<{ code: string; expires_at: string }>("/auth/quick-signin/request", {
+      method: "POST",
+    }),
+  /** Device A polls; on approval the response carries the new session. */
+  status: (code: string) =>
+    apiFetch<QuickSigninStatus>(`/auth/quick-signin/status?code=${encodeURIComponent(code)}`),
+  /** Device B (signed in) approves a code shown elsewhere. */
+  approve: (code: string) =>
+    apiFetch<{ success: boolean }>("/auth/quick-signin/approve", {
+      method: "POST",
+      body: JSON.stringify({ code }),
+    }),
 }
 
 // ── Public Rooms (no auth required) ───────────────────────────────────────────

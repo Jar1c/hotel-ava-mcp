@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react"
 import { useParams, useNavigate, useSearchParams, Link } from "react-router"
-import { ArrowLeft, Calendar, Check, CreditCard, AlertCircle, Clock, Mail, Wallet, Landmark, X } from "lucide-react"
+import { ArrowLeft, Calendar, Check, CreditCard, AlertCircle, Clock, Mail, Wallet, Landmark, X, QrCode } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { publicRoomsApi, type PublicRoomData } from "@/services/api"
@@ -12,6 +12,7 @@ import { formatDate as toISODate, parseDateParam } from "@/lib/dates"
 import { useAuth } from "@/contexts/AuthContext"
 import LoadingDots from "@/components/LoadingDots"
 import TermsPopup from "@/components/TermsPopup"
+import QuickSignInPanel from "@/components/auth/QuickSignInPanel"
 
 const PRIMARY = "#82285f"
 
@@ -58,7 +59,13 @@ export default function Booking() {
     message: "",
   })
   const [showSignInModal, setShowSignInModal] = useState(false)
+  const [signInMode, setSignInMode] = useState<"default" | "quick">("default")
   const [googleLoading, setGoogleLoading] = useState(false)
+
+  // Always start from the default options whenever the modal opens
+  useEffect(() => {
+    if (showSignInModal) setSignInMode("default")
+  }, [showSignInModal])
   const [paymentMode, setPaymentMode] = useState<"full" | "downpayment">("full")
 
   // All booking params come from URL — read-only, no state needed
@@ -618,6 +625,13 @@ export default function Booking() {
             <h2 className="text-lg font-semibold text-ink mb-2">Sign in to continue</h2>
             <p className="text-sm text-muted mb-6">You need to be signed in to complete your booking.</p>
 
+            {signInMode === "quick" ? (
+              <QuickSignInPanel
+                onSignedIn={() => setShowSignInModal(false)}
+                onBack={() => setSignInMode("default")}
+              />
+            ) : (
+              <>
             {/* Google SSO */}
             <button
               type="button"
@@ -680,6 +694,18 @@ export default function Booking() {
               <Mail className="w-4 h-4" />
               Sign in with Email
             </button>
+
+            {/* Quick Sign-In */}
+            <button
+              type="button"
+              onClick={() => setSignInMode("quick")}
+              className="mt-3 w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-[10px] border border-hairline bg-white hover:bg-surface-soft transition-colors cursor-pointer text-sm text-ink/80"
+            >
+              <QrCode className="w-4 h-4" />
+              Quick Sign-In
+            </button>
+              </>
+            )}
 
             <p className="text-[11px] text-muted/60 mt-5 leading-relaxed">
               By signing in, you agree to our{" "}
