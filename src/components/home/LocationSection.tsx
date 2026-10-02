@@ -36,6 +36,11 @@ const landmarks = [
   { name: "Robinsons Place Manila", image: "/places/robinsons.jpg", km: 1.3 },
 ]
 
+const mapsSearchUrl = (query: string) =>
+  `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`
+
+const HOTEL_ADDRESS = "2184 Madre Ignacia Street, corner Quirino Ave, Malate, Manila"
+
 export default function LocationSection() {
   return (
     <section id="contact" className="px-base py-section bg-surface-soft">
@@ -56,7 +61,7 @@ export default function LocationSection() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-lg">
           {/* Google Maps Embed */}
           <motion.div
-            className="rounded-lg border border-hairline overflow-hidden h-80"
+            className="relative rounded-lg border border-hairline overflow-hidden h-80"
             initial={{ opacity: 0, x: -30 }}
             whileInView={{ opacity: 1, x: 0 }}
             viewport={{ once: true, margin: "-100px" }}
@@ -73,6 +78,15 @@ export default function LocationSection() {
               title="Hotel Ava Location"
               className="w-full h-full"
             />
+            <a
+              href={mapsSearchUrl(HOTEL_ADDRESS)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="absolute bottom-3 right-3 inline-flex items-center gap-1.5 rounded-full bg-white/95 px-3 py-1.5 typo-caption-sm font-semibold text-ink shadow-sm transition-colors hover:text-primary"
+            >
+              <MapPin className="h-3.5 w-3.5 text-primary" />
+              Open in Google Maps
+            </a>
           </motion.div>
 
           {/* Contact Info */}
@@ -88,15 +102,23 @@ export default function LocationSection() {
             </motion.h3>
             
             <div className="space-y-lg">
-              <motion.div className="flex items-start gap-md" variants={staggerItem}>
+              <motion.a
+                href={mapsSearchUrl(HOTEL_ADDRESS)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group flex items-start gap-md cursor-pointer"
+                variants={staggerItem}
+              >
                 <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
                   <MapPin className="h-5 w-5 text-primary" />
                 </div>
                 <div>
                   <p className="typo-title-md text-ink">Address</p>
-                  <p className="typo-body-sm text-muted">2184 Madre Ignacia Street, corner Quirino Ave, Malate, Manila</p>
+                  <p className="typo-body-sm text-muted transition-colors group-hover:text-primary">
+                    {HOTEL_ADDRESS}
+                  </p>
                 </div>
-              </motion.div>
+              </motion.a>
 
               <motion.div className="flex items-start gap-md" variants={staggerItem}>
                 <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
@@ -135,10 +157,13 @@ export default function LocationSection() {
 
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-md">
             {landmarks.map((place) => (
-              <motion.div
+              <motion.a
                 key={place.name}
+                href={mapsSearchUrl(`${place.name}, Manila, Philippines`)}
+                target="_blank"
+                rel="noopener noreferrer"
                 variants={staggerItem}
-                className="group overflow-hidden rounded-[12px] border border-hairline bg-canvas transition-shadow hover:shadow-card-hover"
+                className="group block overflow-hidden rounded-[12px] border border-hairline bg-canvas transition-all hover:border-primary/40 hover:shadow-card-hover"
               >
                 <div className="aspect-[4/3] overflow-hidden">
                   <img
@@ -149,15 +174,17 @@ export default function LocationSection() {
                   />
                 </div>
                 <div className="p-sm">
-                  <p className="typo-body-sm font-semibold text-ink">{place.name}</p>
+                  <p className="typo-body-sm font-semibold text-ink transition-colors group-hover:text-primary">
+                    {place.name}
+                  </p>
                   <p className="typo-caption-sm text-muted mt-xs">{travelLabel(place.km)}</p>
                 </div>
-              </motion.div>
+              </motion.a>
             ))}
           </div>
 
           <motion.p className="typo-caption-sm text-muted-soft mt-md text-center" variants={staggerItem}>
-            Landmark photos via Wikimedia Commons (CC BY / CC BY-SA)
+            Tap a landmark to open directions in Google Maps · Photos via Wikimedia Commons (CC BY / CC BY-SA)
           </motion.p>
         </motion.div>
       </div>
