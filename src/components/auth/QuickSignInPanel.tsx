@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react"
 import { Loader2, QrCode, RefreshCw } from "lucide-react"
 import { QRCodeSVG } from "qrcode.react"
 import { useAuth } from "@/contexts/AuthContext"
+import { qrLogoSettings } from "@/lib/qrLogo"
 import { quickSigninApi, type LoginResponse } from "@/services/api"
 
 const PRIMARY = "#82285f"
@@ -138,7 +139,8 @@ export default function QuickSignInPanel({ onSignedIn, onBack }: QuickSignInPane
             <QRCodeSVG
               value={`${window.location.origin}/settings?tab=quick-signin&code=${code}`}
               size={112}
-              level="M"
+              level="Q"
+              imageSettings={qrLogoSettings(112)}
             />
           </div>
         </div>

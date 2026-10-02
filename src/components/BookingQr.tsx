@@ -1,6 +1,7 @@
 import { useRef } from "react"
 import { QRCodeSVG, QRCodeCanvas } from "qrcode.react"
 import { Download } from "lucide-react"
+import { qrLogoSettings } from "@/lib/qrLogo"
 
 interface BookingQrProps {
   bookingId: string
@@ -31,7 +32,12 @@ export default function BookingQr({ bookingId, className = "" }: BookingQrProps)
   return (
     <div className={`flex items-center gap-4 rounded-[10px] bg-gray-50 p-4 ${className}`}>
       <div className="shrink-0 rounded-[8px] border border-gray-200 bg-white p-2">
-        <QRCodeSVG value={value} size={104} level="M" />
+        <QRCodeSVG
+          value={value}
+          size={104}
+          level="Q"
+          imageSettings={qrLogoSettings(104)}
+        />
       </div>
       <div className="min-w-0">
         <p className="font-mono text-sm font-bold text-ink">#{reference}</p>
@@ -48,7 +54,12 @@ export default function BookingQr({ bookingId, className = "" }: BookingQrProps)
         </button>
       </div>
       <div ref={canvasWrapRef} className="hidden" aria-hidden="true">
-        <QRCodeCanvas value={value} size={512} level="M" />
+        <QRCodeCanvas
+          value={value}
+          size={512}
+          level="Q"
+          imageSettings={qrLogoSettings(512)}
+        />
       </div>
     </div>
   )
