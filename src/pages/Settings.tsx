@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react"
 import { useSearchParams } from "react-router-dom"
-import { Lock, Save, Eye, EyeOff, Sun, Moon, Monitor, Palette, Smartphone, QrCode } from "lucide-react"
+import { Lock, Save, Eye, EyeOff, Sun, Moon, Monitor, Palette, Smartphone, QrCode, Camera } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import ConfirmDialog from "@/components/ui/confirm-dialog"
+import QrScannerDialog from "@/components/QrScannerDialog"
 import { useTheme, type ThemeMode, type ColorPreset } from "@/contexts/ThemeContext"
 import { authApi, sessionsApi, quickSigninApi, type SessionInfo } from "@/services/api"
 
@@ -43,6 +44,14 @@ function timeAgo(iso: string): string {
 
 const isMobileUA = (ua: string | null) => /android|iphone|ipad|mobile/i.test(ua || "")
 
+/** Raw QR payload → the 8-char quick sign-in code (settings deep link or bare code). */
+function extractQsCode(raw: string): string | null {
+  const fromUrl = raw.match(/[?&]code=([A-Za-z0-9]{8})/)
+  if (fromUrl) return fromUrl[1].toUpperCase()
+  const plain = raw.trim().replace(/[^A-Za-z0-9]/g, "").toUpperCase()
+  return plain.length === 8 ? plain : null
+}
+
 export default function Settings() {
   const { mode, setMode, colorPreset, setColorPreset } = useTheme()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -81,6 +90,19 @@ export default function Settings() {
   const [qsBusy, setQsBusy] = useState(false)
   const [qsError, setQsError] = useState("")
   const [qsDone, setQsDone] = useState(false)
+  const [qsScannerOpen, setQsScannerOpen] = useState(false)
+
+  const handleQsScan = (raw: string) => {
+    const code = extractQsCode(raw)
+    setQsScannerOpen(false)
+    if (!code) {
+      setQsError("That QR code isn't a quick sign-in code.")
+      return
+    }
+    setQsCode(code)
+    setQsError("")
+    setQsDone(false)
+  }
 
   const handleApproveQuickSignin = async () => {
     const code = qsCode.replace(/[^A-Za-z0-9]/g, "").toUpperCase()
@@ -497,8 +519,8 @@ export default function Settings() {
                   Quick Sign-In
                 </h2>
                 <p className="text-sm text-muted mb-md leading-relaxed">
-                  Signing in on another device? Enter the 8-character code it shows to
-                  sign it in as you — no password needed.
+                  Signing in on another device? Scan the QR code it shows, or enter its
+                  8-character code — the device is signed in as you, no password needed.
                 </p>
 
                 <div className="flex flex-col gap-sm sm:flex-row sm:items-center">
@@ -512,6 +534,15 @@ export default function Settings() {
                     placeholder="ABCD2345"
                     className="flex-1 rounded-[8px] border border-hairline bg-canvas px-3 py-2.5 text-center font-mono text-lg tracking-[0.3em] text-ink placeholder:text-muted-soft placeholder:tracking-normal placeholder:font-body focus:outline-none focus:border-primary/50 transition-colors dark:bg-surface"
                   />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setQsScannerOpen(true)}
+                    className="!rounded-[8px] border-hairline text-ink gap-2 shrink-0"
+                  >
+                    <Camera className="h-4 w-4" />
+                    Scan QR
+                  </Button>
                   <Button
                     onClick={handleApproveQuickSignin}
                     disabled={qsBusy || qsCode.length < 8}
@@ -541,6 +572,12 @@ export default function Settings() {
             confirmLabel="Log out others"
             loading={revokingOthers}
             onConfirm={handleRevokeOthers}
+          />
+          <QrScannerDialog
+            open={qsScannerOpen}
+            onOpenChange={setQsScannerOpen}
+            onResult={handleQsScan}
+            hint="Scan the sign-in QR code shown on the other device."
           />
       </div>
     </div>
