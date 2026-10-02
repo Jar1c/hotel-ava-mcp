@@ -7,7 +7,7 @@ import LoadingDots from "@/components/LoadingDots"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import ReceiptDialog, { type ReceiptData } from "@/components/ReceiptDialog"
 import { Mail, Phone, CalendarDays, PhilippinePeso, User, Clock, BedDouble, CreditCard, FileText, Landmark, LogIn, Search, X } from "lucide-react"
-import { getDiceBearUrl } from "@/lib/dicebear"
+import { getStoredAvatar, getGeneratedAvatar, onAvatarError } from "@/lib/avatar"
 import { formatPaymentMethod } from "@/lib/payment"
 import { deriveArrival, canCheckIn, arrivalTimeLabel, startMomentLabel } from "@/lib/arrival"
 import Pagination from "@/components/admin/Pagination"
@@ -445,8 +445,9 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-3">
                         <img
-                          src={booking.guestAvatar || getDiceBearUrl("adventurer", booking.guestEmail || booking.guestName, 32)}
+                          src={getStoredAvatar(booking.guestAvatar) || getGeneratedAvatar(booking.guestEmail || booking.guestName)}
                           alt={booking.guestName}
+                          onError={(e) => onAvatarError(e, booking.guestEmail || booking.guestName)}
                           className="size-8 rounded-full object-cover"
                         />
                         <div>
@@ -544,8 +545,9 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
                 {/* Guest Header */}
                 <div className="flex items-center gap-4 mb-6">
                   <img
-                    src={selectedBooking.guestAvatar || getDiceBearUrl("adventurer", selectedBooking.guestEmail || selectedBooking.guestName, 56)}
+                    src={getStoredAvatar(selectedBooking.guestAvatar) || getGeneratedAvatar(selectedBooking.guestEmail || selectedBooking.guestName)}
                     alt={selectedBooking.guestName}
+                    onError={(e) => onAvatarError(e, selectedBooking.guestEmail || selectedBooking.guestName)}
                     className="size-14 rounded-full object-cover"
                   />
                   <div>

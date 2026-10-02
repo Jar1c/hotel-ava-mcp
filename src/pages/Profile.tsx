@@ -6,7 +6,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { useAuth } from "@/contexts/AuthContext"
 import { authApi } from "@/services/api"
 import LoadingDots from "@/components/LoadingDots"
-import { DICEBEAR_STYLES, getDiceBearUrl } from "@/lib/dicebear"
+import { AVATAR_LIST, getAvatarUrl, getGeneratedAvatar, getStoredAvatar } from "@/lib/avatar"
 
 const PRIMARY = "#82285f"
 const INK = "#2A2A28"
@@ -82,8 +82,9 @@ export default function Profile() {
   }, [])
 
   // Always derive display avatar from user data (mirrors Header logic exactly)
-  // Priority: temporary override > user.avatar (from DB) > googleAvatar (from Supabase) > DiceBear fallback
-  const displayAvatar = avatarSrc || user?.avatar || googleAvatar || getDiceBearUrl("adventurer", user?.email || "user", 128)
+  // Priority: temporary override > user.avatar (from DB) > googleAvatar (from Supabase) > illustration fallback
+  const displayAvatar =
+    avatarSrc || getStoredAvatar(user?.avatar) || googleAvatar || getGeneratedAvatar(user?.email || "user")
 
   // Clear temporary override when user data changes (e.g., after save/reload)
   useEffect(() => {
@@ -175,11 +176,11 @@ export default function Profile() {
     }
   }
 
-  const handleSelectDiceBear = async (style: string) => {
-    const url = getDiceBearUrl(style, user?.email || "user")
-    console.log("[profile] Selecting DiceBear:", style, url)
+  const handleSelectAvatar = async (filename: string) => {
+    const url = getAvatarUrl(filename)
+    console.log("[profile] Selecting avatar:", filename, url)
     setAvatarSrc(url)
-    setSelectedStyle(style)
+    setSelectedStyle(filename)
     try {
       const result = await authApi.updateProfile({ avatar_url: url })
       console.log("[profile] Update result:", result)
@@ -424,7 +425,7 @@ export default function Profile() {
         </div>
       </div>
 
-      {/* DiceBear Avatar Picker Modal */}
+      {/* Avatar Picker Modal */}
       {showAvatarPicker && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 animate-fade-in" onClick={() => setShowAvatarPicker(false)}>
           <div
@@ -439,7 +440,7 @@ export default function Profile() {
               </button>
             </div>
             <p className="typo-body-sm mb-4" style={{ color: MUTED }}>
-              Pick a style that represents you. Your avatar is generated from your email.
+              Pick an avatar that represents you.
             </p>
 
             {/* Style grid */}
@@ -466,26 +467,23 @@ export default function Profile() {
                 </button>
               )}
 
-              {/* DiceBear Styles */}
-              {DICEBEAR_STYLES.map((style) => (
+              {/* Avatar illustrations */}
+              {AVATAR_LIST.map((filename) => (
                 <button
-                  key={style.id}
-                  onClick={() => handleSelectDiceBear(style.id)}
+                  key={filename}
+                  onClick={() => handleSelectAvatar(filename)}
                   className={`flex flex-col items-center gap-1.5 p-2 rounded-[10px] border-2 transition-all cursor-pointer hover:scale-105 ${
-                    selectedStyle === style.id || (displayAvatar && displayAvatar.includes(`/${style.id}/`))
+                    selectedStyle === filename || displayAvatar === getAvatarUrl(filename)
                       ? "border-primary bg-primary/5"
                       : "border-transparent hover:border-gray-200"
                   }`}
                 >
                   <img
-                    src={getDiceBearUrl(style.id, user?.email || "user", 80)}
-                    alt={style.name}
-                    className="size-14 rounded-full bg-surface-soft"
+                    src={getAvatarUrl(filename)}
+                    alt={filename.replace(".png", "")}
+                    className="size-14 rounded-full bg-surface-soft object-cover"
                     loading="lazy"
                   />
-                  <span className="typo-caption-xs text-center leading-tight" style={{ color: MUTED }}>
-                    {style.name}
-                  </span>
                 </button>
               ))}
             </div>

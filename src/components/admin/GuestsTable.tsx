@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils"
 import type { Guest } from "@/data/admin"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Mail, CalendarDays, PhilippinePeso, User, Clock, Search, X } from "lucide-react"
-import { getDiceBearUrl } from "@/lib/dicebear"
+import { getStoredAvatar, getGeneratedAvatar, onAvatarError } from "@/lib/avatar"
 import Pagination from "@/components/admin/Pagination"
 
 const PAGE_SIZE = 10
@@ -171,8 +171,9 @@ export default function GuestsTable({ guests, loading }: GuestsTableProps) {
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-3">
                         <img
-                          src={guest.avatar_url || getDiceBearUrl("adventurer", guest.email || guest.name, 32)}
+                          src={getStoredAvatar(guest.avatar_url) || getGeneratedAvatar(guest.email || guest.name)}
                           alt={guest.name}
+                          onError={(e) => onAvatarError(e, guest.email || guest.name)}
                           className="size-8 rounded-full object-cover"
                         />
                         <span className="font-medium text-[#1a1d26] group-hover:text-[#82285f] transition-colors">{guest.name}</span>
@@ -215,8 +216,9 @@ export default function GuestsTable({ guests, loading }: GuestsTableProps) {
                 {/* Guest Header */}
                 <div className="flex items-center gap-4 mb-6">
                   <img
-                    src={selectedGuest.avatar_url || getDiceBearUrl("adventurer", selectedGuest.email || selectedGuest.name, 56)}
+                    src={getStoredAvatar(selectedGuest.avatar_url) || getGeneratedAvatar(selectedGuest.email || selectedGuest.name)}
                     alt={selectedGuest.name}
+                    onError={(e) => onAvatarError(e, selectedGuest.email || selectedGuest.name)}
                     className="size-14 rounded-full object-cover"
                   />
                   <div>

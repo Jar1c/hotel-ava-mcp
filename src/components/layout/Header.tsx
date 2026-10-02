@@ -18,6 +18,7 @@ import hotelAvaLogo from "@/assets/images/Hotel Ava logo.png"
 import { formatDistanceToNow } from "date-fns"
 import GoogleSignInModal from "@/components/GoogleSignInModal"
 import { useBellRing } from "@/hooks/useBellRing"
+import { getDisplayAvatar } from "@/lib/avatar"
 
 const notifTypeStyles: Record<string, { bg: string; icon: React.ReactNode }> = {
   booking: { bg: "bg-gray-100 dark:bg-surface-strong", icon: <CalendarDays className="size-4 text-ink" /> },
@@ -289,7 +290,7 @@ export default function Header() {
                 ) : (
                   <>
                     <Avatar className="size-9">
-                      <AvatarImage src={user?.avatar || undefined} />
+                      <AvatarImage src={getDisplayAvatar(user?.avatar, user?.email || "user") || undefined} />
                       <AvatarFallback className="bg-gray-200">
                         <svg className="size-full text-gray-400" viewBox="0 0 24 24" fill="currentColor">
                           <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>

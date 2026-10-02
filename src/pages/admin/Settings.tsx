@@ -2,6 +2,7 @@ import { useState, useRef } from "react"
 import { useAuth } from "@/contexts/AuthContext"
 import { authApi } from "@/services/api"
 import { Button } from "@/components/ui/button"
+import { getDisplayAvatar } from "@/lib/avatar"
 import {
   Camera, Eye, EyeOff, Save, Pencil, X, Mail, Lock, Shield,
   Phone, Calendar, MapPin, CheckCircle, AlertCircle,
@@ -21,7 +22,7 @@ export default function Settings() {
   const [activeTab, setActiveTab] = useState<"profile" | "security">("profile")
   const [msg, setMsg] = useState<{ type: "success" | "error"; text: string } | null>(null)
   const [pwMsg, setPwMsg] = useState<{ type: "success" | "error"; text: string } | null>(null)
-  const [avatarPreview, setAvatarPreview] = useState<string | null>(user?.avatar || null)
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(getDisplayAvatar(user?.avatar, user?.email || "user") || null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const initials = (user?.name ?? "A")

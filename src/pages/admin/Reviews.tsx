@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, type ReactNode } from "react"
 import { Star, Trash2, MessageSquareText, Inbox, ChevronRight, X } from "lucide-react"
-import { getDiceBearUrl } from "@/lib/dicebear"
+import { getStoredAvatar, getGeneratedAvatar, onAvatarError } from "@/lib/avatar"
 import {
   reviewsApi,
   type AdminReviewsResponse,
@@ -388,16 +388,12 @@ export default function Reviews() {
                     <div className="flex items-center gap-2 flex-wrap">
                       <img
                         src={
-                          r.guest_avatar ||
-                          getDiceBearUrl("adventurer", r.guest_email || r.guest_name, 64)
+                          getStoredAvatar(r.guest_avatar) ||
+                          getGeneratedAvatar(r.guest_email || r.guest_name)
                         }
                         alt=""
                         loading="lazy"
-                        onError={(e) => {
-                          const el = e.currentTarget
-                          el.onerror = null
-                          el.src = getDiceBearUrl("adventurer", r.guest_email || r.guest_name, 64)
-                        }}
+                        onError={(e) => onAvatarError(e, r.guest_email || r.guest_name)}
                         className="h-8 w-8 shrink-0 rounded-full border border-[#e2e4e8] object-cover"
                       />
                       <span className="text-[14px] font-semibold text-ink">{r.guest_name}</span>

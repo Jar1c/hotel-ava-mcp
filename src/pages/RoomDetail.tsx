@@ -23,7 +23,7 @@ import { nearbyPlaces, travelLabel, type NearbyCategory } from "@/data/nearbyPla
 import { getCached, setCache } from "@/lib/cache"
 import { formatDate as toISODate, parseDateParam } from "@/lib/dates"
 import { overnightWindow, dayUseWindow } from "@/lib/stayWindow"
-import { getDiceBearUrl } from "@/lib/dicebear"
+import { getGeneratedAvatar, getStoredAvatar, onAvatarError } from "@/lib/avatar"
 import PhotoGallery from "@/components/rooms/PhotoGallery"
 import { Pagination } from "@/components/ui/pagination"
 import { useAuth } from "@/contexts/AuthContext"
@@ -848,14 +848,10 @@ export default function RoomDetail() {
                             <div className="flex items-center justify-between gap-3 mb-1.5">
                               <div className="flex items-center gap-2.5 min-w-0">
                                 <img
-                                  src={r.guest_avatar || getDiceBearUrl("adventurer", r.guest_name, 64)}
+                                  src={getStoredAvatar(r.guest_avatar) || getGeneratedAvatar(r.guest_name)}
                                   alt=""
                                   loading="lazy"
-                                  onError={(e) => {
-                                    const el = e.currentTarget
-                                    el.onerror = null
-                                    el.src = getDiceBearUrl("adventurer", r.guest_name, 64)
-                                  }}
+                                  onError={(e) => onAvatarError(e, r.guest_name)}
                                   className="h-9 w-9 shrink-0 rounded-full border border-hairline bg-surface-soft object-cover"
                                 />
                                 <span className="typo-body-sm font-semibold text-ink truncate">

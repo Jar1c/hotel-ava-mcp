@@ -14,6 +14,7 @@ import {
 import { formatDistanceToNow } from "date-fns"
 import type { NotificationData } from "@/services/api"
 import { useBellRing } from "@/hooks/useBellRing"
+import { getDisplayAvatar } from "@/lib/avatar"
 
 const searchSuggestions = [
   { icon: <Calendar className="w-4 h-4" />, label: "Bookings", description: "Search by guest name or booking ID", category: "bookings" },
@@ -242,7 +243,7 @@ export default function Admin() {
                 <p className="text-[11px] text-[#9ca3af]">{user?.email || "admin@hotelava.com"}</p>
               </div>
               <Avatar className="size-9">
-                {user?.avatar && <AvatarImage src={user.avatar} />}
+                {user?.avatar && <AvatarImage src={getDisplayAvatar(user.avatar, user.email) || undefined} />}
                 <AvatarFallback className="bg-[#e8e2d3]">
                   <HotelLogoIcon />
                 </AvatarFallback>
