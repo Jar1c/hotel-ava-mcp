@@ -1,5 +1,6 @@
 import { Link } from "react-router"
 import { footerLinkGroups } from "@/data/navigation"
+import { devTeam } from "@/data/devTeam"
 import { MapPin, Phone, Globe } from "lucide-react"
 
 export default function Footer() {
@@ -52,6 +53,22 @@ export default function Footer() {
               </ul>
             </div>
           ))}
+        </div>
+      </div>
+
+      {/* Developer credits band */}
+      <div className="border-t border-hairline-soft bg-surface-soft">
+        <div className="max-w-container mx-auto w-full px-base py-md text-center">
+          <p className="typo-caption-sm text-muted-soft leading-relaxed">
+            <span className="font-semibold text-muted">Capstone Development Team</span>
+            {" \u2014 "}
+            {devTeam.map((member, index) => (
+              <span key={member.name}>
+                {member.name}
+                {index < devTeam.length - 1 ? " \u00B7 " : ""}
+              </span>
+            ))}
+          </p>
         </div>
       </div>
 
