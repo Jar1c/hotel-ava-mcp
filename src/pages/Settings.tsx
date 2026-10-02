@@ -70,8 +70,14 @@ export default function Settings() {
   const [passwordError, setPasswordError] = useState("")
   const [passwordSuccess, setPasswordSuccess] = useState("")
 
-  // Quick Sign-In approval (enter the code shown on the other device)
-  const [qsCode, setQsCode] = useState("")
+  // Quick Sign-In approval (enter the code shown on the other device —
+  // a scanned QR deep-links here with ?code= already filled in)
+  const [qsCode, setQsCode] = useState(() =>
+    (searchParams.get("code") ?? "")
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, "")
+      .slice(0, 8),
+  )
   const [qsBusy, setQsBusy] = useState(false)
   const [qsError, setQsError] = useState("")
   const [qsDone, setQsDone] = useState(false)

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react"
 import { Loader2, QrCode, RefreshCw } from "lucide-react"
+import { QRCodeSVG } from "qrcode.react"
 import { useAuth } from "@/contexts/AuthContext"
 import { quickSigninApi, type LoginResponse } from "@/services/api"
 
@@ -127,10 +128,26 @@ export default function QuickSignInPanel({ onSignedIn, onBack }: QuickSignInPane
         </p>
       )}
 
+      {phase === "waiting" && code && (
+        <div className="mt-4 flex justify-center">
+          <div
+            className="rounded-[8px] border border-hairline bg-white p-2"
+            role="img"
+            aria-label="QR code for quick sign-in — scan it with your other device"
+          >
+            <QRCodeSVG
+              value={`${window.location.origin}/settings?tab=quick-signin&code=${code}`}
+              size={112}
+              level="M"
+            />
+          </div>
+        </div>
+      )}
+
       <p className="mx-auto mt-3 max-w-[300px] text-xs leading-relaxed text-muted">
-        On your other device open{" "}
-        <span className="font-semibold text-ink">Settings → Quick Sign-In</span> and enter this
-        code to sign this device in.
+        Scan the QR with your other signed-in device, or open{" "}
+        <span className="font-semibold text-ink">Settings → Quick Sign-In</span> and enter
+        this code.
       </p>
 
       {(message || needsRestart) && (
