@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router"
 import RootLayout from "./layouts/RootLayout"
 import ProtectedRoute from "./components/ProtectedRoute"
 import LoadingDots from "./components/LoadingDots"
+import CapstoneNotice from "./components/layout/CapstoneNotice"
 import { NotificationProvider } from "./contexts/NotificationContext"
 
 const Home = lazy(() => import("./pages/Home"))
@@ -49,6 +50,7 @@ export default function App() {
     <BrowserRouter>
       {/* Inside Router so notification toasts can navigate on click */}
       <NotificationProvider>
+        <CapstoneNotice />
         <Suspense fallback={<PageLoader />}>
           <Routes>
           {/* Standalone pages — no navbar/footer */}
