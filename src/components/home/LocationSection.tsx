@@ -1,5 +1,6 @@
 import { motion } from "motion/react"
 import { MapPin, Phone, Clock } from "lucide-react"
+import { travelLabel } from "@/data/nearbyPlaces"
 
 const staggerContainer = {
   hidden: {},
@@ -19,6 +20,21 @@ const staggerItem = {
 
 const MAP_EMBED_URL =
   "https://maps.google.com/maps?q=2184+Madre+Ignacia+Street+Malate+Manila+Philippines&t=&z=15&ie=UTF8&iwloc=&output=embed"
+
+/**
+ * Photos in /public/places — Wikimedia Commons (stored in the repo):
+ * baywalk.jpg © Vyacheslav Argenberg (CC BY 4.0), manila-zoo.jpg © Ramon F.
+ * Velasquez (CC BY-SA 3.0), malate-church.jpg © Patrick Roque (CC BY-SA 4.0),
+ * robinsons.jpg © Ralff Nestor Nacor (CC BY-SA 4.0), dlsu-manila.jpg © Patrick
+ * Roque (CC BY-SA 3.0).
+ */
+const landmarks = [
+  { name: "Manila Baywalk", image: "/places/baywalk.jpg", km: 0.9 },
+  { name: "Manila Zoo", image: "/places/manila-zoo.jpg", km: 1.4 },
+  { name: "Malate Church", image: "/places/malate-church.jpg", km: 1.2 },
+  { name: "DLSU-Manila", image: "/places/dlsu-manila.jpg", km: 1.0 },
+  { name: "Robinsons Place Manila", image: "/places/robinsons.jpg", km: 1.3 },
+]
 
 export default function LocationSection() {
   return (
@@ -102,22 +118,48 @@ export default function LocationSection() {
                 </div>
               </motion.div>
             </div>
-
-            <motion.div className="mt-lg pt-lg border-t border-hairline" variants={staggerItem}>
-              <p className="typo-caption text-muted mb-sm">Nearby Landmarks</p>
-              <div className="flex flex-wrap gap-sm">
-                {["Manila Baywalk", "Manila Zoo", "Malate Church", "DLSU-Manila", "Robinsons Place Manila"].map((attraction) => (
-                  <span
-                    key={attraction}
-                    className="typo-caption-sm bg-surface-soft text-body px-sm py-xs rounded-full"
-                  >
-                    {attraction}
-                  </span>
-                ))}
-              </div>
-            </motion.div>
           </motion.div>
         </div>
+
+        {/* Nearby landmarks with photos */}
+        <motion.div
+          className="mt-xl"
+          initial="hidden"
+          whileInView="visible"
+          viewport={{ once: true, margin: "-100px" }}
+          variants={staggerContainer}
+        >
+          <motion.h3 className="typo-display-md text-ink mb-lg text-center" variants={staggerItem}>
+            Nearby Landmarks
+          </motion.h3>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-md">
+            {landmarks.map((place) => (
+              <motion.div
+                key={place.name}
+                variants={staggerItem}
+                className="group overflow-hidden rounded-[12px] border border-hairline bg-canvas transition-shadow hover:shadow-card-hover"
+              >
+                <div className="aspect-[4/3] overflow-hidden">
+                  <img
+                    src={place.image}
+                    alt={`${place.name} — nearby Hotel Ava`}
+                    loading="lazy"
+                    className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                  />
+                </div>
+                <div className="p-sm">
+                  <p className="typo-body-sm font-semibold text-ink">{place.name}</p>
+                  <p className="typo-caption-sm text-muted mt-xs">{travelLabel(place.km)}</p>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+
+          <motion.p className="typo-caption-sm text-muted-soft mt-md text-center" variants={staggerItem}>
+            Landmark photos via Wikimedia Commons (CC BY / CC BY-SA)
+          </motion.p>
+        </motion.div>
       </div>
     </section>
   )

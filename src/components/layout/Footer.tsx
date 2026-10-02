@@ -15,11 +15,11 @@ export default function Footer() {
             <div className="space-y-sm mb-md">
               <div className="flex items-start gap-2">
                 <MapPin className="h-4 w-4 text-secondary mt-0.5 shrink-0" />
-                <span className="typo-body-sm text-muted">2184 Carolina st, corner Quirino Ave, Malate, Manila</span>
+                <span className="typo-body-sm text-muted">2184 Madre Ignacia Street, corner Quirino Ave, Malate, Manila</span>
               </div>
               <div className="flex items-center gap-2">
                 <Phone className="h-4 w-4 text-secondary shrink-0" />
-                <span className="typo-body-sm text-muted">(02) 5310 3889</span>
+                <span className="typo-body-sm text-muted">(02) 5310-1731 to 32</span>
               </div>
               <div className="flex items-center gap-2">
                 <Phone className="h-4 w-4 text-secondary shrink-0" />

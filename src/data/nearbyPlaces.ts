@@ -10,7 +10,7 @@ export interface NearbyPlace {
 }
 
 /**
- * Points of interest around Hotel Ava — 2184 Carolina St., cor. Quirino Ave.,
+ * Points of interest around Hotel Ava — 2184 Madre Ignacia St., cor. Quirino Ave.,
  * Malate, Manila. Distances are approximate (rounded), the way hotel sites
  * normally show "top attractions" next to a room. Photos are downloaded from
  * Wikimedia Commons into public/places so they load without an internet
@@ -18,6 +18,7 @@ export interface NearbyPlace {
  */
 export const nearbyPlaces: NearbyPlace[] = [
   { name: "Manila Baywalk (Roxas Blvd.)", category: "Nature", km: 0.9, image: "/places/baywalk.jpg" },
+  { name: "De La Salle University — Manila", category: "Landmark", km: 1.0, image: "/places/dlsu-manila.jpg" },
   { name: "Malate Church — Our Lady of Remedies", category: "Landmark", km: 1.2, image: "/places/malate-church.jpg" },
   { name: "Robinsons Place Manila", category: "Shopping", km: 1.3, image: "/places/robinsons.jpg" },
   { name: "Manila Zoological Garden", category: "Attraction", km: 1.4, image: "/places/manila-zoo.jpg" },

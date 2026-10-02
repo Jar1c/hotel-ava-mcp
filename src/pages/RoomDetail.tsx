@@ -728,7 +728,7 @@ export default function RoomDetail() {
                 </button>
 
                 <p className="mt-2 typo-caption-sm text-muted">
-                  Distances are approximate, measured from Hotel Ava (2184 Carolina St., cor. Quirino Ave., Malate,
+                  Distances are approximate, measured from Hotel Ava (2184 Madre Ignacia St., cor. Quirino Ave., Malate,
                   Manila). Tap a place for directions. Photos: Wikimedia Commons.
                 </p>
               </div>
