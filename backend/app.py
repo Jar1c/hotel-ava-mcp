@@ -1694,7 +1694,7 @@ def _mint_session_for(user_id):
     email = ures.data[0]["email"]
     # Admin API — must go through the service-role client
     link = supabase_admin.auth.admin.generate_link(
-        {"type": "magic_link", "email": email})
+        {"type": "magiclink", "email": email})
     otp = link.properties.email_otp
     v = supabase.auth.verify_otp({"email": email, "token": otp, "type": "magiclink"})
     if not v.session or not v.session.access_token:
@@ -1778,7 +1778,11 @@ def quick_signin_status():
 
         # Approved — mint the session BEFORE burning the code, so a transient
         # mint failure can be retried by the next poll.
-        session, _ = _mint_session_for(row["user_id"])
+        try:
+            session, _ = _mint_session_for(row["user_id"])
+        except Exception as mint_err:
+            print(f"Quick sign-in mint error: {mint_err}")
+            session = None
         if not session:
             return jsonify({"status": "waiting",
                             "seconds_left": max(0, int((expires - now).total_seconds()))}), 200
