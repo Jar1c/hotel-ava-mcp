@@ -1,7 +1,6 @@
 import { motion } from "motion/react"
 import { ArrowRight } from "lucide-react"
 import { Link } from "react-router"
-import { devTeam } from "@/data/devTeam"
 
 const fadeUp = {
   hidden: { opacity: 0, y: 30 },
@@ -131,48 +130,6 @@ export default function AboutSection() {
           </motion.div>
         </motion.div>
       </div>
-
-      {/* Development Team */}
-      <motion.div
-        className="max-w-container mx-auto w-full px-5 md:px-8 mt-14 lg:mt-20"
-        initial="hidden"
-        whileInView="visible"
-        viewport={{ once: true, margin: "-100px" }}
-        variants={{
-          hidden: {},
-          visible: { transition: { staggerChildren: 0.1 } },
-        }}
-      >
-        <motion.span
-          className="block typo-caption uppercase tracking-widest text-primary mb-6 text-center"
-          variants={fadeUp}
-        >
-          Development Team
-        </motion.span>
-
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-sm md:gap-md">
-          {devTeam.map((member) => (
-            <motion.div
-              key={member.name}
-              variants={fadeUp}
-              className="flex flex-col items-center bg-white rounded-[12px] px-4 py-6 text-center shadow-[0_10px_40px_0_rgba(0,0,0,0.04)]"
-            >
-              <div
-                aria-hidden
-                className="mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary"
-              >
-                {member.name
-                  .split(" ")
-                  .map((part) => part[0])
-                  .slice(0, 2)
-                  .join("")}
-              </div>
-              <p className="typo-title-sm text-ink leading-snug">{member.name}</p>
-              <p className="typo-caption-sm mt-1 text-primary">{member.role}</p>
-            </motion.div>
-          ))}
-        </div>
-      </motion.div>
     </section>
   )
 }
