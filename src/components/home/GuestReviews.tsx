@@ -219,6 +219,7 @@ function MarqueeRow({ reviews, reverse = false, onOpen }: MarqueeRowProps) {
 
 export default function GuestReviews() {
   const [reviews, setReviews] = useState<FeaturedReview[]>([])
+  const [summary, setSummary] = useState<{ average: number; count: number } | null>(null)
   const [loading, setLoading] = useState(true)
   const [failed, setFailed] = useState(false)
   const [active, setActive] = useState<FeaturedReview | null>(null)
@@ -228,7 +229,10 @@ export default function GuestReviews() {
     reviewsApi
       .featured()
       .then((data) => {
-        if (!cancelled) setReviews(data.reviews || [])
+        if (!cancelled) {
+          setReviews(data.reviews || [])
+          setSummary(data.summary || null)
+        }
       })
       .catch(() => {
         if (!cancelled) setFailed(true)
@@ -265,11 +269,13 @@ export default function GuestReviews() {
             <h2 className="typo-display-lg text-ink">Guest Reviews</h2>
             <span className="inline-flex items-center gap-1 bg-surface-soft px-3 py-1 rounded-full typo-body-sm">
               <Star className="h-4 w-4 fill-star-rating text-star-rating" />
-              4.2
+              {summary ? summary.average : "—"}
             </span>
           </div>
           <p className="typo-body-md text-muted max-w-2xl mx-auto">
-            Rated 4.2 out of 5 on Google by 494 happy guests. Here's what they say about Hotel Ava Malate.
+            {summary
+              ? `Rated ${summary.average} out of 5 by ${summary.count} guests who stayed at Hotel Ava Malate. Here's what they say about their visit.`
+              : "Real reviews from guests who stayed at Hotel Ava Malate."}
           </p>
         </motion.div>
       </div>
