@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react"
 import { useSearchParams } from "react-router-dom"
-import { Lock, Save, Eye, EyeOff, Sun, Moon, Monitor, Palette, Smartphone, QrCode, Camera, Fingerprint, Lightbulb, Loader2 } from "lucide-react"
+import { Lock, Save, Eye, EyeOff, Sun, Moon, Monitor, Palette, Smartphone, QrCode, Camera, Fingerprint, Lightbulb, Loader2, CircleCheck } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import ConfirmDialog from "@/components/ui/confirm-dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import QrScannerDialog from "@/components/QrScannerDialog"
 import { useTheme, type ThemeMode, type ColorPreset } from "@/contexts/ThemeContext"
 import { useAuth } from "@/contexts/AuthContext"
@@ -95,6 +96,8 @@ export default function Settings() {
   const [qsDone, setQsDone] = useState(false)
   const [qsScannerOpen, setQsScannerOpen] = useState(false)
   const [qsBioBusy, setQsBioBusy] = useState(false)
+  const [qsBioVerified, setQsBioVerified] = useState(false)
+  const [qsSuccessOpen, setQsSuccessOpen] = useState(false)
   const [bioSupported] = useState(() => isBiometricSupported())
 
   const approveQsCode = async (code: string) => {
@@ -104,6 +107,8 @@ export default function Settings() {
     try {
       await quickSigninApi.approve(code)
       setQsDone(true)
+      setQsSuccessOpen(true)
+      setQsBioVerified(false)
       setQsCode("")
     } catch (err: any) {
       setQsError(err.message || "Could not approve that code.")
@@ -133,13 +138,11 @@ export default function Settings() {
     void approveQsCode(code)
   }
 
-  // Fingerprint (WebAuthn) confirmation, then auto-approve.
+  // Fingerprint (WebAuthn) — works before OR after the code is entered.
+  // No code yet: verify identity first, then the code input/scan finishes the sign-in.
+  // Code already entered: verify and approve in one step.
   const handleQsBiometric = async () => {
     const code = qsCode.replace(/[^A-Za-z0-9]/g, "").toUpperCase()
-    if (code.length !== 8) {
-      setQsError("Enter or scan the 8-character code first.")
-      return
-    }
     setQsBioBusy(true)
     setQsError("")
     setQsDone(false)
@@ -149,7 +152,11 @@ export default function Settings() {
         setQsError("Fingerprint sign-in isn't supported in this browser — use Sign in device instead.")
         return
       }
-      await approveQsCode(code)
+      if (code.length === 8) {
+        await approveQsCode(code)
+      } else {
+        setQsBioVerified(true)
+      }
     } catch (err) {
       setQsError(
         err instanceof DOMException && (err.name === "NotAllowedError" || err.name === "UnknownError")
@@ -564,9 +571,11 @@ export default function Settings() {
                   <input
                     value={qsCode}
                     onChange={(e) => {
-                      setQsCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8))
+                      const next = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8)
+                      setQsCode(next)
                       setQsError("")
                       setQsDone(false)
+                      if (qsBioVerified && next.length === 8) void approveQsCode(next)
                     }}
                     placeholder="ABCD2345"
                     className="flex-1 rounded-[8px] border border-hairline bg-canvas px-3 py-2.5 text-center font-mono text-lg tracking-[0.3em] text-ink placeholder:text-muted-soft placeholder:tracking-normal placeholder:font-body focus:outline-none focus:border-primary/50 transition-colors dark:bg-surface"
@@ -588,7 +597,7 @@ export default function Settings() {
                       type="button"
                       variant="outline"
                       onClick={() => void handleQsBiometric()}
-                      disabled={qsBusy || qsBioBusy || qsCode.length < 8}
+                      disabled={qsBusy || qsBioBusy}
                       className="!rounded-[8px] border-hairline text-ink gap-2 shrink-0 flex-1 sm:flex-none"
                     >
                       {qsBioBusy ? (
@@ -609,6 +618,12 @@ export default function Settings() {
                 </div>
 
                 {qsError && <p className="text-xs text-red-500 mt-sm">{qsError}</p>}
+                {qsBioVerified && !qsDone && !qsError && (
+                  <p className="text-xs text-emerald-600 mt-sm">
+                    Fingerprint verified — scan the QR code or enter the 8-character code to
+                    finish signing the other device in.
+                  </p>
+                )}
                 {qsDone && (
                   <p className="text-xs text-emerald-600 mt-sm">
                     Approved — the other device is now signed in.
@@ -633,9 +648,11 @@ export default function Settings() {
                       the camera at that QR code — or type the code in the field.
                     </li>
                     <li>
-                      A successful scan approves automatically. You can also confirm with{" "}
-                      <span className="font-semibold text-ink">Use fingerprint</span> or the{" "}
-                      <span className="font-semibold text-ink">Sign in device</span> button.
+                      A successful scan approves automatically. Tap{" "}
+                      <span className="font-semibold text-ink">Use fingerprint</span> first (even
+                      before typing the code) and it finishes once the code is in — or confirm
+                      with the <span className="font-semibold text-ink">Sign in device</span>{" "}
+                      button.
                     </li>
                   </ol>
                 </div>
@@ -660,6 +677,27 @@ export default function Settings() {
             onResult={handleQsScan}
             hint="Scan the sign-in QR code shown on the other device."
           />
+          <Dialog open={qsSuccessOpen} onOpenChange={setQsSuccessOpen}>
+            <DialogContent className="rounded-[12px] sm:max-w-[420px]">
+              <DialogHeader>
+                <div className="mx-auto mb-1 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 dark:bg-emerald-500/10">
+                  <CircleCheck className="h-6 w-6 text-emerald-600" />
+                </div>
+                <DialogTitle className="text-center">Other device signed in</DialogTitle>
+                <DialogDescription className="text-center">
+                  The other device is now signed in as {user?.name || "you"}. It can browse,
+                  book, and manage stays using your account.
+                </DialogDescription>
+              </DialogHeader>
+              <Button
+                type="button"
+                onClick={() => setQsSuccessOpen(false)}
+                className="!rounded-[8px] w-full"
+              >
+                Done
+              </Button>
+            </DialogContent>
+          </Dialog>
       </div>
     </div>
   )
