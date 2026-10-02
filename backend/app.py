@@ -1714,7 +1714,7 @@ def quick_signin_request():
         supabase_admin.table("quick_signin_codes").delete() \
             .lt("expires_at", (now - timedelta(minutes=5)).isoformat()).execute()
 
-        expires = now + timedelta(seconds=120)
+        expires = now + timedelta(seconds=300)
         code = _gen_signin_code()
         for _ in range(3):
             try:

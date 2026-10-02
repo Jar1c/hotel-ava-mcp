@@ -30,7 +30,7 @@ function formatLeft(s: number): string {
 export default function QuickSignInPanel({ onSignedIn, onBack }: QuickSignInPanelProps) {
   const { completeSession } = useAuth()
   const [code, setCode] = useState("")
-  const [secondsLeft, setSecondsLeft] = useState(120)
+  const [secondsLeft, setSecondsLeft] = useState(300)
   const [phase, setPhase] = useState<"loading" | "waiting" | "expired" | "error">("loading")
   const [message, setMessage] = useState("")
   const [regenerating, setRegenerating] = useState(false)
@@ -41,7 +41,7 @@ export default function QuickSignInPanel({ onSignedIn, onBack }: QuickSignInPane
     try {
       const res = await quickSigninApi.request()
       setCode(res.code)
-      setSecondsLeft(120)
+      setSecondsLeft(300)
       setPhase("waiting")
     } catch (err) {
       setPhase("error")
