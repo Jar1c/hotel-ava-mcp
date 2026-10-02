@@ -285,6 +285,18 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     if (isAuthenticated) revocationHandledRef.current = false
   }, [isAuthenticated])
 
+  // Keep the realtime socket's JWT on the current token. The socket authenticates
+  // once at setup — after an auto-refresh its old JWT expires and postgres_changes
+  // (notifications AND the remote-logout match) silently stop arriving.
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "TOKEN_REFRESHED" || event === "SIGNED_IN") {
+        supabase.realtime.setAuth(sessionStorage.getItem("access_token"))
+      }
+    })
+    return () => subscription.unsubscribe()
+  }, [])
+
   /** This device's session was ended elsewhere: tell the user + land on home. */
   const handleRemoteRevoked = useCallback(() => {
     // A sign-out started from this device — not a remote one

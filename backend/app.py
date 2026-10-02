@@ -1578,6 +1578,55 @@ def refresh_token():
         return jsonify({"error": str(e)}), 401
 
 
+@app.route("/api/auth/session-sync", methods=["POST"])
+def session_sync():
+    """The browser client just rotated tokens itself — keep this device's row fresh.
+
+    The Supabase JS client is now the single refresh-token rotator (two
+    rotators racing one chain made GoTrue revoke the whole family — the
+    "sudden logout" bug). After each client rotation the app posts the new
+    pair here so user_sessions access_hash/refresh_hash stay accurate for
+    device lists, logout revocation and the remote-logout realtime match.
+    Fail-open: hash drift must never break a valid session.
+    """
+    data = request.get_json() or {}
+    new_refresh = data.get("refresh_token", "")
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    if not token:
+        return jsonify({"error": "Unauthorized"}), 401
+    try:
+        # Decode only (no revocation short-circuit) so the explicit row check
+        # below can return a distinguishable "Session revoked".
+        payload = pyjwt.decode(token, options={"verify_signature": False, "verify_exp": True})
+        user_id = payload.get("sub")
+    except Exception:
+        return jsonify({"error": "Unauthorized"}), 401
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    try:
+        device_key, device_name, ip = _request_device_info()
+        dev = supabase_admin.table("user_devices").select("id") \
+            .eq("user_id", user_id).eq("device_key", device_key).limit(1).execute()
+        device_id = dev.data[0]["id"] if dev.data else None
+
+        q = supabase_admin.table("user_sessions").select("id, revoked") \
+            .eq("user_id", user_id)
+        if device_id:
+            q = q.eq("device_id", device_id)
+        else:
+            q = q.is_("device_id", None).eq("device_name", device_name)
+        rows = q.order("created_at", desc=True).limit(1).execute()
+        if rows.data and rows.data[0].get("revoked"):
+            return jsonify({"error": "Session revoked"}), 401
+
+        _upsert_session(user_id, device_id, device_name, ip,
+                        request.headers.get("User-Agent", ""), token, new_refresh)
+    except Exception as sync_err:
+        print(f"Session sync error: {sync_err}")
+    return jsonify({"ok": True}), 200
+
+
 @app.route("/api/auth/logout", methods=["POST"])
 def logout():
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
@@ -4098,6 +4147,59 @@ def get_reviews():
                 "reviews": len(rows),
                 "average": round(sum(given) / len(given), 1) if given else 0,
             },
+        }), 200
+    except Exception as e:
+        err = str(e)
+        if _reviews_table_missing(err):
+            return jsonify({"error": REVIEWS_NOT_SETUP}), 503
+        return jsonify({"error": err}), 500
+
+
+@app.route("/api/reviews/featured", methods=["GET"])
+def get_featured_reviews():
+    """Public: the latest positive reviews shown on the home page.
+
+    4-star-and-up only, capped at 12 — no auth required. Avatars go through
+    _public_review_avatar so a public page never leaks an account email.
+    """
+    try:
+        clear_auth()
+        rows = _select_reviews(lambda cols: supabase_admin.table("reviews")
+                               .select(cols).gte("rating", 4)
+                               .order("created_at", desc=True).limit(40))
+        rows = [r for r in rows if (r.get("comment") or "").strip()][:12]
+
+        user_ids = list({r["user_id"] for r in rows if r.get("user_id")})
+        users_map = {}
+        if user_ids:
+            users_map = {u["id"]: u for u in fetch_by_ids("users", user_ids, "id, name, avatar_url")}
+
+        room_ids = list({r["room_id"] for r in rows if r.get("room_id")})
+        rooms_map = {}
+        if room_ids:
+            rooms_map = {rm["id"]: rm for rm in fetch_by_ids("rooms", room_ids, "id, name")}
+
+        items = []
+        for r in rows:
+            u = users_map.get(r.get("user_id"), {})
+            room = rooms_map.get(r.get("room_id"), {})
+            first_name = (u.get("name") or "").split(" ")[0].strip()
+            items.append({
+                "id": r["id"],
+                "rating": r.get("rating"),
+                "comment": (r.get("comment") or "").strip(),
+                "created_at": r.get("created_at"),
+                "guest_name": u.get("name") or "Guest",
+                "guest_avatar": _public_review_avatar(u, first_name),
+                "room_name": room.get("name", ""),
+            })
+
+        all_ratings = supabase_admin.table("reviews").select("rating").execute().data or []
+        average = round(sum(float(x.get("rating") or 0) for x in all_ratings) / len(all_ratings), 1) \
+            if all_ratings else 0
+        return jsonify({
+            "reviews": items,
+            "summary": {"average": average, "count": len(all_ratings)},
         }), 200
     except Exception as e:
         err = str(e)

@@ -508,24 +508,6 @@ html, body {
   display: none;
 }
 
-@keyframes scroll-left {
-  0% { transform: translateX(0); }
-  100% { transform: translateX(-50%); }
-}
-
-@keyframes scroll-right {
-  0% { transform: translateX(-50%); }
-  100% { transform: translateX(0); }
-}
-
-.animate-scroll-left {
-  animation: scroll-left 40s linear infinite;
-}
-
-.animate-scroll-right {
-  animation: scroll-right 40s linear infinite;
-}
-
 /* Highlight blink animation for newly added rooms */
 @keyframes highlight-blink {
   0%, 100% { background-color: transparent; }
@@ -543,6 +525,16 @@ html, body {
 
 .carousel-row {
   position: relative;
+}
+
+/* Horizontal marquee rows scroll natively — keep the scrollbar invisible */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
 }
 
 .carousel-row::before,

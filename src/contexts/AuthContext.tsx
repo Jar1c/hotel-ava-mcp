@@ -333,10 +333,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!mounted) return
 
-      if ((event === "SIGNED_IN" || event === "INITIAL_SESSION") && session?.access_token) {
-        // Copy token to sessionStorage for Flask backend
+      // Mirror on EVERY event that carries a session — including
+      // TOKEN_REFRESHED. Skipping that event left a rotated pair stale in
+      // sessionStorage; the next API 401 then refreshed with a spent token,
+      // GoTrue revoked the family, and the user was signed out mid-session.
+      if (session?.access_token) {
         sessionStorage.setItem("access_token", session.access_token)
         sessionStorage.setItem("refresh_token", session.refresh_token || "")
+      }
+
+      if ((event === "SIGNED_IN" || event === "INITIAL_SESSION") && session?.access_token) {
 
         // Track new-device logins for OAuth/Google sign-ins (password logins
         // are tracked server-side in /api/auth/login; backend dedups by device).
@@ -363,7 +369,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               reason: gate.reason || "",
             })
             setTimeout(() => {
-              supabase.auth.signOut().catch(() => {})
+              // LOCAL scope: this teardown must only kill the session created
+              // for this attempt. The default global scope revoked every
+              // session of the user — a new-device check on one browser
+              // signed out ALL their other devices.
+              supabase.auth.signOut({ scope: "local" }).catch(() => {})
             }, 0)
             return
           }
@@ -500,8 +510,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // avatar placeholder would stick until the next manual login.
     supabase.auth
       .signInWithPassword({ email, password })
-      .then(({ error }) => {
-        if (error) console.debug("[auth] no browser Supabase session:", error.message)
+      .then(({ data, error }) => {
+        if (error || !data.session) {
+          console.debug("[auth] no browser Supabase session:", error?.message || "no session")
+          return
+        }
+        // Adopt the browser session's pair as THE pair. The Flask-issued pair
+        // above would otherwise rotate on its own chain and collide with this
+        // one (GoTrue reuse detection → both revoked → sudden logout).
+        sessionStorage.setItem("access_token", data.session.access_token)
+        sessionStorage.setItem("refresh_token", data.session.refresh_token || "")
       })
       .catch(() => {
         /* Flask session above already works on its own */
@@ -560,9 +578,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       // ignore
     }
-    // Clear Supabase session (prevents auto-login on reload)
+    // Clear Supabase session (prevents auto-login on reload).
+    // LOCAL scope: sign out THIS device only — other devices stay signed in
+    // (the Settings → Devices list is where you end other sessions).
     try {
-      await supabase.auth.signOut()
+      await supabase.auth.signOut({ scope: "local" })
     } catch {
       // ignore
     }

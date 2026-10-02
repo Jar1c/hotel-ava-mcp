@@ -1,107 +1,52 @@
+import { useEffect, useRef, useState } from "react"
 import { motion } from "motion/react"
 import { Star } from "lucide-react"
+import { reviewsApi, type FeaturedReview } from "@/services/api"
+import { getStoredAvatar, getGeneratedAvatar, onAvatarError } from "@/lib/avatar"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 
-const reviews = [
-  {
-    name: "Monalisa G",
-    rating: 5,
-    date: "June 2025",
-    comment: "We had a short but pleasant stay! The place is clean and peaceful, and the guard was very accommodating and kind — such a warm welcome.",
-    image: "https://i.pravatar.cc/150?img=25",
-  },
-  {
-    name: "Alora G",
-    rating: 5,
-    date: "February 2025",
-    comment: "I was so thrilled that I was able to get a reservation at this hotel. Staff and service has been A+ for me. Glad I called to confirm and the online reservation went smoothly!",
-    image: "https://i.pravatar.cc/150?img=5",
-  },
-  {
-    name: "Givenson A",
-    rating: 4,
-    date: "November 2025",
-    comment: "We've been here multiple times and the rooms are great, I love our stay! Better than other hotels! Consistently good experience every time we visit.",
-    image: "https://i.pravatar.cc/150?img=3",
-  },
-  {
-    name: "Ron D.",
-    rating: 5,
-    date: "March 2026",
-    comment: "We had a wonderful stay at Hotel Ava! The staff were warm, the room was clean and cozy, and check-in was hassle-free. A true hidden gem in Malate!",
-    image: "https://i.pravatar.cc/150?img=32",
-  },
-  {
-    name: "Purple HeartPH",
-    rating: 4,
-    date: "February 2026",
-    comment: "Their jacuzzi expertise was the only reason we booked the hotel and it did not disappoint. Great value staycation option in Malate with unique room themes.",
-    image: "https://i.pravatar.cc/150?img=44",
-  },
-  {
-    name: "Mar co91",
-    rating: 3,
-    date: "March 2026",
-    comment: "Overall good for the price paid. Decent accommodations with the basic amenities you need. Fair option if you're looking for a quick stay in the area.",
-    image: "https://i.pravatar.cc/150?img=9",
-  },
-  {
-    name: "Belly Pursuits",
-    rating: 5,
-    date: "August 2025",
-    comment: "One of my most fun staycations to date, thanks to the KTV and billiards! Clean and modern amenities, super kind and accommodating staff, pet-friendly, convenient location.",
-    image: "https://i.pravatar.cc/150?img=11",
-  },
-  {
-    name: "Vic C",
-    rating: 5,
-    date: "October 2021",
-    comment: "Perfect option to get away. For a reasonable price you get a huge and stylish room with jacuzzi. Clean and well maintained, good security, and the staff were nice and accommodating.",
-    image: "https://i.pravatar.cc/150?img=1",
-  },
-  {
-    name: "SparkLing R.",
-    rating: 5,
-    date: "June 2025",
-    comment: "The room we stayed in is clean and neat, fully stock on toiletries and they provided us with complimentary drinks. Attendants are friendly and accommodating, checking in and out is a breeze.",
-    image: "https://i.pravatar.cc/150?img=17",
-  },
-  {
-    name: "Janvin",
-    rating: 4,
-    date: "July 2023",
-    comment: "The jacuzzi and Netflix were great. Room was comfortable and the amenities were complete. Will definitely come back again.",
-    image: "https://i.pravatar.cc/150?img=53",
-  },
-  {
-    name: "Scott",
-    rating: 5,
-    date: "May 2026",
-    comment: "This is my third time now staying at this hotel. First 2 times weren't so good but now is getting much better. Really improved a lot — great to see them stepping up.",
-    image: "https://i.pravatar.cc/150?img=60",
-  },
-]
+/** Time for one full pass across half the track — matches the old 40s CSS marquee. */
+const HALF_CYCLE_MS = 40000
 
-function ReviewCard({ review }: { review: typeof reviews[number] }) {
+function formatDate(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ""
+  return d.toLocaleDateString("en-US", { month: "long", year: "numeric" })
+}
+
+function StarRating({ rating }: { rating: number }) {
   return (
-    <div
-      className="flex-shrink-0 w-[320px] bg-white rounded-[20px] p-xl select-none"
+    <span className="flex items-center gap-0.5" aria-label={`${rating} out of 5 stars`}>
+      {[1, 2, 3, 4, 5].map((n) => (
+        <Star
+          key={n}
+          className={`h-3.5 w-3.5 ${n <= rating ? "fill-star-rating text-star-rating" : "text-hairline"}`}
+        />
+      ))}
+    </span>
+  )
+}
+
+function ReviewCard({ review, onOpen }: { review: FeaturedReview; onOpen: (r: FeaturedReview) => void }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(review)}
+      className="flex-shrink-0 w-[320px] bg-white rounded-[20px] p-xl select-none text-left cursor-pointer transition-shadow hover:shadow-card-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
     >
       <div className="flex items-center gap-3 mb-md">
         <div className="w-11 h-11 rounded-full overflow-hidden bg-primary/10 flex-shrink-0">
           <img
-            src={review.image}
-            alt={review.name}
+            src={getStoredAvatar(review.guest_avatar) || getGeneratedAvatar(review.guest_name)}
+            alt=""
+            loading="lazy"
+            onError={(e) => onAvatarError(e, review.guest_name)}
             className="w-full h-full object-cover"
-            onError={(e) => {
-              e.currentTarget.style.display = "none"
-              e.currentTarget.parentElement!.classList.add("flex", "items-center", "justify-center", "text-primary", "font-semibold", "typo-title-sm")
-              e.currentTarget.parentElement!.textContent = review.name.split(" ").map(n => n[0]).join("")
-            }}
           />
         </div>
-        <div>
-          <p className="typo-title-md text-ink">{review.name}</p>
-          <p className="typo-caption-sm text-muted">{review.date}</p>
+        <div className="min-w-0">
+          <p className="typo-title-md text-ink truncate">{review.guest_name}</p>
+          <p className="typo-caption-sm text-muted">{formatDate(review.created_at)}</p>
         </div>
         <div className="ml-auto flex items-center gap-1 bg-surface-soft px-2.5 py-1 rounded-full">
           <Star className="h-3.5 w-3.5 fill-star-rating text-star-rating" />
@@ -109,13 +54,199 @@ function ReviewCard({ review }: { review: typeof reviews[number] }) {
         </div>
       </div>
       <p className="typo-body-sm text-body leading-relaxed line-clamp-3">{review.comment}</p>
+    </button>
+  )
+}
+
+function SkeletonCard() {
+  return (
+    <div className="flex-shrink-0 w-[320px] bg-white rounded-[20px] p-xl animate-pulse">
+      <div className="flex items-center gap-3 mb-md">
+        <div className="w-11 h-11 rounded-full bg-surface-soft" />
+        <div className="flex-1 space-y-2">
+          <div className="h-3.5 bg-surface-soft rounded w-28" />
+          <div className="h-3 bg-surface-soft rounded w-20" />
+        </div>
+      </div>
+      <div className="space-y-2">
+        <div className="h-3 bg-surface-soft rounded" />
+        <div className="h-3 bg-surface-soft rounded" />
+        <div className="h-3 bg-surface-soft rounded w-2/3" />
+      </div>
+    </div>
+  )
+}
+
+type MarqueeRowProps = {
+  reviews: FeaturedReview[]
+  reverse?: boolean
+  onOpen: (r: FeaturedReview) => void
+}
+
+/**
+ * Horizontally scrolling row that stays interactive:
+ *  - pauses while hovered / touched / focused
+ *  - mouse drag scrubs the track (touch scrolls natively)
+ *  - a click only opens the dialog when the pointer barely moved
+ */
+function MarqueeRow({ reviews, reverse = false, onOpen }: MarqueeRowProps) {
+  const viewportRef = useRef<HTMLDivElement>(null)
+  const pausedRef = useRef(false)
+  const resumeTimerRef = useRef<number | null>(null)
+  const dragRef = useRef({ active: false, startX: 0, startScroll: 0, moved: 0 })
+
+  const items = [...reviews, ...reviews]
+
+  useEffect(() => {
+    const el = viewportRef.current
+    if (!el || reviews.length < 1) return
+
+    // Seed into the second copy so a decrementing row can wrap at 0 → half.
+    if (reverse) el.scrollLeft = el.scrollWidth / 2
+
+    let raf = 0
+    let last = performance.now()
+
+    const tick = (now: number) => {
+      const dt = Math.min(now - last, 64)
+      last = now
+      const half = el.scrollWidth / 2
+      if (half > 0) {
+        // Normalize manual overscroll so only one duplicated segment shows.
+        if (el.scrollLeft > half) el.scrollLeft -= half
+        if (!pausedRef.current && !dragRef.current.active) {
+          const speed = half / HALF_CYCLE_MS
+          if (reverse) {
+            el.scrollLeft -= speed * dt
+            if (el.scrollLeft <= 0) el.scrollLeft += half
+          } else {
+            el.scrollLeft += speed * dt
+            if (el.scrollLeft >= half) el.scrollLeft -= half
+          }
+        }
+      }
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [reviews, reverse])
+
+  const pause = () => {
+    pausedRef.current = true
+    if (resumeTimerRef.current) {
+      window.clearTimeout(resumeTimerRef.current)
+      resumeTimerRef.current = null
+    }
+  }
+
+  const resume = (delay = 600) => {
+    if (resumeTimerRef.current) window.clearTimeout(resumeTimerRef.current)
+    resumeTimerRef.current = window.setTimeout(() => {
+      pausedRef.current = false
+      resumeTimerRef.current = null
+    }, delay)
+  }
+
+  useEffect(() => {
+    return () => {
+      if (resumeTimerRef.current) window.clearTimeout(resumeTimerRef.current)
+    }
+  }, [])
+
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    dragRef.current.moved = 0
+    dragRef.current.active = false
+    if (e.pointerType !== "mouse") return // touch scrolls natively
+    dragRef.current = { active: true, startX: e.clientX, startScroll: e.currentTarget.scrollLeft, moved: 0 }
+    e.currentTarget.setPointerCapture(e.pointerId)
+    pause()
+  }
+
+  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const d = dragRef.current
+    if (!d.active) return
+    const dx = e.clientX - d.startX
+    d.moved = Math.max(d.moved, Math.abs(dx))
+    e.currentTarget.scrollLeft = d.startScroll - dx
+  }
+
+  const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragRef.current.active) return
+    dragRef.current.active = false
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId)
+    } catch {
+      /* capture already released */
+    }
+    resume(400)
+  }
+
+  const onClickCapture = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (dragRef.current.moved > 6) {
+      // That "click" ended a drag — don't open the dialog.
+      e.preventDefault()
+      e.stopPropagation()
+      dragRef.current.moved = 0
+    }
+  }
+
+  return (
+    <div
+      ref={viewportRef}
+      role="region"
+      aria-label="Guest reviews"
+      className="carousel-row overflow-x-auto no-scrollbar cursor-grab active:cursor-grabbing"
+      onMouseEnter={pause}
+      onMouseLeave={() => resume(0)}
+      onTouchStart={pause}
+      onTouchEnd={() => resume(1200)}
+      onFocus={pause}
+      onBlur={() => resume(0)}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
+      onClickCapture={onClickCapture}
+    >
+      <div className="flex gap-lg py-1" style={{ width: "fit-content" }}>
+        {items.map((review, i) => (
+          <ReviewCard key={`${review.id}-${i}`} review={review} onOpen={onOpen} />
+        ))}
+      </div>
     </div>
   )
 }
 
 export default function GuestReviews() {
-  const row1 = reviews.slice(0, 6)
-  const row2 = reviews.slice(6, 12)
+  const [reviews, setReviews] = useState<FeaturedReview[]>([])
+  const [loading, setLoading] = useState(true)
+  const [failed, setFailed] = useState(false)
+  const [active, setActive] = useState<FeaturedReview | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    reviewsApi
+      .featured()
+      .then((data) => {
+        if (!cancelled) setReviews(data.reviews || [])
+      })
+      .catch(() => {
+        if (!cancelled) setFailed(true)
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // API down → hide the section entirely rather than show stale mock quotes.
+  if (failed) return null
+
+  const mid = Math.ceil(reviews.length / 2)
+  const row1 = reviews.slice(0, mid)
+  const row2 = reviews.slice(mid)
 
   return (
     <section
@@ -143,25 +274,63 @@ export default function GuestReviews() {
         </motion.div>
       </div>
 
-      <div className="space-y-lg">
-        {/* Row 1 - scrolls left */}
-        <div className="carousel-row overflow-hidden">
-          <div className="flex gap-lg animate-scroll-left" style={{ width: "fit-content" }}>
-            {[...row1, ...row1].map((review, i) => (
-              <ReviewCard key={`r1-${i}`} review={review} />
-            ))}
+      {loading ? (
+        <div className="space-y-lg">
+          <div className="overflow-hidden">
+            <div className="flex gap-lg" style={{ width: "fit-content" }}>
+              {Array.from({ length: 6 }).map((_, i) => (
+                <SkeletonCard key={`s1-${i}`} />
+              ))}
+            </div>
+          </div>
+          <div className="overflow-hidden">
+            <div className="flex gap-lg" style={{ width: "fit-content" }}>
+              {Array.from({ length: 6 }).map((_, i) => (
+                <SkeletonCard key={`s2-${i}`} />
+              ))}
+            </div>
           </div>
         </div>
+      ) : (
+        <div className="space-y-lg">
+          {row1.length > 0 && <MarqueeRow reviews={row1} onOpen={setActive} />}
+          {row2.length > 0 && <MarqueeRow reviews={row2} reverse onOpen={setActive} />}
+        </div>
+      )}
 
-        {/* Row 2 - scrolls right */}
-        <div className="carousel-row overflow-hidden">
-          <div className="flex gap-lg animate-scroll-right" style={{ width: "fit-content" }}>
-            {[...row2, ...row2].map((review, i) => (
-              <ReviewCard key={`r2-${i}`} review={review} />
-            ))}
-          </div>
-        </div>
-      </div>
+      {/* Full review on click */}
+      <Dialog open={active !== null} onOpenChange={(open) => { if (!open) setActive(null) }}>
+        <DialogContent className="sm:max-w-[30rem] rounded-[16px]">
+          {active && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-3 pr-8">
+                  <span className="w-10 h-10 rounded-full overflow-hidden bg-primary/10 shrink-0">
+                    <img
+                      src={getStoredAvatar(active.guest_avatar) || getGeneratedAvatar(active.guest_name)}
+                      alt=""
+                      onError={(e) => onAvatarError(e, active.guest_name)}
+                      className="w-full h-full object-cover"
+                    />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block typo-title-md text-ink truncate">{active.guest_name}</span>
+                    <span className="block typo-caption-sm text-muted font-normal">
+                      {formatDate(active.created_at)}
+                      {active.room_name ? ` · ${active.room_name}` : ""}
+                    </span>
+                  </span>
+                </DialogTitle>
+              </DialogHeader>
+              <div className="flex items-center gap-2 mb-3">
+                <StarRating rating={active.rating} />
+                <span className="typo-caption-sm font-semibold text-ink">{active.rating}.0</span>
+              </div>
+              <p className="typo-body-sm text-body leading-relaxed whitespace-pre-wrap">{active.comment}</p>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </section>
   )
 }

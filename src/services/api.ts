@@ -6,19 +6,78 @@ let isRefreshing = false
 let refreshPromise: Promise<boolean> | null = null
 
 /**
- * Try to refresh the access_token using the stored refresh_token.
- * Returns true if refresh succeeded, false otherwise.
+ * Tell the backend the NEW pair after a client-side rotation so
+ * user_sessions hashes stay accurate (device list, logout revocation,
+ * remote-logout realtime match). Fail-open — a sync hiccup must never
+ * invalidate a perfectly good refresh. Returns false ONLY when the
+ * backend says this session was revoked elsewhere.
+ */
+async function syncSessionHashes(accessToken: string, refreshToken: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE}/auth/session-sync`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    })
+    if (res.status === 401) {
+      const body = await res.json().catch(() => ({}) as { error?: string })
+      if (body?.error === "Session revoked") {
+        window.dispatchEvent(new Event("hotelava:session-revoked"))
+        return false
+      }
+    }
+    return true
+  } catch {
+    return true
+  }
+}
+
+/**
+ * Try to refresh the access_token. Returns true if refresh succeeded.
+ *
+ * The browser Supabase session is the CANONICAL rotator. The old code
+ * rotated through Flask with the sessionStorage copy while the client
+ * rotated the same chain in the background — the second rotation used a
+ * spent refresh token, GoTrue's reuse detection revoked the whole family,
+ * and everyone got signed out "for no reason". One chain, one rotator:
+ * the client refreshes (or adopts its fresh pair), sessionStorage mirrors
+ * it, and session-sync keeps the backend's hashes in step.
  */
 async function tryRefreshToken(): Promise<boolean> {
   // If already refreshing, wait for the in-flight attempt
   if (isRefreshing && refreshPromise) return refreshPromise
 
-  const refreshToken = sessionStorage.getItem("refresh_token")
-  if (!refreshToken) return false
-
   isRefreshing = true
   refreshPromise = (async () => {
     try {
+      const { supabase } = await import("@/lib/supabase")
+      const { data: sessData } = await supabase.auth.getSession()
+      const current = sessData.session
+
+      if (current?.access_token) {
+        const stored = sessionStorage.getItem("access_token")
+        if (current.access_token !== stored) {
+          // Client already holds a newer pair (auto-refresh rotated it while
+          // we were idle) — adopt it instead of burning another rotation.
+          sessionStorage.setItem("access_token", current.access_token)
+          sessionStorage.setItem("refresh_token", current.refresh_token || "")
+          return await syncSessionHashes(current.access_token, current.refresh_token || "")
+        }
+        // Stored pair IS the client's pair and the backend rejected it
+        // (expired) — force one client-side rotation.
+        const { data, error } = await supabase.auth.refreshSession()
+        const rotated = data.session
+        if (rotated && !error) {
+          sessionStorage.setItem("access_token", rotated.access_token)
+          sessionStorage.setItem("refresh_token", rotated.refresh_token || "")
+          return await syncSessionHashes(rotated.access_token, rotated.refresh_token || "")
+        }
+      }
+
+      // No browser session (legacy backend-only login) — rotate via Flask.
+      const refreshToken = sessionStorage.getItem("refresh_token")
+      if (!refreshToken) return false
+
       const res = await fetch(`${API_BASE}/auth/refresh`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -816,7 +875,26 @@ export interface MyReviewsResponse {
   average: number
 }
 
+/** A positive review featured on the home page */
+export interface FeaturedReview {
+  id: string
+  rating: number
+  comment: string
+  created_at: string
+  guest_name: string
+  guest_avatar?: string
+  room_name: string
+}
+
+export interface FeaturedReviewsResponse {
+  reviews: FeaturedReview[]
+  summary: { average: number; count: number }
+}
+
 export const reviewsApi = {
+  /** Public — the latest 4★+ reviews for the home page (no auth) */
+  featured: () => apiFetch<FeaturedReviewsResponse>("/reviews/featured"),
+
   /** Guest submits a review for a completed booking (one per booking, ≤5 photos) */
   create: async (payload: { booking_id: string; rating: number; comment: string; images?: File[] }): Promise<{ id: string }> => {
     const token = sessionStorage.getItem("access_token")
