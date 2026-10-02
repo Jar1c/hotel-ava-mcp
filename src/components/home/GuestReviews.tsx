@@ -195,7 +195,7 @@ function MarqueeRow({ reviews, reverse = false, onOpen }: MarqueeRowProps) {
       ref={viewportRef}
       role="region"
       aria-label="Guest reviews"
-      className="carousel-row overflow-x-auto no-scrollbar cursor-grab active:cursor-grabbing"
+      className="marquee-mask overflow-x-auto no-scrollbar cursor-grab active:cursor-grabbing"
       onMouseEnter={pause}
       onMouseLeave={() => resume(0)}
       onTouchStart={pause}

@@ -523,10 +523,6 @@ html, body {
   animation: highlight-blink 0.5s ease-in-out 2;
 }
 
-.carousel-row {
-  position: relative;
-}
-
 /* Horizontal marquee rows scroll natively — keep the scrollbar invisible */
 .no-scrollbar {
   -ms-overflow-style: none;
@@ -537,25 +533,26 @@ html, body {
   display: none;
 }
 
-.carousel-row::before,
-.carousel-row::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 120px;
-  z-index: 10;
-  pointer-events: none;
-}
-
-.carousel-row::before {
-  left: 0;
-  background: linear-gradient(to right, var(--color-canvas), transparent);
-}
-
-.carousel-row::after {
-  right: 0;
-  background: linear-gradient(to left, var(--color-canvas), transparent);
+/* Edge dissolve for the marquee rows: the CONTENT itself fades out at both
+   ends. The old ::before/::after tinted gradients painted a solid gray block
+   on top of the white cards at each row edge, so cards near the edge looked
+   cut in half ("hati sa gitna"). A mask never paints over anything — it just
+   makes the content transparent toward the edges. */
+.marquee-mask {
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 96px,
+    #000 calc(100% - 96px),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 96px,
+    #000 calc(100% - 96px),
+    transparent 100%
+  );
 }
 
 /* Hide number input spinner/arrows */
