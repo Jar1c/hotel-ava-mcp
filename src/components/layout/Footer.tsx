@@ -56,28 +56,23 @@ export default function Footer() {
         </div>
       </div>
 
-      {/* Developer credits band */}
-      <div className="border-t border-hairline-soft bg-surface-soft">
-        <div className="max-w-container mx-auto w-full px-base py-md text-center">
-          <p className="typo-caption-sm text-muted-soft leading-relaxed">
-            <span className="font-semibold text-muted">Capstone Development Team</span>
-            {" \u2014 "}
-            {devTeam.map((member, index) => (
-              <span key={member.name}>
-                {member.name}
-                {index < devTeam.length - 1 ? " \u00B7 " : ""}
-              </span>
-            ))}
-          </p>
-        </div>
-      </div>
-
       {/* Legal band */}
       <div className="border-t border-hairline-soft">
         <div className="max-w-container mx-auto w-full px-base py-lg flex flex-col sm:flex-row items-center justify-between gap-sm">
-          <p className="typo-caption-sm text-muted-soft">
-            &copy; {new Date().getFullYear()} Hotel Ava. All rights reserved.
-          </p>
+          <div className="text-center sm:text-left">
+            <p className="typo-caption-sm text-muted-soft">
+              &copy; {new Date().getFullYear()} Hotel Ava. All rights reserved.
+            </p>
+            <p className="typo-caption-sm text-muted-soft/80 mt-0.5">
+              Developed by Capstone Development Team &mdash;{" "}
+              {devTeam.map((member, index) => (
+                <span key={member.name}>
+                  {member.name}
+                  {index < devTeam.length - 1 ? " \u00B7 " : ""}
+                </span>
+              ))}
+            </p>
+          </div>
           <div className="flex items-center gap-md">
             <Link to="/privacy" className="typo-caption-sm text-muted-soft hover:text-ink transition-colors">Privacy</Link>
             <Link to="/terms" className="typo-caption-sm text-muted-soft hover:text-ink transition-colors">Terms</Link>
