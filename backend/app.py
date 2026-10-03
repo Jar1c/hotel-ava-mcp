@@ -653,6 +653,66 @@ def _sha256(value: str) -> str:
     return hashlib.sha256((value or "").encode("utf-8")).hexdigest()
 
 
+def _jwt_session_id(token: str) -> str:
+    """Supabase session_id claim from an access/refresh JWT — "" when absent.
+
+    The session_id stays stable across token rotations, so it is the only
+    reliable way to tell a STALE revoked row (previous login on this device)
+    from a genuinely revoked CURRENT session (session-sync gate).
+    """
+    try:
+        payload = pyjwt.decode(token, options={"verify_signature": False, "verify_exp": False})
+        return str(payload.get("session_id") or "")
+    except Exception:
+        return ""
+
+
+_user_sessions_has_session_id: bool | None = None
+
+
+def _supports_session_id() -> bool:
+    """True when user_sessions.session_id exists (migrate-session-id.sql)."""
+    global _user_sessions_has_session_id
+    if _user_sessions_has_session_id:
+        return True
+    try:
+        supabase_admin.table("user_sessions").select("session_id").limit(1).execute()
+        _user_sessions_has_session_id = True
+    except Exception:
+        _user_sessions_has_session_id = False
+    return _user_sessions_has_session_id
+
+
+def _stale_revoked_row(row: dict, access_token: str, refresh_token: str = "") -> bool:
+    """True when a revoked session row does NOT belong to the presented
+    credentials — a leftover from an EARLIER login on this device.
+
+    This is the "signed out on this device" false-positive fix: after a
+    normal logout the revoked row stays until the next login's upsert, and
+    the OAuth-redirect mount gate could race ahead of that cleanup, see the
+    stale row, and 401 a perfectly fresh session.
+
+    Proof the row IS this session: matching access/refresh hash, or equal
+    Supabase session_id (stable across token rotations). Legacy rows without
+    a stored session_id fall back to hash matching only.
+    """
+    if access_token and row.get("access_hash") == _sha256(access_token):
+        return False
+    if refresh_token and row.get("refresh_hash") == _sha256(refresh_token):
+        return False
+    presented = _jwt_session_id(access_token) or _jwt_session_id(refresh_token)
+    stored = str(row.get("session_id") or "")
+    if presented and stored:
+        return presented != stored
+    # No stored session_id (legacy row): hashes don't match either, so this
+    # is a new login after the revocation — stale. Genuine post-rotation
+    # revocations of legacy rows are covered by the realtime hash match.
+    if presented:
+        return True
+    # No usable claim on the presented tokens — keep the safe behavior.
+    return False
+
+
 def _session_revoked(token: str) -> bool:
     """True when this access token belongs to a revoked session. Fail-open."""
     try:
@@ -765,6 +825,11 @@ def _upsert_session(user_id, device_id, device_name, ip, user_agent,
         "access_hash": _sha256(access_token),
         "last_used": now,
     }
+    # Stable across rotations — session-sync uses it to tell a stale
+    # revoked row from a genuine revocation of THIS session. Only written
+    # when migrate-session-id.sql has run (probe caches the answer).
+    if _supports_session_id():
+        payload["session_id"] = _jwt_session_id(access_token) or None
     if refresh_token:
         payload["refresh_hash"] = _sha256(refresh_token)
     try:
@@ -1650,7 +1715,10 @@ def session_sync():
             .eq("user_id", user_id).eq("device_key", device_key).limit(1).execute()
         device_id = dev.data[0]["id"] if dev.data else None
 
-        q = supabase_admin.table("user_sessions").select("id, revoked") \
+        cols = "id, revoked, access_hash, refresh_hash"
+        if _supports_session_id():
+            cols += ", session_id"
+        q = supabase_admin.table("user_sessions").select(cols) \
             .eq("user_id", user_id)
         if device_id:
             q = q.eq("device_id", device_id)
@@ -1658,7 +1726,11 @@ def session_sync():
             q = q.is_("device_id", None).eq("device_name", device_name)
         rows = q.order("created_at", desc=True).limit(1).execute()
         if rows.data and rows.data[0].get("revoked"):
-            return jsonify({"error": "Session revoked"}), 401
+            # Only a genuine revocation of THIS session blocks the gate —
+            # a stale row from an earlier login falls through, gets cleaned
+            # by the upsert below, and the fresh login survives.
+            if not _stale_revoked_row(rows.data[0], token, new_refresh):
+                return jsonify({"error": "Session revoked"}), 401
 
         _upsert_session(user_id, device_id, device_name, ip,
                         request.headers.get("User-Agent", ""), token, new_refresh)

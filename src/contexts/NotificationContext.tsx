@@ -299,8 +299,12 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 
   /** This device's session was ended elsewhere: tell the user + land on home. */
   const handleRemoteRevoked = useCallback(() => {
-    // A sign-out started from this device — not a remote one
+    // A sign-out started from THIS device — not a remote one
     if (consumeLogoutSuppress()) return
+    // Cross-tab suppress: this device logged out from a sibling tab/webview
+    // moments ago (shared localStorage, separate in-memory flags).
+    const ownLogoutAt = Number(localStorage.getItem("hotelava:logout_at") || 0)
+    if (ownLogoutAt && Date.now() - ownLogoutAt < 30_000) return
     if (revocationHandledRef.current) return
     revocationHandledRef.current = true
     clearSession()

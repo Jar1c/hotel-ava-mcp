@@ -601,6 +601,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Flag BEFORE the server revoke — its realtime UPDATE must not be
     // mistaken for a remote logout on this same device.
     logoutSuppressRef.current = true
+    // Cross-tab/webview copy: the suppress flag is in-memory, but a sibling
+    // tab (e.g. a second Instagram in-app webview sharing this storage)
+    // receives the same realtime UPDATE. A short-lived timestamp lets it
+    // recognize this device's OWN logout instead of showing the banner.
+    localStorage.setItem("hotelava:logout_at", String(Date.now()))
     try {
       await authApi.logout()
     } catch {
