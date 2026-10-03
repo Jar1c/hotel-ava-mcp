@@ -304,6 +304,14 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     if (revocationHandledRef.current) return
     revocationHandledRef.current = true
     clearSession()
+    // Kill THIS device's Supabase session too — otherwise GoTrue keeps
+    // auto-refreshing it in localStorage and the next reload rehydrates a
+    // full signed-in session again (the "logs out, then comes back" bug).
+    // LOCAL scope: only this device. Deferred out of the realtime callback
+    // (same rule as AuthContext — never call supabase.auth inline there).
+    setTimeout(() => {
+      supabase.auth.signOut({ scope: "local" }).catch(() => {})
+    }, 0)
     setRevokedOpen(true)
     // No auto-redirect to /login — the modal is the awareness; home stays open.
     // (Batched with clearSession, so a protected page never flashes /login first.)

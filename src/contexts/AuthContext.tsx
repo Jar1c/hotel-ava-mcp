@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from "react"
-import { authApi, type LoginChallenge, type LoginResponse, type TrackLoginResult } from "@/services/api"
+import { authApi, syncSessionHashes, type LoginChallenge, type LoginResponse, type TrackLoginResult } from "@/services/api"
 import { supabase } from "@/lib/supabase"
 import LoginChallengeDialog from "@/components/auth/LoginChallengeDialog"
 
@@ -340,6 +340,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (session?.access_token) {
         sessionStorage.setItem("access_token", session.access_token)
         sessionStorage.setItem("refresh_token", session.refresh_token || "")
+        // Re-check revocation after a client-side rotation: the server-side
+        // fast check is hash-based, so a rotated token would slip past it and
+        // resurrect a session that was revoked on another device. The sync
+        // matches this device's row instead (and refreshes its hashes).
+        if (event === "TOKEN_REFRESHED") {
+          void syncSessionHashes(session.access_token, session.refresh_token || "")
+        }
       }
 
       if ((event === "SIGNED_IN" || event === "INITIAL_SESSION") && session?.access_token) {
@@ -412,8 +419,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // On mount: restore from Supabase first (localStorage session survives tab close).
     // sessionStorage alone is per-tab — leaving the site emptied it and left a
     // half-logged-in user (empty name → header "Guest").
-    syncSupabaseSession().then(() => {
+    syncSupabaseSession().then(async (token) => {
       if (!mounted) return
+
+      // Revocation gate BEFORE restoring: ask the backend about this device's
+      // session row. It matches by device (not by token hash), so it catches
+      // "logged out from another device" even after the token rotated — the
+      // case that used to auto sign-in the user again on every reload.
+      if (token) {
+        const ok = await syncSessionHashes(token, sessionStorage.getItem("refresh_token") || "")
+        if (!mounted) return
+        if (!ok) {
+          // Revoked elsewhere — kill the browser session too so this tab can
+          // never rehydrate it. (The revoked event already fired the modal.)
+          supabase.auth.signOut({ scope: "local" }).catch(() => {})
+          sessionStorage.removeItem("access_token")
+          sessionStorage.removeItem("refresh_token")
+          localStorage.removeItem("auth_user")
+          applyUser(null)
+          setLoading(false)
+          return
+        }
+      }
+
       const hasSbSession = !!sessionStorage.getItem("access_token")
       const cachedProfile = getCachedProfile()
 

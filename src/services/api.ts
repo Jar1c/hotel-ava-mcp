@@ -11,13 +11,20 @@ let refreshPromise: Promise<boolean> | null = null
  * remote-logout realtime match). Fail-open — a sync hiccup must never
  * invalidate a perfectly good refresh. Returns false ONLY when the
  * backend says this session was revoked elsewhere.
+ *
+ * Also used as a revocation GATE on mount and after TOKEN_REFRESHED:
+ * the backend matches this device's session ROW (not just the token
+ * hash), so it catches sessions revoked on another device even after
+ * the access token rotated past the hash-based check.
  */
-async function syncSessionHashes(accessToken: string, refreshToken: string): Promise<boolean> {
+export async function syncSessionHashes(accessToken: string, refreshToken: string): Promise<boolean> {
   try {
     const res = await fetch(`${API_BASE}/auth/session-sync`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
       body: JSON.stringify({ refresh_token: refreshToken }),
+      // Never hang auth restore on a slow network — fail-open after 4s
+      signal: AbortSignal.timeout(4000),
     })
     if (res.status === 401) {
       const body = await res.json().catch(() => ({}) as { error?: string })
