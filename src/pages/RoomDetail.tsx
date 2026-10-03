@@ -12,6 +12,7 @@ import {
   MapPin, Landmark, ShoppingBag, Trees, TrainFront, FerrisWheel, Car,
 } from "lucide-react"
 import QuickSignInPanel from "@/components/auth/QuickSignInPanel"
+import hotelLogo from "@/assets/images/Hotel Ava logo.png"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
@@ -170,6 +171,16 @@ export default function RoomDetail() {
   )
   const [showAuthModal, setShowAuthModal] = useState(false)
   const [authModalMode, setAuthModalMode] = useState<"default" | "quick">("default")
+
+  // Close the auth modal on Esc
+  useEffect(() => {
+    if (!showAuthModal) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setShowAuthModal(false)
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [showAuthModal])
   const [isAvailable, setIsAvailable] = useState<boolean | null>(null)
   const [checkingAvailability, setCheckingAvailability] = useState(false)
   const [showMoreDetails, setShowMoreDetails] = useState(false)
@@ -1363,8 +1374,11 @@ export default function RoomDetail() {
       {showAuthModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 animate-fade-in" onClick={() => setShowAuthModal(false)}>
           <div
-            className="bg-white rounded-[12px] shadow-lg p-8 text-center animate-scale-in relative overflow-visible"
-            style={{ width: "100%", maxWidth: "360px" }}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="room-signin-title"
+            className="bg-white rounded-2xl shadow-lg p-8 text-center animate-scale-in relative max-h-[92dvh] overflow-y-auto"
+            style={{ width: "100%", maxWidth: authModalMode === "quick" ? "540px" : "400px" }}
             onClick={(e) => e.stopPropagation()}
           >
             <button
@@ -1378,23 +1392,22 @@ export default function RoomDetail() {
               </svg>
             </button>
 
-            <div className="mx-auto mb-5 flex items-center justify-center w-14 h-14 rounded-full bg-primary/10">
-              <svg className="w-6 h-6 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
-                <polyline points="10 17 15 12 10 7" />
-                <line x1="15" y1="12" x2="3" y2="12" />
-              </svg>
+            <div className="mb-4 flex justify-center">
+              <img src={hotelLogo} alt="" className="h-8 w-auto" />
             </div>
 
-            <h2 className="text-lg font-semibold text-ink mb-2">Sign in to book</h2>
-            <p className="text-sm text-muted mb-6">
+            <h2 id="room-signin-title" className="mb-1 text-xl font-semibold text-ink">
+              Sign in to book
+            </h2>
+            <p className="mb-6 text-sm text-muted">
               {authModalMode === "quick"
-                ? "Sign this device in from an already-signed-in device."
+                ? "Scan this code with your signed-in phone."
                 : "You need to be signed in to make a reservation."}
             </p>
 
             {authModalMode === "quick" ? (
               <QuickSignInPanel
+                layout="wide"
                 onSignedIn={() => setShowAuthModal(false)}
                 onBack={() => setAuthModalMode("default")}
               />
@@ -1458,7 +1471,7 @@ export default function RoomDetail() {
               </>
             )}
 
-            <p className="text-[11px] text-muted/60 mt-5 leading-relaxed">
+            <p className="text-xs text-muted mt-5 leading-relaxed">
               By signing in, you agree to our{" "}
               <Link to="/terms" className="font-medium" style={{ color: "#82285f" }}>Terms of Service</Link>
               {" "}and{" "}

@@ -992,3 +992,40 @@ input[type="number"] {
   }
   .qs-fade { animation: qs-fade 4.2s ease-in-out infinite backwards; }
 
+/* -- Quick Sign-In modal (QuickSignInPanel.tsx) --------------------------- */
+@keyframes qs-check-pop {
+  0% {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.2);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .qs-check-pop {
+    animation: qs-check-pop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+}
+
+@keyframes qs-dot {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.35;
+    transform: scale(0.7);
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .qs-dot {
+    animation: qs-dot 1.4s ease-in-out infinite;
+  }
+}

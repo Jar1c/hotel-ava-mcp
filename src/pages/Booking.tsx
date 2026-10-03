@@ -13,6 +13,7 @@ import { useAuth } from "@/contexts/AuthContext"
 import LoadingDots from "@/components/LoadingDots"
 import TermsPopup from "@/components/TermsPopup"
 import QuickSignInPanel from "@/components/auth/QuickSignInPanel"
+import hotelLogo from "@/assets/images/Hotel Ava logo.png"
 
 const PRIMARY = "#82285f"
 
@@ -65,6 +66,16 @@ export default function Booking() {
   // Always start from the default options whenever the modal opens
   useEffect(() => {
     if (showSignInModal) setSignInMode("default")
+  }, [showSignInModal])
+
+  // Close the sign-in modal on Esc
+  useEffect(() => {
+    if (!showSignInModal) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setShowSignInModal(false)
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
   }, [showSignInModal])
   const [paymentMode, setPaymentMode] = useState<"full" | "downpayment">("full")
 
@@ -603,8 +614,11 @@ export default function Booking() {
       {showSignInModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 animate-fade-in" onClick={() => setShowSignInModal(false)}>
           <div
-            className="bg-white rounded-[12px] shadow-lg p-8 text-center animate-scale-in relative overflow-visible"
-            style={{ width: "100%", maxWidth: "360px" }}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="booking-signin-title"
+            className="bg-white rounded-2xl shadow-lg p-8 text-center animate-scale-in relative max-h-[92dvh] overflow-y-auto"
+            style={{ width: "100%", maxWidth: signInMode === "quick" ? "540px" : "400px" }}
             onClick={(e) => e.stopPropagation()}
           >
             {/* Close button */}
@@ -617,16 +631,23 @@ export default function Booking() {
               <X className="w-4 h-4" />
             </button>
 
-            {/* Icon */}
-            <div className="mx-auto mb-5 flex items-center justify-center w-14 h-14 rounded-full" style={{ backgroundColor: `${PRIMARY}15` }}>
-              <CreditCard className="w-6 h-6" style={{ color: PRIMARY }} />
+            {/* Logo */}
+            <div className="mb-4 flex justify-center">
+              <img src={hotelLogo} alt="" className="h-8 w-auto" />
             </div>
 
-            <h2 className="text-lg font-semibold text-ink mb-2">Sign in to continue</h2>
-            <p className="text-sm text-muted mb-6">You need to be signed in to complete your booking.</p>
+            <h2 id="booking-signin-title" className="mb-1 text-xl font-semibold text-ink">
+              Sign in to continue
+            </h2>
+            <p className="mb-6 text-sm text-muted">
+              {signInMode === "quick"
+                ? "Scan this code with your signed-in phone."
+                : "You need to be signed in to complete your booking."}
+            </p>
 
             {signInMode === "quick" ? (
               <QuickSignInPanel
+                layout="wide"
                 onSignedIn={() => setShowSignInModal(false)}
                 onBack={() => setSignInMode("default")}
               />
@@ -707,7 +728,7 @@ export default function Booking() {
               </>
             )}
 
-            <p className="text-[11px] text-muted/60 mt-5 leading-relaxed">
+            <p className="text-xs text-muted mt-5 leading-relaxed">
               By signing in, you agree to our{" "}
               <Link to="/terms" className="font-medium" style={{ color: PRIMARY }}>Terms of Service</Link>
               {" "}and{" "}
