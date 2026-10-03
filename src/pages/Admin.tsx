@@ -83,7 +83,7 @@ export default function Admin() {
     : searchSuggestions
 
   return (
-    <div className="flex h-screen bg-[#f0f1f3] overflow-hidden">
+    <div className="flex h-[calc(100vh-var(--capstone-h,0px))] bg-[#f0f1f3] overflow-hidden">
       <AdminSidebar />
 
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">

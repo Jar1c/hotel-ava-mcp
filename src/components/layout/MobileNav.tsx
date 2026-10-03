@@ -61,7 +61,7 @@ export default function MobileNav() {
 
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 w-[260px] bg-white dark:bg-surface-soft border-r border-[#e2e4e8] dark:border-hairline/50 flex flex-col transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] md:hidden",
+          "fixed inset-y-0 left-0 z-[130] w-[260px] bg-white dark:bg-surface-soft border-r border-[#e2e4e8] dark:border-hairline/50 flex flex-col transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] md:hidden",
           open ? "translate-x-0" : "-translate-x-full"
         )}
       >

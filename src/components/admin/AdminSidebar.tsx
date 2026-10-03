@@ -40,7 +40,7 @@ export default function AdminSidebar() {
   }
 
   return (
-    <aside className="w-60 flex-shrink-0 bg-white border-r border-[#e2e4e8] flex flex-col sticky top-0 h-screen">
+    <aside className="w-60 flex-shrink-0 bg-white border-r border-[#e2e4e8] flex flex-col sticky top-0 h-[calc(100vh-var(--capstone-h,0px))]">
       {/* Logo */}
       <div className="px-5 py-5">
         <div className="flex items-center gap-2.5">

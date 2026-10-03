@@ -112,7 +112,7 @@ export default function Header() {
   const showAuthSkeleton = authLoading && !user && !canShowIdentity
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-hairline bg-white dark:bg-surface-soft dark:border-hairline/50">
+    <header className="sticky top-[var(--capstone-h,0px)] z-50 w-full border-b border-hairline bg-white dark:bg-surface-soft dark:border-hairline/50">
       <div className="flex h-16 md:h-[72px] w-full items-center px-5 md:px-8 gap-lg">
         <Link to="/" className="flex items-center gap-2.5 mr-lg md:mr-xl flex-shrink-0">
           <img src={hotelAvaLogo} alt="Hotel Ava" className="h-10 md:h-12 w-auto mix-blend-multiply dark:mix-blend-normal" />
