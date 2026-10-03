@@ -905,3 +905,90 @@ input[type="number"] {
     display: none !important;
   }
 }
+/* -- Quick Sign-In animated guide (QuickSigninGuide.tsx) ----------------
+   4.2s loops for the three cards. Deliberately NOT gated behind
+   prefers-reduced-motion: Windows Animation-effects OFF makes every
+   real browser report reduce (Chrome 74+) and skipped the animations,
+   while Playwright forces no-preference - only the test browser moved. */
+  @keyframes qs-cursor {
+    0% { transform: translate(70px, 36px); opacity: 0; }
+    8% { transform: translate(70px, 36px); opacity: 1; }
+    38% { transform: translate(0, 0); opacity: 1; }
+    86% { transform: translate(0, 0); opacity: 1; }
+    94%, 100% { transform: translate(0, 0); opacity: 0; }
+  }
+  @keyframes qs-press {
+    0%, 40% { transform: scale(1); }
+    46%, 54% { transform: scale(0.95); }
+    62%, 100% { transform: scale(1); }
+  }
+  @keyframes qs-popin {
+    0%, 44% { opacity: 0; transform: scale(0.7); }
+    56% { opacity: 1; transform: scale(1.06); }
+    64%, 100% { opacity: 1; transform: scale(1); }
+  }
+  @keyframes qs-beam {
+    0% { transform: translateY(0); opacity: 0; }
+    8% { opacity: 1; }
+    88% { opacity: 1; }
+    100% { transform: translateY(54px); opacity: 0; }
+  }
+  @keyframes qs-badge {
+    0%, 40% { opacity: 0; transform: scale(0.5); }
+    55% { opacity: 1; transform: scale(1.15); }
+    66%, 100% { opacity: 1; transform: scale(1); }
+  }
+  @keyframes qs-draw {
+    0%, 44% { stroke-dashoffset: 30; }
+    62%, 100% { stroke-dashoffset: 0; }
+  }
+  @keyframes qs-ring {
+    0%, 42% { opacity: 0; transform: scale(0.7); }
+    55% { opacity: 0.8; transform: scale(1.1); }
+    75%, 100% { opacity: 0; transform: scale(1.5); }
+  }
+  @keyframes qs-confetti {
+    0%, 48% { opacity: 0; transform: scale(0); }
+    60% { opacity: 1; transform: scale(1.3); }
+    70%, 88% { opacity: 1; transform: scale(1); }
+    100% { opacity: 0; transform: scale(0.9); }
+  }
+  @keyframes qs-type {
+    0% { opacity: 0; transform: scale(0.6); }
+    7% { opacity: 1; transform: scale(1); }
+    88% { opacity: 1; transform: scale(1); }
+    96%, 100% { opacity: 0; transform: scale(0.95); }
+  }
+  @keyframes qs-fade {
+    0%, 6% { opacity: 0; }
+    14% { opacity: 1; }
+    90% { opacity: 1; }
+    100% { opacity: 0; }
+  }
+
+  .qs-anim,
+  .qs-press,
+  .qs-popin,
+  .qs-badge,
+  .qs-ring,
+  .qs-type,
+  .qs-confetti {
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+  .qs-cursor { animation: qs-cursor 4.2s ease-in-out infinite; }
+  .qs-press { animation: qs-press 4.2s ease-in-out infinite; }
+  .qs-popin { animation: qs-popin 4.2s ease-in-out infinite; }
+  .qs-beam { animation: qs-beam 1.8s ease-in-out infinite; }
+  .qs-badge { animation: qs-badge 4.2s ease-in-out infinite; }
+  .qs-draw {
+    stroke-dasharray: 30;
+    animation: qs-draw 4.2s ease-in-out infinite;
+  }
+  .qs-ring { animation: qs-ring 4.2s ease-in-out infinite; }
+  .qs-confetti { animation: qs-confetti 4.2s ease-in-out infinite; }
+  .qs-type {
+    animation: qs-type 4.2s ease-in-out infinite backwards;
+  }
+  .qs-fade { animation: qs-fade 4.2s ease-in-out infinite backwards; }
+

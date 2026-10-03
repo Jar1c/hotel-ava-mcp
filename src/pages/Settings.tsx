@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import ConfirmDialog from "@/components/ui/confirm-dialog"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import QrScannerDialog from "@/components/QrScannerDialog"
+import QuickSigninGuide from "@/components/QuickSigninGuide"
 import { useTheme, type ThemeMode, type ColorPreset } from "@/contexts/ThemeContext"
 import { useAuth } from "@/contexts/AuthContext"
 import { authApi, sessionsApi, quickSigninApi, type SessionInfo } from "@/services/api"
@@ -592,47 +593,8 @@ export default function Settings() {
                   )}
                 </div>
 
-                {/* How it works */}
-                <div className="mt-7 border-t border-hairline-soft pt-5">
-                  <p className="text-center text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-soft">
-                    How it works
-                  </p>
-                  <ol className="mx-auto mt-3 grid max-w-3xl gap-3 sm:grid-cols-3">
-                    <li className="flex items-start gap-2.5 rounded-[12px] border border-hairline-soft bg-canvas px-3.5 py-3 dark:bg-surface">
-                      <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary">
-                        1
-                      </span>
-                      <div>
-                        <p className="text-xs font-semibold text-ink">Open Quick Sign-In</p>
-                        <p className="mt-0.5 text-xs leading-relaxed text-muted">
-                          On the other device's Login page, choose Quick Sign-In.
-                        </p>
-                      </div>
-                    </li>
-                    <li className="flex items-start gap-2.5 rounded-[12px] border border-hairline-soft bg-canvas px-3.5 py-3 dark:bg-surface">
-                      <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary">
-                        2
-                      </span>
-                      <div>
-                        <p className="text-xs font-semibold text-ink">Scan or type the code</p>
-                        <p className="mt-0.5 text-xs leading-relaxed text-muted">
-                          Point the camera at its QR code, or enter the code above.
-                        </p>
-                      </div>
-                    </li>
-                    <li className="flex items-start gap-2.5 rounded-[12px] border border-hairline-soft bg-canvas px-3.5 py-3 dark:bg-surface">
-                      <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary">
-                        3
-                      </span>
-                      <div>
-                        <p className="text-xs font-semibold text-ink">Device signs in</p>
-                        <p className="mt-0.5 text-xs leading-relaxed text-muted">
-                          A scan approves instantly — or type the code and use the button.
-                        </p>
-                      </div>
-                    </li>
-                  </ol>
-                </div>
+                {/* How it works — animated illustrated guide */}
+                <QuickSigninGuide />
               </div>
             )}
           </div>
