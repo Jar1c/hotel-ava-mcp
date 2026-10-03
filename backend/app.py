@@ -2891,6 +2891,10 @@ def create_booking():
     check_in = data.get("check_in")
     check_out = data.get("check_out")
     guests = data.get("guests", 1)
+    # Guest breakdown — nullable, needs migrate-guest-breakdown.sql.
+    adults = data.get("adults")
+    children = data.get("children")
+    pets = data.get("pets")
     full_name = data.get("full_name", "")
     email = data.get("email", "")
     phone = data.get("phone", "")
@@ -2971,6 +2975,12 @@ def create_booking():
             "payment_mode": payment_mode,
             "amount_paid": 0,
         }
+        if adults is not None:
+            booking_insert["adults"] = adults
+        if children is not None:
+            booking_insert["children"] = children
+        if pets is not None:
+            booking_insert["pets"] = pets
         if stay_type == "day":
             booking_insert["duration"] = duration
             booking_insert["start_time"] = start_time
@@ -2979,19 +2989,24 @@ def create_booking():
 
         # Service-role write: RLS on the shared anon client races with
         # clear_auth()/set_auth() from concurrent requests (42501).
-        # payment_mode / amount_paid need migrate-payment-mode.sql; drop them
-        # and retry if the columns have not been added yet.
-        try:
-            booking_res = supabase_admin.table("bookings").insert(booking_insert).execute()
-        except Exception as ins_err:
-            if "payment_mode" in str(ins_err) or "amount_paid" in str(ins_err):
-                booking_insert.pop("payment_mode", None)
-                booking_insert.pop("amount_paid", None)
+        # payment_mode / amount_paid need migrate-payment-mode.sql and the
+        # guest breakdown needs migrate-guest-breakdown.sql; drop whichever
+        # columns the error names and retry (PostgREST reports one at a time).
+        optional_cols = ("payment_mode", "amount_paid", "adults", "children", "pets")
+        booking_res = None
+        for _ in range(len(optional_cols) + 1):
+            try:
                 booking_res = supabase_admin.table("bookings").insert(booking_insert).execute()
-            else:
-                raise
+                break
+            except Exception as ins_err:
+                msg = str(ins_err)
+                hit = [k for k in optional_cols if k in msg and k in booking_insert]
+                if not hit:
+                    raise
+                for k in hit:
+                    booking_insert.pop(k, None)
 
-        if not booking_res.data:
+        if booking_res is None or not booking_res.data:
             return jsonify({"error": "Failed to create booking"}), 500
 
         booking = booking_res.data[0]
@@ -3116,6 +3131,9 @@ def get_my_bookings():
                 "check_out": b["check_out"],
                 "nights": nights,
                 "guests": b.get("guests", 1),
+                "adults": b.get("adults"),
+                "children": b.get("children"),
+                "pets": b.get("pets"),
                 "total_price": b["total_price"],
                 "status": b["status"],
                 "payment_method": b.get("payment_method", ""),
@@ -3184,6 +3202,9 @@ def get_booking(booking_id):
             "check_out": b["check_out"],
             "nights": nights,
             "guests": b.get("guests", 1),
+            "adults": b.get("adults"),
+            "children": b.get("children"),
+            "pets": b.get("pets"),
             "total_price": b["total_price"],
             "status": b["status"],
             "full_name": b.get("full_name", ""),

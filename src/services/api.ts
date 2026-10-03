@@ -469,6 +469,10 @@ export interface CreateBookingPayload {
   check_in: string
   check_out: string
   guests: number
+  /** Guest breakdown — nullable until migrate-guest-breakdown.sql runs */
+  adults?: number
+  children?: number
+  pets?: number
   full_name: string
   email: string
   phone: string
@@ -495,6 +499,10 @@ export interface UserBookingData {
   check_out: string
   nights: number
   guests: number
+  /** Guest breakdown — null/absent on bookings made before the migration */
+  adults?: number | null
+  children?: number | null
+  pets?: number | null
   total_price: number
   status: string
   payment_method: string

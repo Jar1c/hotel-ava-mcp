@@ -92,6 +92,7 @@ export default function Booking() {
   const guests = {
     adults: Number(searchParams.get("adults")) || 2,
     children: Number(searchParams.get("children")) || 0,
+    pets: Number(searchParams.get("pets")) || 0,
   }
   const stayType = (searchParams.get("stayType") as "overnight" | "day") || "overnight"
   const dayDuration = Number(searchParams.get("duration")) || 3
@@ -190,6 +191,9 @@ export default function Booking() {
           check_in: toISODate(checkIn!),
           check_out: isOvernight ? toISODate(checkOut!) : toISODate(checkIn!),
           guests: guests.adults + guests.children,
+          adults: guests.adults,
+          children: guests.children,
+          pets: guests.pets,
           stays: isOvernight ? `${nights} Night${nights > 1 ? "s" : ""}` : `${dayDuration} Hours`,
           stay_type: stayType,
           duration: isOvernight ? null : dayDuration,

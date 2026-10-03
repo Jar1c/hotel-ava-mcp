@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react"
 import { useNavigate, useSearchParams } from "react-router"
-import { CalendarDays, Users, Clock, X, ChevronRight, SlidersHorizontal, ChevronLeft, LayoutGrid, CheckCircle, BadgeCheck, XCircle, CreditCard, Star, DoorOpen, Mail, Phone, User } from "lucide-react"
+import { ChevronRight, SlidersHorizontal, ChevronLeft, CheckCircle, CreditCard, Star, Mail, Phone, User } from "lucide-react"
 import BookingQr from "@/components/BookingQr"
 import { Button } from "@/components/ui/button"
 import { userBookingsApi, ApiError, type UserBookingData } from "@/services/api"
@@ -19,17 +19,17 @@ import { cn } from "@/lib/utils"
 
 const PRIMARY = "#82285f"
 const CANVAS = "#FBF9F8"
-const PER_PAGE = 5
+const PER_PAGE = 8
 
-const statusStyles: Record<string, { label: string; dot: string; text: string }> = {
-  pending: { label: "Awaiting Payment", dot: "bg-amber-400", text: "text-amber-600" },
-  confirmed: { label: "Confirmed", dot: "bg-emerald-400", text: "text-emerald-600" },
+const statusStyles: Record<string, { label: string; dot: string; text: string; badgeCls: string }> = {
+  pending: { label: "Awaiting Payment", dot: "bg-amber-400", text: "text-amber-600", badgeCls: "bg-amber-50 text-amber-700" },
+  confirmed: { label: "Confirmed", dot: "bg-emerald-400", text: "text-emerald-600", badgeCls: "bg-emerald-50 text-emerald-700" },
   // Derived from the clock, not stored — see lib/arrival.ts
-  arrived: { label: "Arrived", dot: "bg-amber-500", text: "text-amber-600" },
-  "in-house": { label: "In-house", dot: "bg-[#3D6B4F]", text: "text-[#3D6B4F]" },
-  completed: { label: "Completed", dot: "bg-gray-300", text: "text-muted" },
-  "checked-out": { label: "Checked Out", dot: "bg-gray-300", text: "text-muted" },
-  cancelled: { label: "Cancelled", dot: "bg-gray-300", text: "text-muted" },
+  arrived: { label: "Arrived", dot: "bg-amber-500", text: "text-amber-600", badgeCls: "bg-amber-50 text-amber-700" },
+  "in-house": { label: "In-house", dot: "bg-[#3D6B4F]", text: "text-[#3D6B4F]", badgeCls: "bg-primary/10 text-primary" },
+  completed: { label: "Completed", dot: "bg-gray-300", text: "text-muted", badgeCls: "bg-gray-100 text-muted" },
+  "checked-out": { label: "Checked Out", dot: "bg-gray-300", text: "text-muted", badgeCls: "bg-gray-100 text-muted" },
+  cancelled: { label: "Cancelled", dot: "bg-gray-300", text: "text-muted", badgeCls: "bg-red-50 text-[#b91c1c]" },
 }
 
 /** Badge for a booking, including the arrival states the server derives. */
@@ -42,14 +42,69 @@ function statusFor(b: UserBookingData) {
 
 type TabFilter = "all" | "pending" | "confirmed" | "in-house" | "completed" | "cancelled"
 
-const tabs: { id: TabFilter; label: string; icon: React.ReactNode }[] = [
-  { id: "all", label: "All", icon: <LayoutGrid className="h-4 w-4" /> },
-  { id: "pending", label: "Pending", icon: <Clock className="h-4 w-4" /> },
-  { id: "confirmed", label: "Confirmed", icon: <CheckCircle className="h-4 w-4" /> },
-  { id: "in-house", label: "In-house", icon: <DoorOpen className="h-4 w-4" /> },
-  { id: "completed", label: "Completed", icon: <BadgeCheck className="h-4 w-4" /> },
-  { id: "cancelled", label: "Cancelled", icon: <XCircle className="h-4 w-4" /> },
+const tabs: { id: TabFilter; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "pending", label: "Pending" },
+  { id: "confirmed", label: "Confirmed" },
+  { id: "in-house", label: "In-house" },
+  { id: "completed", label: "Completed" },
+  { id: "cancelled", label: "Cancelled" },
 ]
+
+/** Shared by the tab filters and the tab count pills so they can never drift apart. */
+function matchesTab(b: UserBookingData, tab: TabFilter): boolean {
+  if (tab === "all") return true
+  const status = b.status.toLowerCase()
+  // "In-house" is derived from the clock, not stored — see lib/arrival.ts
+  if (tab === "in-house") return deriveArrival(b) === "in_house"
+  // Checked-out stays are finished too — group them under the Completed tab
+  if (tab === "completed") return status === "completed" || status === "checked-out"
+  // Confirmed excludes anyone who is already in the room
+  if (tab === "confirmed") return status === "confirmed" && deriveArrival(b) !== "in_house"
+  return status === tab
+}
+
+/** Anchor for ordering — day use has only one date. */
+function stayEndMs(b: UserBookingData): number {
+  const t = new Date(b.stay_type === "day" ? b.check_in : b.check_out).getTime()
+  return Number.isNaN(t) ? 0 : t
+}
+
+/** Upcoming stays first (soonest check-in first), then past/cancelled by most recent. */
+function orderBookings(list: UserBookingData[]): UserBookingData[] {
+  const now = Date.now()
+  const isUpcoming = (b: UserBookingData) =>
+    (b.status === "pending" || b.status === "confirmed") && stayEndMs(b) >= now
+  return [
+    ...list
+      .filter(isUpcoming)
+      .sort((a, b) => new Date(a.check_in).getTime() - new Date(b.check_in).getTime()),
+    ...list.filter((b) => !isUpcoming(b)).sort((a, b) => stayEndMs(b) - stayEndMs(a)),
+  ]
+}
+
+/** Cancelled-card refund line. The backend zeroes amount_paid once a refund is issued. */
+function refundLine(b: UserBookingData): { text: string; cls: string } | null {
+  if (b.status.toLowerCase() !== "cancelled") return null
+  const paid = Math.max(0, b.amount_paid ?? 0)
+  if (b.refunded_at) {
+    // amount_paid is zeroed on refund — fall back to what was collected.
+    const amount = paid > 0 ? paid : b.payment_mode === "downpayment" ? Math.round((b.total_price ?? 0) / 2) : b.total_price ?? 0
+    return { text: `Refunded ₱${amount.toLocaleString()}`, cls: "text-[#3D6B4F]" }
+  }
+  if (paid > 0) return { text: "No refund", cls: "text-muted" }
+  return null
+}
+
+/** "2 adults · 3 children · 1 pet" — falls back to the total for pre-migration bookings. */
+function guestBreakdown(b: UserBookingData): string {
+  const parts: string[] = []
+  if (b.adults != null) parts.push(`${b.adults} adult${b.adults === 1 ? "" : "s"}`)
+  if (b.children) parts.push(`${b.children} ${b.children === 1 ? "child" : "children"}`)
+  if (b.pets) parts.push(`${b.pets} pet${b.pets === 1 ? "" : "s"}`)
+  if (parts.length > 0) return parts.join(" · ")
+  return `${b.guests} ${b.guests === 1 ? "guest" : "guests"}`
+}
 
 function formatDateRange(checkIn: string, checkOut: string, stayType?: string) {
   const ci = new Date(checkIn)
@@ -238,23 +293,14 @@ export default function MyBookings() {
     if (unreadBookingCount > 0) void markBookingNotificationsRead()
   }, [unreadBookingCount, markBookingNotificationsRead])
 
-  const orderedBookings = [
-    ...bookings.filter((b) => b.status === "pending" || b.status === "confirmed"),
-    ...bookings.filter((b) => b.status !== "pending" && b.status !== "confirmed"),
-  ]
+  const orderedBookings = orderBookings(bookings)
 
   const filteredBookings = activeTab === "all"
     ? orderedBookings
-    : orderedBookings.filter((b) => {
-        const status = b.status.toLowerCase()
-        // "In-house" is derived from the clock, not stored — see lib/arrival.ts
-        if (activeTab === "in-house") return deriveArrival(b) === "in_house"
-        // Checked-out stays are finished too — group them under the Completed tab
-        if (activeTab === "completed") return status === "completed" || status === "checked-out"
-        // Confirmed excludes anyone who is already in the room
-        if (activeTab === "confirmed") return status === "confirmed" && deriveArrival(b) !== "in_house"
-        return status === activeTab
-      })
+    : orderedBookings.filter((b) => matchesTab(b, activeTab))
+
+  // Per-tab counts — same predicates as the filters above.
+  const tabCounts = tabs.map((t) => ({ ...t, count: bookings.filter((b) => matchesTab(b, t.id)).length }))
 
   // Finished stays that still owe us a rating — only ones you actually
   // checked in to. A booking that merely lapsed (no-show) is not reviewable.
@@ -416,18 +462,25 @@ export default function MyBookings() {
 
         {/* Category Tabs */}
         {bookings.length > 0 && (
-          <div className="flex items-center gap-0 mb-lg border-b border-hairline overflow-x-auto scrollbar-hide">
-            {tabs.map((tab) => (
+          <div className="flex items-center gap-0 mb-lg border-b border-hairline overflow-x-auto no-scrollbar">
+            {tabCounts.map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => { setActiveTab(tab.id); setPage(1) }}
-                className="relative flex items-center gap-1.5 px-4 py-3 text-sm font-medium transition-colors duration-200 cursor-pointer whitespace-nowrap"
+                className="relative flex items-center gap-1.5 px-3 py-3 text-sm font-medium transition-colors duration-200 cursor-pointer whitespace-nowrap"
                 style={{
                   color: activeTab === tab.id ? PRIMARY : "#7A7A70",
                 }}
               >
-                {tab.icon}
                 {tab.label}
+                <span
+                  className={cn(
+                    "text-[11px] font-medium leading-none",
+                    tab.count === 0 ? "text-muted-soft" : "text-muted",
+                  )}
+                >
+                  {tab.count}
+                </span>
                 {activeTab === tab.id && (
                   <span
                     className="absolute bottom-0 left-0 right-0 h-[2px]"
@@ -469,73 +522,75 @@ export default function MyBookings() {
           <div className="space-y-md">
             {pagedBookings.map((booking) => {
               const status = statusFor(booking)
+              const rawStatus = booking.status.toLowerCase()
+              const dimmed = rawStatus === "cancelled" || rawStatus === "completed" || rawStatus === "checked-out"
+              const refund = refundLine(booking)
+              const isFinished = rawStatus === "completed" || rawStatus === "checked-out"
               return (
                 <div
                   key={booking.id}
                   onClick={() => handleCardClick(booking)}
-                  className="bg-white border border-hairline rounded-[12px] overflow-hidden hover:shadow-[0_2px_8px_rgba(0,0,0,0.06)] transition-shadow duration-200 cursor-pointer group"
+                  className="bg-white border border-hairline rounded-[12px] overflow-hidden hover:shadow-[0_4px_14px_rgba(0,0,0,0.08)] hover:border-primary/25 transition-all duration-200 cursor-pointer group"
                 >
                   <div className="flex flex-col sm:flex-row">
                     {/* Room Image */}
-                    <div className="w-full aspect-[16/10] sm:w-36 sm:h-auto sm:aspect-auto shrink-0 overflow-hidden">
+                    <div className="w-full aspect-[16/9] sm:w-36 sm:h-auto sm:aspect-auto shrink-0 overflow-hidden">
                       <img
                         src={
                           booking.room_image ||
                           "https://images.unsplash.com/photo-1631049307264-da0ec9d70304?w=400&h=300&fit=crop"
                         }
                         alt={booking.room_name}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                        className={cn(
+                          "w-full h-full object-cover group-hover:scale-105 transition-transform duration-200",
+                          dimmed && "opacity-70",
+                        )}
                       />
                     </div>
 
                     {/* Content */}
                     <div className="flex-1 p-4 sm:p-5 flex flex-col justify-between min-w-0">
-                      <div>
+                      <div className={cn(dimmed && "opacity-70")}>
                         {/* Top Row: Room + Status */}
                         <div className="flex items-start justify-between gap-3 mb-2">
                           <div className="min-w-0">
                             <h3 className="typo-title-md text-ink truncate">{booking.room_name}</h3>
                             <p className="typo-caption-sm text-muted">{booking.room_type}</p>
                           </div>
-                          <span className="inline-flex items-center gap-1.5 text-xs font-medium shrink-0">
-                            <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`} />
-                            <span className={status.text}>{status.label}</span>
+                          <span className={cn("inline-flex items-center shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium leading-none", status.badgeCls)}>
+                            {status.label}
                           </span>
                         </div>
 
                         {/* Details Row */}
-                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] text-muted">
-                          <span className="inline-flex items-center gap-1.5">
-                            <CalendarDays className="h-3.5 w-3.5 shrink-0" />
-                            {formatDateRange(booking.check_in, booking.check_out, booking.stay_type)}
-                          </span>
-                          <span className="inline-flex items-center gap-1.5">
-                            <Clock className="h-3.5 w-3.5 shrink-0" />
-                            {booking.stay_type === "day" && booking.duration
+                        <p className="text-[13px] text-muted">
+                          {[
+                            formatDateRange(booking.check_in, booking.check_out, booking.stay_type),
+                            booking.stay_type === "day" && booking.duration
                               ? `${booking.duration}h${booking.start_time ? ` (${booking.start_time})` : ""}`
-                              : `${booking.nights} ${booking.nights === 1 ? "night" : "nights"}`
-                            }
-                          </span>
-                          <span className="inline-flex items-center gap-1.5">
-                            <Users className="h-3.5 w-3.5 shrink-0" />
-                            {booking.guests} {booking.guests === 1 ? "guest" : "guests"}
-                          </span>
-                        </div>
+                              : `${booking.nights} ${booking.nights === 1 ? "night" : "nights"}`,
+                            `${booking.guests} ${booking.guests === 1 ? "guest" : "guests"}`,
+                          ].join(" · ")}
+                        </p>
                       </div>
 
-                      {/* Bottom Row: Price + Actions */}
-                      <div className="flex items-center justify-between mt-3 pt-3 border-t border-hairline">
-                        <span className="font-display text-lg font-semibold text-ink">
-                          ₱{booking.total_price.toLocaleString()}
-                        </span>
-                        <div className="flex items-center gap-2">
-                          {booking.status.toLowerCase() === "confirmed" && canCancel(booking) && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
+                      {/* Bottom Row: Price + refund status + Actions */}
+                      <div className="flex flex-wrap items-center justify-between gap-2 mt-3">
+                        <div className={cn("min-w-0", dimmed && "opacity-70")}>
+                          <span className="font-display text-lg font-semibold text-ink">
+                            ₱{booking.total_price.toLocaleString()}
+                          </span>
+                          {refund && (
+                            <p className={cn("text-xs font-medium mt-0.5", refund.cls)}>{refund.text}</p>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap items-center justify-end gap-2">
+                          {rawStatus === "confirmed" && canCancel(booking) && (
+                            <button
+                              type="button"
                               onClick={(e) => { e.stopPropagation(); setCancelDialog({ open: true, id: booking.id }) }}
                               disabled={cancelling === booking.id}
-                              className="text-muted hover:text-ink hover:bg-gray-50 !rounded-[8px] text-xs"
+                              className="text-xs text-muted hover:text-ink underline-offset-2 hover:underline cursor-pointer disabled:opacity-50 disabled:no-underline"
                             >
                               {cancelling === booking.id ? (
                                 <span className="flex items-center gap-1">
@@ -543,14 +598,11 @@ export default function MyBookings() {
                                   Cancelling...
                                 </span>
                               ) : (
-                                <>
-                                  <X className="h-3.5 w-3.5 mr-1" />
-                                  Cancel
-                                </>
+                                "Cancel"
                               )}
-                            </Button>
+                            </button>
                           )}
-                          {booking.status.toLowerCase() === "pending" && (
+                          {rawStatus === "pending" && (
                             <>
                               <Button
                                 size="sm"
@@ -566,12 +618,11 @@ export default function MyBookings() {
                                 )}
                                 {paying === booking.id ? "Redirecting..." : "Pay Now"}
                               </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
+                              <button
+                                type="button"
                                 onClick={(e) => { e.stopPropagation(); setCancelDialog({ open: true, id: booking.id }) }}
                                 disabled={cancelling === booking.id}
-                                className="text-muted hover:text-ink hover:bg-gray-50 !rounded-[8px] text-xs"
+                                className="text-xs text-muted hover:text-ink underline-offset-2 hover:underline cursor-pointer disabled:opacity-50 disabled:no-underline"
                               >
                                 {cancelling === booking.id ? (
                                   <span className="flex items-center gap-1">
@@ -581,26 +632,49 @@ export default function MyBookings() {
                                 ) : (
                                   "Cancel"
                                 )}
+                              </button>
+                            </>
+                          )}
+                          {isFinished && (
+                            <>
+                              {/* No-shows never checked in — nothing to rate. */}
+                              {!!booking.checked_in_at && (
+                                booking.reviewed ? (
+                                  <span className="inline-flex items-center gap-1 text-xs font-medium text-muted">
+                                    <Star className="h-3.5 w-3.5 fill-star-rating text-star-rating" />
+                                    You rated {booking.rating ?? "—"} / 5
+                                  </span>
+                                ) : (
+                                  <Button
+                                    size="sm"
+                                    onClick={(e) => { e.stopPropagation(); setReviewTarget(booking) }}
+                                    className="!rounded-[8px] text-xs font-semibold"
+                                    style={{ backgroundColor: PRIMARY, color: CANVAS }}
+                                  >
+                                    <Star className="h-3.5 w-3.5 mr-1" />
+                                    Write a review
+                                  </Button>
+                                )
+                              )}
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={(e) => { e.stopPropagation(); navigate(`/rooms/${booking.room_id}`) }}
+                                className="!rounded-[8px] text-xs font-medium"
+                              >
+                                Book again
                               </Button>
                             </>
                           )}
-                          {(booking.status === "completed" || booking.status === "checked-out") && !!booking.checked_in_at && (
-                            booking.reviewed ? (
-                              <span className="inline-flex items-center gap-1 text-xs font-medium text-muted">
-                                <Star className="h-3.5 w-3.5 fill-star-rating text-star-rating" />
-                                You rated {booking.rating ?? "—"} / 5
-                              </span>
-                            ) : (
-                              <Button
-                                size="sm"
-                                onClick={(e) => { e.stopPropagation(); setReviewTarget(booking) }}
-                                className="!rounded-[8px] text-xs font-semibold"
-                                style={{ backgroundColor: PRIMARY, color: CANVAS }}
-                              >
-                                <Star className="h-3.5 w-3.5 mr-1" />
-                                Rate &amp; Review
-                              </Button>
-                            )
+                          {rawStatus === "cancelled" && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={(e) => { e.stopPropagation(); navigate(`/rooms/${booking.room_id}`) }}
+                              className="!rounded-[8px] text-xs font-medium"
+                            >
+                              Book again
+                            </Button>
                           )}
                         </div>
                       </div>
@@ -749,7 +823,7 @@ export default function MyBookings() {
                   />
                   <DetailRow
                     label="Guests"
-                    value={`${detailBooking.guests} ${detailBooking.guests === 1 ? "guest" : "guests"}`}
+                    value={guestBreakdown(detailBooking)}
                   />
                 </div>
               </div>
