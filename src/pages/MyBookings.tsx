@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react"
 import { useNavigate, useSearchParams } from "react-router"
-import { CalendarDays, Users, Clock, X, ChevronRight, SlidersHorizontal, ChevronLeft, LayoutGrid, CheckCircle, BadgeCheck, XCircle, CreditCard, MapPin, FileText, Star, Landmark, DoorOpen } from "lucide-react"
+import { CalendarDays, Users, Clock, X, ChevronRight, SlidersHorizontal, ChevronLeft, LayoutGrid, CheckCircle, BadgeCheck, XCircle, CreditCard, Star, DoorOpen, Mail, Phone, User } from "lucide-react"
 import BookingQr from "@/components/BookingQr"
 import { Button } from "@/components/ui/button"
 import { userBookingsApi, ApiError, type UserBookingData } from "@/services/api"
@@ -53,12 +53,16 @@ const tabs: { id: TabFilter; label: string; icon: React.ReactNode }[] = [
 
 function formatDateRange(checkIn: string, checkOut: string, stayType?: string) {
   const ci = new Date(checkIn)
-  const opts: Intl.DateTimeFormatOptions = { month: "2-digit", day: "2-digit", year: "2-digit" }
+  const day: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" }
+  const dayYear: Intl.DateTimeFormatOptions = { month: "short", day: "numeric", year: "numeric" }
   if (stayType === "day") {
-    return ci.toLocaleDateString("en-US", opts)
+    return ci.toLocaleDateString("en-US", dayYear)
   }
   const co = new Date(checkOut)
-  return `${ci.toLocaleDateString("en-US", opts)} – ${co.toLocaleDateString("en-US", opts)}`
+  // One format everywhere: "Oct 4 – Oct 5, 2026" (year once when it matches).
+  return ci.getFullYear() === co.getFullYear()
+    ? `${ci.toLocaleDateString("en-US", day)} – ${co.toLocaleDateString("en-US", dayYear)}`
+    : `${ci.toLocaleDateString("en-US", dayYear)} – ${co.toLocaleDateString("en-US", dayYear)}`
 }
 
 type BookingDetail = UserBookingData & { full_name: string; email: string; phone: string; special_requests: string }
@@ -125,6 +129,18 @@ function formatTimeLabel(iso: string | null | undefined): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return ""
   return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })
+}
+
+/** 'Oct 4, 2026 · 2:00 PM' — check-in line matching checkoutMomentLabel's shape. */
+function checkInMomentLabel(b: { check_in: string; stay_type?: string | null; start_time?: string | null }): string {
+  const d = new Date(b.check_in)
+  const day = d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })
+  const year = d.getUTCFullYear()
+  // Day use without a picked time has no meaningful clock to show.
+  if (b.stay_type === "day" && !b.start_time) return `${day}, ${year}`
+  const start = startMomentLabel(b)
+  const time = start ? start.split(", ").slice(1).join(", ") : ""
+  return time ? `${day}, ${year} · ${time}` : `${day}, ${year}`
 }
 
 export default function MyBookings() {
@@ -642,10 +658,7 @@ export default function MyBookings() {
         }}
       >
         <DialogContent className="!rounded-[16px] !max-w-[520px] !p-0 overflow-hidden">
-          {/* Header */}
-          <DialogHeader className="px-6 pt-6 pb-4 border-b border-hairline">
-            <DialogTitle>Booking Details</DialogTitle>
-          </DialogHeader>
+          <DialogTitle className="sr-only">Booking Details</DialogTitle>
 
           {detailLoading ? (
             <div className="p-6 space-y-4">
@@ -657,9 +670,9 @@ export default function MyBookings() {
               ))}
             </div>
           ) : detailBooking ? (
-            <div className="overflow-y-auto max-h-[70vh] p-6">
-              {/* Room Image + Name */}
-              <div className="flex items-start gap-4 mb-6">
+            <div className="max-h-[85dvh] overflow-y-auto p-6">
+              {/* Header: room photo, name, type, status */}
+              <div className="mb-5 flex items-start gap-4 pr-8">
                 <div className="w-20 h-20 rounded-[10px] overflow-hidden shrink-0">
                   <img
                     src={detailBooking.room_image || "https://images.unsplash.com/photo-1631049307264-da0ec9d70304?w=400&h=300&fit=crop"}
@@ -670,7 +683,7 @@ export default function MyBookings() {
                 <div className="min-w-0">
                   <h3 className="font-display font-semibold text-ink text-lg truncate">{detailBooking.room_name}</h3>
                   <p className="text-sm text-muted">{detailBooking.room_type}</p>
-                  <span className="inline-flex items-center gap-1.5 text-xs font-medium mt-1">
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-hairline px-2.5 py-1 text-xs font-medium mt-2">
                     <span className={`w-1.5 h-1.5 rounded-full ${statusFor(detailBooking).dot}`} />
                     <span className={statusFor(detailBooking).text}>
                       {statusFor(detailBooking).label}
@@ -679,18 +692,54 @@ export default function MyBookings() {
                 </div>
               </div>
 
-              {/* Booking Information */}
-              <div className="space-y-3 mb-6">
-                <h4 className="text-xs font-semibold uppercase tracking-wider text-muted">Booking Information</h4>
-                <div className="bg-gray-50 rounded-[10px] p-4 space-y-3">
-                  <DetailRow icon={<FileText className="h-4 w-4" />} label="Booking ID" value={`#${detailBooking.id.slice(0, 8).toUpperCase()}`} />
-                  <DetailRow
-                    icon={<CalendarDays className="h-4 w-4" />}
-                    label="Dates"
-                    value={formatDateRange(detailBooking.check_in, detailBooking.check_out, detailBooking.stay_type)}
+              {/* Check-in QR — the visual focus of this modal */}
+              {(() => {
+                const status = detailBooking.status.toLowerCase()
+                const qrActive = status === "confirmed"
+                const qrInactiveMsg =
+                  status === "cancelled"
+                    ? "This booking was cancelled — the check-in QR is no longer valid."
+                    : status === "completed" || status === "checked-out"
+                      ? "This stay has ended — the check-in QR is no longer valid."
+                      : "Your QR becomes active once payment is confirmed."
+                return (
+                  <BookingQr
+                    bookingId={detailBooking.id}
+                    className="mb-5"
+                    inactiveMessage={qrActive ? undefined : qrInactiveMsg}
+                    validFrom={qrActive && deriveArrival(detailBooking) === "none" && startMomentLabel(detailBooking) ? `Valid from ${startMomentLabel(detailBooking)}` : undefined}
+                    checkInLabel={checkInMomentLabel(detailBooking) || undefined}
+                    checkOutLabel={checkoutMomentLabel(detailBooking) || undefined}
                   />
+                )
+              })()}
+
+              {/* Arrival status — mirrors what the front desk sees after your QR scan */}
+              {detailBooking.status.toLowerCase() === "confirmed" && detailBooking.checked_in_at && (() => {
+                const state = deriveArrival(detailBooking)
+                const start = startMomentLabel(detailBooking)
+                const at = arrivalTimeLabel(detailBooking.checked_in_at)
+                const text =
+                  state === "early" ? `Checked in ${at} · stay starts ${start}`
+                  : state === "in_house" ? `In-house${start ? ` · stay started ${start}` : ""}`
+                  : `Checked in${at ? ` ${at}` : ""}`
+                const tone =
+                  state === "in_house" ? "text-[#3D6B4F]"
+                  : state === "early" ? "text-amber-600"
+                  : "text-muted"
+                return (
+                  <div className="mb-5 flex items-center gap-2 rounded-[10px] bg-gray-50 px-4 py-3">
+                    <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", state === "in_house" ? "bg-[#3D6B4F]" : state === "early" ? "bg-amber-500" : "bg-gray-300")} />
+                    <span className={cn("text-sm font-medium", tone)}>{text}</span>
+                  </div>
+                )
+              })()}
+
+              {/* Booking Information — Booking ID and dates live in the QR card */}
+              <div className="space-y-3 mb-5">
+                <h4 className="text-sm font-semibold text-ink">Booking Information</h4>
+                <div className="bg-gray-50 rounded-[10px] p-4 space-y-2.5">
                   <DetailRow
-                    icon={<Clock className="h-4 w-4" />}
                     label="Duration"
                     value={
                       detailBooking.stay_type === "day" && detailBooking.duration
@@ -699,12 +748,6 @@ export default function MyBookings() {
                     }
                   />
                   <DetailRow
-                    icon={<CalendarDays className="h-4 w-4" />}
-                    label="Check-out"
-                    value={checkoutMomentLabel(detailBooking) || "—"}
-                  />
-                  <DetailRow
-                    icon={<Users className="h-4 w-4" />}
                     label="Guests"
                     value={`${detailBooking.guests} ${detailBooking.guests === 1 ? "guest" : "guests"}`}
                   />
@@ -713,40 +756,50 @@ export default function MyBookings() {
 
               {/* Guest Info (if available) */}
               {(detailBooking.full_name || detailBooking.email) && (
-                <div className="space-y-3 mb-6">
-                  <h4 className="text-xs font-semibold uppercase tracking-wider text-muted">Guest Information</h4>
-                  <div className="bg-gray-50 rounded-[10px] p-4 space-y-3">
+                <div className="space-y-3 mb-5">
+                  <h4 className="text-sm font-semibold text-ink">Guest Information</h4>
+                  <div className="bg-gray-50 rounded-[10px] p-4 space-y-2.5">
                     {detailBooking.full_name && (
-                      <DetailRow icon={<Users className="h-4 w-4" />} label="Name" value={detailBooking.full_name} />
+                      <DetailRow icon={<User className="h-4 w-4 text-muted" />} label="Name" value={detailBooking.full_name} />
                     )}
                     {detailBooking.email && (
-                      <DetailRow icon={<MapPin className="h-4 w-4" />} label="Email" value={detailBooking.email} />
+                      <DetailRow icon={<Mail className="h-4 w-4 text-muted" />} label="Email" value={detailBooking.email} />
                     )}
                     {detailBooking.phone && (
-                      <DetailRow icon={<MapPin className="h-4 w-4" />} label="Phone" value={detailBooking.phone} />
+                      <DetailRow icon={<Phone className="h-4 w-4 text-muted" />} label="Phone" value={detailBooking.phone} />
                     )}
                   </div>
                 </div>
               )}
 
               {/* Payment Details */}
-              <div className="space-y-3 mb-6">
-                <h4 className="text-xs font-semibold uppercase tracking-wider text-muted">Payment Details</h4>
-                <div className="bg-gray-50 rounded-[10px] p-4 space-y-3">
+              <div className="space-y-3 mb-5">
+                <h4 className="text-sm font-semibold text-ink">Payment Details</h4>
+                <div className="bg-gray-50 rounded-[10px] p-4 space-y-2.5">
+                  <DetailRow label="Payment Method" value={formatPaymentMethod(detailBooking.payment_method, "N/A")} />
                   <DetailRow
-                    icon={<CreditCard className="h-4 w-4" />}
-                    label="Payment Method"
-                    value={formatPaymentMethod(detailBooking.payment_method, "N/A")}
-                  />
-                  <DetailRow
-                    icon={<CalendarDays className="h-4 w-4" />}
                     label="Booking Date"
                     value={new Date(detailBooking.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                   />
-                  <div className="flex items-center justify-between pt-2 border-t border-gray-200">
+                  <div className="flex items-center justify-between gap-3 pt-2.5 border-t border-gray-200">
                     <span className="text-sm font-semibold text-ink">Total Amount</span>
-                    <span className="text-lg font-display font-bold" style={{ color: PRIMARY }}>
-                      {detailBooking.total_price.toLocaleString()}
+                    <span className="flex items-center justify-end gap-2">
+                      <span className="text-lg font-display font-bold" style={{ color: PRIMARY }}>
+                        ₱{detailBooking.total_price.toLocaleString()}
+                      </span>
+                      {(() => {
+                        const balance = Math.max(0, (detailBooking.total_price ?? 0) - (detailBooking.amount_paid ?? 0))
+                        const badge = detailBooking.refunded_at
+                          ? null
+                          : detailBooking.status.toLowerCase() === "pending"
+                            ? { text: "Unpaid", cls: "bg-amber-50 text-amber-700 border-amber-200" }
+                            : detailBooking.payment_mode === "downpayment" && balance > 0
+                              ? { text: "Partially paid", cls: "bg-amber-50 text-amber-700 border-amber-200" }
+                              : { text: "Paid", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" }
+                        return badge ? (
+                          <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${badge.cls}`}>{badge.text}</span>
+                        ) : null
+                      })()}
                     </span>
                   </div>
                   {detailBooking.payment_mode === "downpayment" && (
@@ -760,10 +813,7 @@ export default function MyBookings() {
                   {detailBooking.payment_mode === "downpayment" &&
                     Math.max(0, (detailBooking.total_price ?? 0) - (detailBooking.amount_paid ?? 0)) > 0 && (
                     <div className="flex items-center justify-between">
-                      <span className="text-sm text-muted flex items-center gap-1.5">
-                        <Landmark className="h-3.5 w-3.5" />
-                        Balance due at the hotel
-                      </span>
+                      <span className="text-sm text-muted">Balance due at the hotel</span>
                       <span className="text-sm font-semibold text-ink">
                         ₱{Math.max(0, detailBooking.total_price - (detailBooking.amount_paid ?? 0)).toLocaleString()}
                       </span>
@@ -781,7 +831,7 @@ export default function MyBookings() {
 
               {/* Refund notice — the money went back after a cancellation */}
               {detailBooking.refunded_at && (
-                <div className="mb-6 flex items-start gap-2 rounded-[10px] border border-[#3D6B4F]/30 bg-[#3D6B4F]/5 px-4 py-3">
+                <div className="mb-5 flex items-start gap-2 rounded-[10px] border border-[#3D6B4F]/30 bg-[#3D6B4F]/5 px-4 py-3">
                   <CheckCircle className="mt-0.5 size-4 shrink-0 text-[#3D6B4F]" />
                   <span className="text-sm font-medium text-[#3D6B4F]">
                     Refunded to your original payment method on{" "}
@@ -791,49 +841,10 @@ export default function MyBookings() {
                 </div>
               )}
 
-              {/* Arrival status — mirrors what the front desk sees after your QR scan */}
-              {detailBooking.status === "confirmed" && (() => {
-                const state = deriveArrival(detailBooking)
-                const start = startMomentLabel(detailBooking)
-                const at = arrivalTimeLabel(detailBooking.checked_in_at)
-                const text =
-                  state === "none" ? (start ? `Not checked in yet · stay starts ${start}` : "Not checked in yet")
-                  : state === "early" ? `Checked in ${at} · stay starts ${start}`
-                  : state === "in_house" ? `In-house${start ? ` · stay started ${start}` : ""}`
-                  : `Checked in${at ? ` ${at}` : ""}`
-                const tone =
-                  state === "in_house" ? "text-[#3D6B4F]"
-                  : state === "early" ? "text-amber-600"
-                  : "text-muted"
-                return (
-                  <div className="mb-6 flex items-center gap-2 rounded-[10px] bg-gray-50 px-4 py-3">
-                    <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", state === "in_house" ? "bg-[#3D6B4F]" : state === "early" ? "bg-amber-500" : "bg-gray-300")} />
-                    <span className={cn("text-sm font-medium", tone)}>{text}</span>
-                  </div>
-                )
-              })()}
-
-              {/* Check-in QR code — what the guest shows at the front desk */}
-              {detailBooking.status === "confirmed" && (
-                <div className="space-y-3 mb-6">
-                  <h4 className="text-xs font-semibold uppercase tracking-wider text-muted">Check-in QR Code</h4>
-                  {/* When they actually have to be out — the question the QR raises */}
-                  {checkoutMomentLabel(detailBooking) && (
-                    <div className="flex items-center gap-2 rounded-[10px] bg-gray-50 px-3 py-2">
-                      <CalendarDays className="h-4 w-4 shrink-0 text-muted" />
-                      <span className="text-sm font-medium text-ink">
-                        Check-out: {checkoutMomentLabel(detailBooking)}
-                      </span>
-                    </div>
-                  )}
-                  <BookingQr bookingId={detailBooking.id} />
-                </div>
-              )}
-
               {/* Special Requests */}
               {detailBooking.special_requests && (
-                <div className="space-y-3 mb-6">
-                  <h4 className="text-xs font-semibold uppercase tracking-wider text-muted">Special Requests</h4>
+                <div className="space-y-3 mb-5">
+                  <h4 className="text-sm font-semibold text-ink">Special Requests</h4>
                   <div className="bg-gray-50 rounded-[10px] p-4">
                     <p className="text-sm text-ink">{detailBooking.special_requests}</p>
                   </div>
@@ -853,16 +864,6 @@ export default function MyBookings() {
                     {paying === detailBooking.id ? "Redirecting..." : "Pay Now"}
                   </Button>
                 )}
-                {(detailBooking.status.toLowerCase() === "confirmed" || detailBooking.status.toLowerCase() === "pending") && canCancel(detailBooking) && (
-                  <Button
-                    variant="outline"
-                    onClick={() => { setDetailOpen(false); setCancelDialog({ open: true, id: detailBooking.id }) }}
-                    disabled={cancelling === detailBooking.id}
-                    className="flex-1 !rounded-[8px]"
-                  >
-                    Cancel Booking
-                  </Button>
-                )}
                 {/* Extend only makes sense once the guest is actually in the room —
                     never for a booking that hasn't started yet. */}
                 {detailBooking.status.toLowerCase() === "confirmed" &&
@@ -879,6 +880,21 @@ export default function MyBookings() {
                     </Button>
                   )}
               </div>
+
+              {/* Cancel — quiet red text link, only while cancellation is allowed */}
+              {(detailBooking.status.toLowerCase() === "confirmed" || detailBooking.status.toLowerCase() === "pending") &&
+                canCancel(detailBooking) && (
+                  <div className="pt-3 text-center">
+                    <button
+                      type="button"
+                      onClick={() => { setDetailOpen(false); setCancelDialog({ open: true, id: detailBooking.id }) }}
+                      disabled={cancelling === detailBooking.id}
+                      className="cursor-pointer text-sm font-medium text-[#dc2626] transition-colors hover:text-[#b91c1c] hover:underline disabled:opacity-50"
+                    >
+                      {cancelling === detailBooking.id ? "Cancelling…" : "Cancel this booking"}
+                    </button>
+                  </div>
+                )}
             </div>
           ) : null}
         </DialogContent>
@@ -1026,8 +1042,27 @@ export default function MyBookings() {
       <ConfirmDialog
         open={cancelDialog.open}
         onOpenChange={(open) => setCancelDialog({ open, id: cancelDialog.id })}
-        title="Cancel Booking"
-        description="Are you sure you want to cancel this booking? This action cannot be undone."
+        title="Cancel Booking?"
+        description={
+          <div className="text-left">
+            <p className="mb-2">Cancelling this booking follows our cancellation policy:</p>
+            <ul className="mb-3 list-disc space-y-1.5 pl-4">
+              <li>
+                <span className="font-medium text-ink">24+ hours before check-in</span> — free cancellation, full online
+                refund (7–14 banking days).
+              </li>
+              <li>
+                <span className="font-medium text-ink">Within 24 hours</span> — cancellation allowed, but the booking is
+                non-refundable.
+              </li>
+              <li>
+                <span className="font-medium text-ink">Already checked in</span> — cancellation unavailable, please
+                contact the front desk.
+              </li>
+            </ul>
+            <p>This action cannot be undone.</p>
+          </div>
+        }
         confirmLabel="Yes, Cancel"
         cancelLabel="Keep Booking"
         variant="danger"
@@ -1062,10 +1097,10 @@ export default function MyBookings() {
 
 /* ── Detail Row Component ──────────────────────────────────────────────── */
 
-function DetailRow({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+function DetailRow({ icon, label, value }: { icon?: React.ReactNode; label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between">
-      <span className="flex items-center gap-2 text-sm text-muted">
+    <div className="flex items-center justify-between gap-3">
+      <span className="flex items-center gap-2 text-sm text-ink/70">
         {icon}
         {label}
       </span>

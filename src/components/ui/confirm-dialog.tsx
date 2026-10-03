@@ -1,3 +1,4 @@
+import type { ReactNode } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { AlertTriangle } from "lucide-react"
@@ -7,7 +8,8 @@ interface ConfirmDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   title: string
-  description: string
+  /** Plain string, or rich content (e.g. a cancellation-policy list). */
+  description: ReactNode
   confirmLabel?: string
   cancelLabel?: string
   variant?: "danger" | "default"
@@ -39,7 +41,11 @@ export default function ConfirmDialog({
           )}
           <DialogHeader className="text-center">
             <DialogTitle className="text-lg font-semibold text-ink">{title}</DialogTitle>
-            <DialogDescription className="text-sm text-muted mt-2 leading-relaxed">{description}</DialogDescription>
+            {typeof description === "string" ? (
+              <DialogDescription className="text-sm text-muted mt-2 leading-relaxed">{description}</DialogDescription>
+            ) : (
+              <div className="text-sm text-muted mt-2 leading-relaxed text-left">{description}</div>
+            )}
           </DialogHeader>
         </div>
         <div className="flex gap-3 px-6 pb-6">
