@@ -392,6 +392,23 @@ def notify_admins(notif_type, title, message, booking_id=None):
         print(f"notify_admins error: {e}")
 
 
+def _current_device_id(user_id):
+    """user_devices.id for the device making THIS request, or None.
+
+    Used to hide a device's own "New login" alert from itself — the device
+    that just signed in does not need to be warned about its own sign-in.
+    Fail-open (None = no filtering) on any lookup error.
+    """
+    try:
+        device_key, _, _ = _request_device_info()
+        res = supabase_admin.table("user_devices") \
+            .select("id").eq("user_id", user_id) \
+            .eq("device_key", device_key).limit(1).execute()
+        return res.data[0]["id"] if res.data else None
+    except Exception:
+        return None
+
+
 @app.route("/api/notifications", methods=["GET"])
 def get_notifications():
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
@@ -403,7 +420,14 @@ def get_notifications():
         limit = request.args.get("limit", default=30, type=int)
         # Service-role: shared anon client has no auth context — RLS filtered every row (0 results).
         # user_id already verified from JWT above, so scoping stays per-user.
-        res = supabase_admin.table("notifications").select("*").eq("user_id", user_id).order("created_at", desc=True).limit(limit).execute()
+        res = supabase_admin.table("notifications").select("*").eq("user_id", user_id)
+        cur_id = _current_device_id(user_id)
+        if cur_id:
+            # Hide device alerts THIS device raised about its own sign-in —
+            # every other device of the account still sees them. Rows without
+            # a device link (bookings, reviews, admin) are never filtered.
+            res = res.or_(f"device_id.is.null,device_id.neq.{cur_id}")
+        res = res.order("created_at", desc=True).limit(limit).execute()
         return jsonify(res.data or []), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -417,7 +441,13 @@ def get_unread_count():
         return jsonify({"error": "Unauthorized"}), 401
 
     try:
-        res = supabase_admin.table("notifications").select("id", count="exact").eq("user_id", user_id).eq("read", False).execute()
+        res = supabase_admin.table("notifications").select("id", count="exact").eq("user_id", user_id).eq("read", False)
+        cur_id = _current_device_id(user_id)
+        if cur_id:
+            # Same exclusion as GET /api/notifications so the badge always
+            # matches what the list shows.
+            res = res.or_(f"device_id.is.null,device_id.neq.{cur_id}")
+        res = res.execute()
         return jsonify({"count": res.count or 0}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -812,6 +842,16 @@ def track_new_login(user_id):
         is_new = True
 
     if trusted:
+        return device_id
+
+    # First-ever device of this account (e.g. a brand-new registration):
+    # there is nobody else to warn, and this very device already knows it
+    # just signed in — the alert would only ever be noise. Only raise it
+    # once the account owns at least one OTHER device.
+    others = supabase_admin.table("user_devices") \
+        .select("id").eq("user_id", user_id).neq("id", device_id) \
+        .limit(1).execute()
+    if not others.data:
         return device_id
 
     # One alert at a time: skip while an unread one is pending, and don't
