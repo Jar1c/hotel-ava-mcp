@@ -522,6 +522,16 @@ def register():
 
     try:
         res = supabase.auth.sign_up({"email": email, "password": password, "options": {"data": {"name": name}}})
+        # With email confirmation on, GoTrue hides an EXISTING account behind a
+        # fake user (random id + empty identities) instead of returning an error.
+        # Verify with the admin API before treating the response as a new signup.
+        if res.user is None:
+            return jsonify({"error": "already_registered"}), 400
+        if not res.user.identities:
+            try:
+                supabase_admin.auth.admin.get_user_by_id(res.user.id)  # a real new user exists under this id
+            except Exception:
+                return jsonify({"error": "already_registered"}), 400
         # Create user profile row so require_admin / login can read role
         try:
             supabase.table("users").insert({

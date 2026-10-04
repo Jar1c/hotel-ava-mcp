@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useSearchParams } from "react-router-dom"
-import { Lock, Save, Eye, EyeOff, Sun, Moon, Monitor, Palette, Smartphone, QrCode, Camera, CircleCheck, CircleAlert } from "lucide-react"
+import { Lock, Save, Eye, EyeOff, Sun, Moon, Monitor, Palette, Smartphone, QrCode, Camera, CircleCheck, CircleAlert, Mail, Link2 } from "lucide-react"
+import type { UserIdentity } from "@supabase/supabase-js"
 import { Button } from "@/components/ui/button"
 import ConfirmDialog from "@/components/ui/confirm-dialog"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
@@ -8,6 +9,8 @@ import QrScannerDialog from "@/components/QrScannerDialog"
 import QuickSigninGuide from "@/components/QuickSigninGuide"
 import { useTheme, type ThemeMode, type ColorPreset } from "@/contexts/ThemeContext"
 import { useAuth } from "@/contexts/AuthContext"
+import { useToast } from "@/contexts/ToastContext"
+import { supabase, supabaseUrl, supabaseAnonKey } from "@/lib/supabase"
 import { authApi, sessionsApi, quickSigninApi, type SessionInfo } from "@/services/api"
 
 const COLOR_PRESETS: { key: ColorPreset; label: string; primary: string; secondary: string }[] = [
@@ -27,10 +30,13 @@ const MODE_OPTIONS: { key: ThemeMode; label: string; icon: typeof Sun }[] = [
 
 const TABS = [
   { key: "appearance", label: "Appearance", icon: Palette },
-  { key: "security", label: "Change Password", icon: Lock },
+  { key: "security", label: "Login & security", icon: Lock },
   { key: "devices", label: "Devices", icon: Smartphone },
   { key: "quick-signin", label: "Quick Sign-In", icon: QrCode },
 ] as const
+
+const settingsInputClass =
+  "w-full px-3 py-2 border border-hairline rounded-[8px] text-sm bg-canvas focus:outline-none focus:border-primary/50 transition-colors dark:bg-surface"
 
 type TabKey = typeof TABS[number]["key"]
 
@@ -58,6 +64,7 @@ function extractQsCode(raw: string): string | null {
 export default function Settings() {
   const { mode, setMode, colorPreset, setColorPreset } = useTheme()
   const { user } = useAuth()
+  const { toast } = useToast()
   const [searchParams, setSearchParams] = useSearchParams()
   // URL-driven (?tab=devices) — a reload or deep link lands on the same tab
   const activeTab: TabKey =
@@ -82,6 +89,214 @@ export default function Settings() {
 
   const [passwordError, setPasswordError] = useState("")
   const [passwordSuccess, setPasswordSuccess] = useState("")
+
+  // ── Connected accounts (Supabase identity linking) ──
+  const [identities, setIdentities] = useState<UserIdentity[] | null>(null)
+  const [identitiesFailed, setIdentitiesFailed] = useState(false)
+  const [showSetPw, setShowSetPw] = useState(false)
+  const [setPw, setSetPw] = useState("")
+  const [setPwConfirm, setSetPwConfirm] = useState("")
+  const [setPwBusy, setSetPwBusy] = useState(false)
+  const [setPwError, setSetPwError] = useState("")
+  const [reauthOpen, setReauthOpen] = useState(false)
+  const [reauthPassword, setReauthPassword] = useState("")
+  const [reauthBusy, setReauthBusy] = useState(false)
+  const [reauthError, setReauthError] = useState("")
+  const pendingReauthRef = useRef<(() => Promise<void>) | null>(null)
+
+  const hasEmailIdentity = identities?.some((i) => i.provider === "email") ?? false
+  const googleIdentity = identities?.find((i) => i.provider === "google") ?? null
+  const googleEmail = String(googleIdentity?.identity_data?.email || "")
+  // A failed identities load must never hide the existing Change Password card.
+  const showChangePassword = identitiesFailed || identities === null || hasEmailIdentity
+
+  /** Adopt the app's stored tokens if the browser has no Supabase session
+   *  (email/password logins create one best-effort; this is the safety net). */
+  const ensureSupabaseSession = async (): Promise<boolean> => {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+    if (session) return true
+    const access_token = sessionStorage.getItem("access_token")
+    const refresh_token = sessionStorage.getItem("refresh_token")
+    if (!access_token || !refresh_token) return false
+    const { error } = await supabase.auth.setSession({ access_token, refresh_token })
+    return !error
+  }
+
+  const loadIdentities = async () => {
+    try {
+      setIdentitiesFailed(false)
+      if (!(await ensureSupabaseSession())) {
+        setIdentities([])
+        setIdentitiesFailed(true)
+        return
+      }
+      const { data, error } = await supabase.auth.getUserIdentities()
+      if (error) throw error
+      let list = data?.identities ?? []
+      // Same-email rule: a Google identity from a different address never stays
+      // linked — remove it right away and explain why.
+      const mismatched = list.find(
+        (i) =>
+          i.provider === "google" &&
+          !!i.identity_data?.email &&
+          String(i.identity_data.email).toLowerCase() !== (user?.email || "").toLowerCase(),
+      )
+      if (mismatched) {
+        const { error: unlinkErr } = await supabase.auth.unlinkIdentity(mismatched)
+        if (unlinkErr) {
+          toast({ title: "Couldn't connect that Google account", description: "Please try again.", variant: "error" })
+        } else {
+          list = list.filter((i) => i.id !== mismatched.id)
+          toast({
+            title: "Google account not connected",
+            description: `This Google account (${String(mismatched.identity_data?.email)}) is different from your account email (${user?.email}). Use the same email to connect.`,
+            variant: "error",
+            duration: 8000,
+          })
+        }
+      }
+      setIdentities(list)
+    } catch {
+      setIdentities([])
+      setIdentitiesFailed(true)
+    }
+  }
+
+  useEffect(() => {
+    if (activeTab !== "security") return
+    void loadIdentities()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab])
+
+  // Coming back from the Google consent screen → land on this tab again
+  useEffect(() => {
+    if (sessionStorage.getItem("link_intent") === "google") {
+      sessionStorage.removeItem("link_intent")
+      setActiveTab("security")
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  /** Re-auth gate: verify the account password WITHOUT touching any session —
+   *  direct GoTrue password grant, returned tokens discarded. */
+  const verifyPassword = async (password: string): Promise<boolean> => {
+    const res = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=password`, {
+      method: "POST",
+      headers: { apikey: supabaseAnonKey, "Content-Type": "application/json" },
+      body: JSON.stringify({ email: user?.email, password }),
+    })
+    return res.ok
+  }
+
+  const runWithReauth = (action: () => Promise<void>) => {
+    pendingReauthRef.current = action
+    setReauthPassword("")
+    setReauthError("")
+    setReauthOpen(true)
+  }
+
+  const handleReauth = async () => {
+    if (!reauthPassword) {
+      setReauthError("Enter your password to continue.")
+      return
+    }
+    setReauthBusy(true)
+    setReauthError("")
+    try {
+      const ok = await verifyPassword(reauthPassword)
+      if (!ok) {
+        setReauthError("That password is incorrect.")
+        return
+      }
+      const action = pendingReauthRef.current
+      pendingReauthRef.current = null
+      setReauthOpen(false)
+      setReauthPassword("")
+      await action?.()
+    } finally {
+      setReauthBusy(false)
+    }
+  }
+
+  const linkErrorToast = (message: string, verb: "connect" | "disconnect") => {
+    if (message.includes("manual linking") || message.includes("manual_linking")) {
+      toast({
+        title: "Account linking is turned off",
+        description: "Linking sign-in methods is disabled for this project. Contact support to enable it.",
+        variant: "error",
+      })
+      return
+    }
+    if (verb === "connect" && (message.includes("already linked") || message.includes("already exists"))) {
+      toast({
+        title: "Google already connected",
+        description: "That Google account is already linked to your account.",
+        variant: "error",
+      })
+      return
+    }
+    toast({
+      title: verb === "connect" ? "Couldn't connect Google" : "Couldn't disconnect Google",
+      description: "Something went wrong. Please try again.",
+      variant: "error",
+    })
+  }
+
+  const connectGoogle = async () => {
+    if (!(await ensureSupabaseSession())) {
+      toast({ title: "Please sign in again", description: "Your session expired. Sign in to connect Google.", variant: "error" })
+      return
+    }
+    sessionStorage.setItem("link_intent", "google")
+    const { error } = await supabase.auth.linkIdentity({
+      provider: "google",
+      options: { redirectTo: `${window.location.origin}/settings` },
+    })
+    if (error) {
+      sessionStorage.removeItem("link_intent")
+      linkErrorToast(error.message || "", "connect")
+    }
+    // On success the browser navigates away to Google's consent screen.
+  }
+
+  const disconnectGoogle = async () => {
+    if (!googleIdentity) return
+    const { error } = await supabase.auth.unlinkIdentity(googleIdentity)
+    if (error) {
+      linkErrorToast(error.message || "", "disconnect")
+      return
+    }
+    toast({ title: "Google disconnected", description: "You can reconnect it at any time.", variant: "success" })
+    await loadIdentities()
+  }
+
+  const handleSetPassword = async () => {
+    setSetPwError("")
+    if (setPw.length < 8 || !/[A-Z]/.test(setPw) || !/[0-9]/.test(setPw)) {
+      setSetPwError("Use at least 8 characters with one uppercase letter and one number.")
+      return
+    }
+    if (setPw !== setPwConfirm) {
+      setSetPwError("Passwords do not match")
+      return
+    }
+    setSetPwBusy(true)
+    try {
+      const { error } = await supabase.auth.updateUser({ password: setPw })
+      if (error) throw error
+      toast({ title: "Password set", description: "You can now sign in with your email and password.", variant: "success" })
+      setShowSetPw(false)
+      setSetPw("")
+      setSetPwConfirm("")
+      await loadIdentities()
+    } catch {
+      toast({ title: "Couldn't set your password", description: "Please try again.", variant: "error" })
+    } finally {
+      setSetPwBusy(false)
+    }
+  }
 
   // Quick Sign-In approval (enter the code shown on the other device —
   // a scanned QR deep-links here with ?code= already filled in)
@@ -325,11 +540,170 @@ export default function Settings() {
 
             {/* Security Tab */}
             {activeTab === "security" && (
-              <div className="bg-white border border-hairline rounded-[12px] p-md dark:bg-surface-soft dark:border-hairline">
-                <h2 className="typo-title-sm text-ink mb-md flex items-center gap-2">
-                  <Lock className="h-4 w-4" />
-                  Change Password
-                </h2>
+              <div className="space-y-md">
+                {/* ── Connected accounts ── */}
+                <div className="bg-white border border-hairline rounded-[12px] p-md dark:bg-surface-soft dark:border-hairline">
+                  <h2 className="typo-title-sm text-ink mb-md flex items-center gap-2">
+                    <Link2 className="h-4 w-4" />
+                    Connected accounts
+                  </h2>
+
+                  {identitiesFailed ? (
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm text-muted">Couldn&apos;t load your sign-in methods.</p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="!rounded-[8px]"
+                        onClick={() => void loadIdentities()}
+                      >
+                        Try again
+                      </Button>
+                    </div>
+                  ) : identities === null ? (
+                    <p className="text-sm text-muted">Loading your sign-in methods…</p>
+                  ) : (
+                    <>
+                      {/* Email */}
+                      <div className="flex items-center justify-between gap-3 py-3 border-b border-hairline dark:border-hairline/60">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-hairline bg-canvas dark:border-hairline/60 dark:bg-surface">
+                            <Mail className="h-4 w-4 text-muted" />
+                          </span>
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-ink">Email</p>
+                            <p className="text-xs text-muted truncate">
+                              {hasEmailIdentity
+                                ? user?.email
+                                : `${user?.email} — email sign-in not set up`}
+                            </p>
+                          </div>
+                        </div>
+                        {hasEmailIdentity ? (
+                          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-secondary/10 px-2 py-0.5 text-[11px] font-medium text-secondary">
+                            <CircleCheck className="h-3 w-3" />
+                            Connected
+                          </span>
+                        ) : (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="!rounded-[8px] shrink-0"
+                            onClick={() => setShowSetPw(true)}
+                          >
+                            Set a password
+                          </Button>
+                        )}
+                      </div>
+
+                      {/* Google */}
+                      <div className="flex items-center justify-between gap-3 py-3">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-hairline bg-canvas text-sm font-semibold text-ink dark:border-hairline/60 dark:bg-surface">
+                            G
+                          </span>
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-ink">Google</p>
+                            <p className="text-xs text-muted truncate">
+                              {googleIdentity ? googleEmail : "Not connected"}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                          {googleIdentity ? (
+                            <>
+                              <span className="inline-flex items-center gap-1 rounded-full bg-secondary/10 px-2 py-0.5 text-[11px] font-medium text-secondary">
+                                <CircleCheck className="h-3 w-3" />
+                                Connected
+                              </span>
+                              <Button
+                                variant="destructive"
+                                size="sm"
+                                className="!rounded-[8px]"
+                                disabled={!hasEmailIdentity}
+                                onClick={() => runWithReauth(disconnectGoogle)}
+                              >
+                                Disconnect
+                              </Button>
+                            </>
+                          ) : (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="!rounded-[8px]"
+                              onClick={() => runWithReauth(connectGoogle)}
+                            >
+                              Connect Google
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Never leave the account with zero login methods */}
+                      {googleIdentity && !hasEmailIdentity && (
+                        <p className="text-xs text-muted mt-1">
+                          Set a password first to disconnect your last login method.
+                        </p>
+                      )}
+
+                      {/* Google-only accounts set their password here */}
+                      {showSetPw && !hasEmailIdentity && (
+                        <div className="mt-4 pt-4 border-t border-hairline space-y-sm dark:border-hairline/60">
+                          <div>
+                            <label className="block text-xs font-medium text-muted mb-1">New Password</label>
+                            <input
+                              type="password"
+                              value={setPw}
+                              onChange={(e) => setSetPw(e.target.value)}
+                              className={settingsInputClass}
+                              placeholder="Enter new password"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-muted mb-1">Confirm New Password</label>
+                            <input
+                              type="password"
+                              value={setPwConfirm}
+                              onChange={(e) => setSetPwConfirm(e.target.value)}
+                              className={settingsInputClass}
+                              placeholder="Confirm new password"
+                            />
+                          </div>
+                          {setPwError && <p className="text-xs text-red-500">{setPwError}</p>}
+                          <div className="flex items-center gap-2 pt-1">
+                            <Button
+                              onClick={() => void handleSetPassword()}
+                              disabled={setPwBusy || !setPw || !setPwConfirm}
+                              className="!rounded-[8px] bg-primary text-primary-foreground hover:bg-primary-active"
+                            >
+                              {setPwBusy ? "Setting..." : "Set password"}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              className="!rounded-[8px]"
+                              onClick={() => {
+                                setShowSetPw(false)
+                                setSetPw("")
+                                setSetPwConfirm("")
+                                setSetPwError("")
+                              }}
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                {/* ── Change password (existing) ── */}
+                {showChangePassword && (
+                <div className="bg-white border border-hairline rounded-[12px] p-md dark:bg-surface-soft dark:border-hairline">
+                  <h2 className="typo-title-sm text-ink mb-md flex items-center gap-2">
+                    <Lock className="h-4 w-4" />
+                    Change Password
+                  </h2>
 
                 <div className="space-y-sm">
                   {/* Current password */}
@@ -419,6 +793,8 @@ export default function Settings() {
                   <Save className="h-4 w-4 mr-2" />
                   {savingPassword ? "Saving..." : "Update Password"}
                 </Button>
+                </div>
+                )}
               </div>
             )}
 
@@ -635,6 +1011,63 @@ export default function Settings() {
               >
                 Done
               </Button>
+            </DialogContent>
+          </Dialog>
+
+          {/* Re-enter password before connecting/disconnecting a sign-in method */}
+          <Dialog
+            open={reauthOpen}
+            onOpenChange={(open) => {
+              if (reauthBusy) return
+              setReauthOpen(open)
+              if (!open) {
+                pendingReauthRef.current = null
+                setReauthPassword("")
+                setReauthError("")
+              }
+            }}
+          >
+            <DialogContent className="rounded-[12px] sm:max-w-[400px]">
+              <DialogHeader>
+                <DialogTitle>Confirm it&apos;s you</DialogTitle>
+                <DialogDescription>
+                  Enter your password before changing how you sign in.
+                </DialogDescription>
+              </DialogHeader>
+              <input
+                type="password"
+                value={reauthPassword}
+                onChange={(e) => setReauthPassword(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void handleReauth()
+                }}
+                className={settingsInputClass}
+                placeholder="Your password"
+                autoFocus
+              />
+              {reauthError && <p className="text-xs text-red-500">{reauthError}</p>}
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="ghost"
+                  className="!rounded-[8px]"
+                  disabled={reauthBusy}
+                  onClick={() => {
+                    setReauthOpen(false)
+                    pendingReauthRef.current = null
+                    setReauthPassword("")
+                    setReauthError("")
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => void handleReauth()}
+                  disabled={reauthBusy}
+                  className="!rounded-[8px] bg-primary text-primary-foreground hover:bg-primary-active"
+                >
+                  {reauthBusy ? "Checking..." : "Continue"}
+                </Button>
+              </div>
             </DialogContent>
           </Dialog>
       </div>

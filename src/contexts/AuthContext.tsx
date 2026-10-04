@@ -572,8 +572,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await authApi.register({ email, password, name })
     } catch (err: any) {
       const msg = err.message || "Registration failed"
-      if (msg.includes("already registered")) {
-        throw new Error("An account with this email already exists. Please sign in instead.")
+      if (msg.includes("already registered") || msg.includes("already_registered") || msg.includes("user_already_exists")) {
+        throw new Error(
+          "An account with this email already exists. If you signed up with Google, choose \u201cContinue with Google\u201d to sign in.",
+        )
       }
       if (msg.includes("rate limit")) {
         throw new Error("Too many attempts. Please wait a moment and try again.")
