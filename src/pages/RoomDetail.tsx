@@ -23,12 +23,13 @@ import { getAmenityIcon, rooms as fallbackRooms, type Room } from "@/data/rooms"
 import { nearbyPlaces, travelLabel, type NearbyCategory } from "@/data/nearbyPlaces"
 import { getCached, setCache } from "@/lib/cache"
 import { formatDate as toISODate, parseDateParam } from "@/lib/dates"
-import { overnightWindow, dayUseWindow } from "@/lib/stayWindow"
+import { overnightWindow, dayUseWindow, OVERNIGHT_CHECK_IN, OVERNIGHT_CHECK_OUT } from "@/lib/stayWindow"
 import { getGeneratedAvatar, getStoredAvatar, onAvatarError } from "@/lib/avatar"
 import PhotoGallery from "@/components/rooms/PhotoGallery"
 import { Pagination } from "@/components/ui/pagination"
 import { useAuth } from "@/contexts/AuthContext"
 import { getRoomDiscount } from "@/lib/discountEngine"
+import { getActiveOffers, offerCoversDate, offerTitle, reasonWithUntil, type ActiveOffer } from "@/services/discountService"
 import { useDiscountApproval } from "@/hooks/useDiscountApproval"
 import { useDiscountRooms } from "@/hooks/useDiscountRooms"
 import { cn } from "@/lib/utils"
@@ -166,9 +167,6 @@ export default function RoomDetail() {
   const [startTime, setStartTime] = useState<string>(
     searchParams.get("startTime") || ""
   )
-  const [overnightStartTime, setOvernightStartTime] = useState<string>(
-    searchParams.get("overnightStartTime") || ""
-  )
   const [showAuthModal, setShowAuthModal] = useState(false)
   const [authModalMode, setAuthModalMode] = useState<"default" | "quick">("default")
 
@@ -197,6 +195,12 @@ export default function RoomDetail() {
   const { isAuthenticated } = useAuth()
   const navigate = useNavigate()
   const { isApproved } = useDiscountApproval()
+  const [activeOffers, setActiveOffers] = useState<ActiveOffer[]>([])
+  useEffect(() => {
+    getActiveOffers()
+      .then(setActiveOffers)
+      .catch(() => setActiveOffers([]))
+  }, [])
 
   // Master amenities list — union of all amenities across all room types
   const allAmenities = useMemo(() => {
@@ -264,7 +268,6 @@ export default function RoomDetail() {
     params.set("stayType", stayType)
     if (checkIn) params.set("checkIn", checkIn.toISOString())
     if (stayType === "overnight" && checkOut) params.set("checkOut", checkOut.toISOString())
-    if (stayType === "overnight" && overnightStartTime) params.set("overnightStartTime", overnightStartTime)
     if (stayType === "day") {
       params.set("duration", String(dayDuration))
       if (startTime) params.set("startTime", startTime)
@@ -273,7 +276,7 @@ export default function RoomDetail() {
     params.set("children", String(guests.children))
     params.set("pets", String(guests.pets))
     window.history.replaceState(null, "", `?${params.toString()}`)
-  }, [stayType, checkIn, checkOut, guests, dayDuration, startTime, overnightStartTime])
+  }, [stayType, checkIn, checkOut, guests, dayDuration, startTime])
 
   useEffect(() => {
     if (!id) return
@@ -355,21 +358,6 @@ export default function RoomDetail() {
     })
   }, [dayDuration, checkIn])
 
-  // For overnight: available check-in times (filter past times if today)
-  const overnightStartTimes = useMemo(() => {
-    const allTimes = generateStartTimes(22) // Up to 10 PM
-    if (!checkIn) return allTimes
-    const now = new Date()
-    const selectedDate = new Date(checkIn)
-    const isToday = selectedDate.toDateString() === now.toDateString()
-    if (!isToday) return allTimes
-    const currentHour = now.getHours()
-    return allTimes.filter((t) => {
-      const h = parseTimeToHour(t)
-      return h > currentHour
-    })
-  }, [checkIn])
-
   // Reset startTime if it's no longer available (e.g. date changed to today and hour passed)
   useEffect(() => {
     if (startTime && startTimes.length > 0 && !startTimes.includes(startTime)) {
@@ -379,15 +367,14 @@ export default function RoomDetail() {
 
   const endTime = useMemo(() => addHoursToTime(startTime, dayDuration), [startTime, dayDuration])
 
-  // For overnight: end time is same time on check-out date
-  // Dated 24-hour window, so the summary never reads "10:00 PM - 10:00 PM".
-  const overnightLabel = overnightWindow(checkIn, checkOut, overnightStartTime)
+  // Overnight uses fixed house times: in 2:00 PM, out 12:00 PM (no picker).
+  const overnightLabel = overnightWindow(checkIn, checkOut)
   const dayLabel = dayUseWindow(checkIn, startTime, endTime)
 
   // Check room availability when dates change
   useEffect(() => {
     if (!room) return
-    if (stayType === "overnight" && (!checkIn || !overnightStartTime)) {
+    if (stayType === "overnight" && !checkIn) {
       setIsAvailable(null)
       return
     }
@@ -403,13 +390,13 @@ export default function RoomDetail() {
       check_in: toISODate(checkIn!),
       check_out: stayType === "overnight" && checkOut ? toISODate(checkOut) : undefined,
       stay_type: stayType,
-      start_time: stayType === "day" ? startTime : overnightStartTime || undefined,
+      start_time: stayType === "day" ? startTime : OVERNIGHT_CHECK_IN,
       duration: stayType === "day" ? dayDuration : undefined,
     })
       .then((res) => setIsAvailable(res.available))
       .catch(() => setIsAvailable(null))
       .finally(() => setCheckingAvailability(false))
-  }, [room, checkIn, checkOut, stayType, startTime, dayDuration, overnightStartTime])
+  }, [room, checkIn, checkOut, stayType, startTime, dayDuration])
 
   const nights = useMemo(() => {
     if (stayType !== "overnight") return 1
@@ -440,7 +427,22 @@ export default function RoomDetail() {
   const overnightTotal = stayType === "overnight" ? room.price * nights : 0
   const subtotal = stayType === "day" ? dayUsePrice : overnightTotal
   const discount = getRoomDiscount(discountRooms, room.id)
-  const showDiscount = discount && isApproved(discount.eventRoomTypeKey) ? discount : null
+  const approvedDiscount = discount && isApproved(discount.eventRoomTypeKey) ? discount : null
+  // Scheduled offer the admin switched on wins over the approved holiday
+  // engine — same precedence the Rooms grid uses (offer > engine > full rate).
+  const activeOffer = activeOffers.find(
+    (o) => o.roomType === room.type && (!checkIn || offerCoversDate(o, checkIn)),
+  )
+  const showDiscount = activeOffer
+    ? {
+        discountPercent: activeOffer.discountPercent,
+        discountedPrice: activeOffer.discountedRate,
+        originalPrice: activeOffer.baseRate,
+        reason: offerTitle(activeOffer),
+        validTo: activeOffer.validTo,
+      }
+    : approvedDiscount
+  const showDiscountReason = showDiscount ? reasonWithUntil(showDiscount.reason, showDiscount.validTo) : null
   const effectivePrice = showDiscount ? showDiscount.discountedPrice : room.price
   const dayUseDiscounted = stayType === "day" ? Math.round(effectivePrice * (dayDuration / 24)) : 0
   const overnightDiscounted = stayType === "overnight" ? effectivePrice * nights : 0
@@ -1031,7 +1033,7 @@ export default function RoomDetail() {
                         {showDiscount.discountPercent}% OFF
                       </span>
                     </div>
-                    <p className="text-xs text-muted">{showDiscount.reason}</p>
+                    <p className="text-xs text-muted">{showDiscountReason}</p>
                   </div>
                 ) : (
                   <div className="flex items-baseline gap-1">
@@ -1126,26 +1128,22 @@ export default function RoomDetail() {
 
                   <p className="flex items-center gap-1.5 text-[11px] font-medium text-primary/80">
                     <Clock className="h-3 w-3 shrink-0" />
-                    24 hours · 1 night only
+                    1 night only · out by {OVERNIGHT_CHECK_OUT}
                   </p>
 
                   <div>
                     <label className="typo-caption text-muted block mb-xs">Check-in Time</label>
-                    <div className="relative">
-                      <Clock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted pointer-events-none" />
-                      <select
-                        value={overnightStartTime}
-                        onChange={(e) => setOvernightStartTime(e.target.value)}
-                        className="w-full pl-9 pr-3 py-2 rounded-[12px] border border-hairline bg-white typo-body-sm text-ink focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary appearance-none"
-                      >
-                        <option value="" disabled>Select Time</option>
-                        {overnightStartTimes.map((t) => (
-                          <option key={t} value={t}>{t}</option>
-                        ))}
-                      </select>
-                      <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-muted">
-                        <svg className="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
-                      </div>
+                    <div className="w-full flex items-center gap-sm px-base py-2.5 rounded-[12px] border border-hairline bg-surface-soft/60">
+                      <Clock className="h-4 w-4 text-muted shrink-0" />
+                      <span className="typo-body-sm font-semibold text-ink">{OVERNIGHT_CHECK_IN}</span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="typo-caption text-muted block mb-xs">Check-out Time</label>
+                    <div className="w-full flex items-center gap-sm px-base py-2.5 rounded-[12px] border border-hairline bg-surface-soft/60">
+                      <Clock className="h-4 w-4 text-muted shrink-0" />
+                      <span className="typo-body-sm font-semibold text-ink">{OVERNIGHT_CHECK_OUT}</span>
                     </div>
                   </div>
 
@@ -1277,7 +1275,7 @@ export default function RoomDetail() {
                 {showDiscount && (
                   <div className="flex justify-between mb-sm">
                     <span className="typo-body-sm text-muted">
-                      {showDiscount.reason} ({showDiscount.discountPercent}% off)
+                      {showDiscountReason} ({showDiscount.discountPercent}% off)
                     </span>
                     <span className="typo-body-sm text-[#A4423A] font-medium">Saved ₱{(subtotal - displaySubtotal).toLocaleString()}</span>
                   </div>
@@ -1321,7 +1319,7 @@ export default function RoomDetail() {
               <div className="mt-lg">
                 {(() => {
                   const isMissingFields =
-                    (stayType === "overnight" && (!checkIn || !checkOut || !overnightStartTime)) ||
+                    (stayType === "overnight" && (!checkIn || !checkOut)) ||
                     (stayType === "day" && (!checkIn || !startTime))
                   const isUnavailable = isAvailable === false
                   const canBook = !isMissingFields && !isUnavailable && !checkingAvailability
@@ -1347,7 +1345,6 @@ export default function RoomDetail() {
                               params.set("stayType", stayType)
                               if (checkIn) params.set("checkIn", checkIn.toISOString())
                               if (stayType === "overnight" && checkOut) params.set("checkOut", checkOut.toISOString())
-                              if (stayType === "overnight" && overnightStartTime) params.set("overnightStartTime", overnightStartTime)
                               if (stayType === "day") {
                                 params.set("duration", String(dayDuration))
                                 params.set("startTime", startTime)

@@ -65,7 +65,7 @@ function todayNumber(now: Date) {
 function startMoment(b: ArrivalBooking) {
   const day = toDayNumber(b.check_in)
   if (day === null) return null
-  // Overnight starts at the check-in time the guest picked (2:00 PM default).
+  // Overnight starts at the fixed house check-in time (2:00 PM).
   const fallback = isDayStay(b) ? 0 : parseClock(DEFAULT_CHECK_IN_TIME, 14 * 60)
   return { day, minutes: parseClock(b.start_time, fallback) }
 }
@@ -132,13 +132,14 @@ export function arrivalTimeLabel(checkedInAt?: string | null): string {
 }
 
 /**
- * 'Oct 1, 2026 · 10:00 PM' (overnight) or 'Sep 30, 2026 · 5:00 PM' (day use) —
+ * 'Oct 1, 2026 · 12:00 PM' (overnight) or 'Sep 30, 2026 · 5:00 PM' (day use) —
  * when the guest has to be out of the room.
  *
- * Overnight runs 24 hours from the check-in time, so check-out is the same
- * clock time on the check-out date. endMoment() is midnight AFTER the check-out
- * date, but that is only the grace window the backend uses to auto-complete the
- * booking — not what the guest is told.
+ * Overnight check-out is a fixed noon (house policy, matches
+ * OVERNIGHT_CHECK_OUT in stayWindow.ts) regardless of check-in time.
+ * endMoment() is midnight AFTER the check-out date, but that is only the
+ * grace window the backend uses to auto-complete the booking — not what
+ * the guest is told.
  */
 export function checkoutMomentLabel(b: ArrivalBooking): string {
   const day = (n: number) =>
@@ -156,9 +157,8 @@ export function checkoutMomentLabel(b: ArrivalBooking): string {
   }
 
   const out = toDayNumber(b.check_out)
-  const start = startMoment(b)
-  if (out === null || !start) return ""
-  return `${day(out)} · ${clockLabel(start.minutes)}`
+  if (out === null) return ""
+  return `${day(out)} · ${clockLabel(12 * 60)}`
 }
 
 /** Minutes until the stay starts running. 0 once it has; negative if it passed. */

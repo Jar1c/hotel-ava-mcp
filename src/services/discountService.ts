@@ -66,3 +66,28 @@ export function offerCoversDate(offer: ActiveOffer, date: Date): boolean {
   if (offer.validTo && day > offer.validTo) return false
   return true
 }
+
+/** Display title for a scheduled offer, e.g. "November Deluxe Promo" —
+ *  derived from the validity month + room type so the guest always sees
+ *  what the discount is, with no extra admin input. */
+export function offerTitle(offer: { roomType: string; validFrom: string }): string {
+  const month = offer.validFrom
+    ? new Date(`${offer.validFrom.slice(0, 10)}T00:00:00`).toLocaleDateString("en-US", { month: "long" })
+    : "Limited-time"
+  return `${month} ${offer.roomType} Promo`
+}
+
+/** "until Nov 30" (year appended only when it is not the current year). */
+export function untilLabel(dateISO?: string): string {
+  if (!dateISO) return ""
+  const d = new Date(`${dateISO.slice(0, 10)}T00:00:00`)
+  if (Number.isNaN(d.getTime())) return ""
+  const year = d.getFullYear() === new Date().getFullYear() ? "" : `, ${d.getFullYear()}`
+  return `until ${d.toLocaleDateString("en-US", { month: "short", day: "numeric" })}${year}`
+}
+
+/** Discount reason + validity on one guest-facing line: "BER Months Early Bird · until Sep 30". */
+export function reasonWithUntil(reason: string, validTo?: string): string {
+  const until = untilLabel(validTo)
+  return until ? `${reason} · ${until}` : reason
+}

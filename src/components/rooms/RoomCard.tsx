@@ -3,6 +3,7 @@ import { Star, Users, Wifi, Wind, Wine, ConciergeBell, Building2, BedDouble, Tre
 import type { Room } from "@/data/rooms"
 import ImageWithPlaceholder from "@/components/ui/ImageWithPlaceholder"
 import { getRoomDiscount, type DiscountRoom } from "@/lib/discountEngine"
+import { reasonWithUntil } from "@/services/discountService"
 
 interface RoomFilters {
   stayType?: string
@@ -20,6 +21,10 @@ export interface RoomOfferDiscount {
   percent: number
   price: number
   original: number
+  /** Offer display name (e.g. "November Deluxe Promo"). */
+  reason?: string
+  /** Offer validity end - drives the "until Nov 30" suffix. */
+  validTo?: string
 }
 
 interface RoomCardProps {
@@ -87,6 +92,8 @@ export default function RoomCard({ room, filters, discountRooms, isApproved, off
         discountPercent: offerDiscount.percent,
         discountedPrice: offerDiscount.price,
         originalPrice: offerDiscount.original,
+        reason: offerDiscount.reason || "Limited-time offer",
+        validTo: offerDiscount.validTo,
       }
     : discount && isApproved && isApproved(discount.eventRoomTypeKey)
       ? discount
@@ -190,6 +197,9 @@ export default function RoomCard({ room, filters, discountRooms, isApproved, off
             )}
             <span className="typo-caption-sm text-muted">/ night</span>
           </div>
+          {showDiscount?.reason && (
+            <p className="typo-caption-sm text-muted">{reasonWithUntil(showDiscount.reason, showDiscount.validTo)}</p>
+          )}
         </div>
       </div>
     </Link>

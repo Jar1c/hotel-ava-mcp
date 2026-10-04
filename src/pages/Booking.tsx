@@ -7,9 +7,13 @@ import { publicRoomsApi, userBookingsApi, type PublicRoomData } from "@/services
 import ConfirmDialog from "@/components/ui/confirm-dialog"
 import { rooms as fallbackRooms, type Room } from "@/data/rooms"
 import { getCached, setCache } from "@/lib/cache"
-import { overnightWindow, dayUseWindow } from "@/lib/stayWindow"
+import { overnightWindow, dayUseWindow, OVERNIGHT_CHECK_IN, OVERNIGHT_CHECK_OUT } from "@/lib/stayWindow"
 import { API_BASE } from "@/lib/apiBase"
 import { formatDate as toISODate, parseDateParam } from "@/lib/dates"
+import { getRoomDiscount } from "@/lib/discountEngine"
+import { getActiveOffers, offerCoversDate, offerTitle, reasonWithUntil, type ActiveOffer } from "@/services/discountService"
+import { useDiscountRooms } from "@/hooks/useDiscountRooms"
+import { useDiscountApproval } from "@/hooks/useDiscountApproval"
 import { useAuth } from "@/contexts/AuthContext"
 import LoadingDots from "@/components/LoadingDots"
 import TermsPopup from "@/components/TermsPopup"
@@ -81,6 +85,14 @@ export default function Booking() {
     return () => window.removeEventListener("keydown", onKey)
   }, [showSignInModal])
   const [paymentMode, setPaymentMode] = useState<"full" | "downpayment">("full")
+  const { rooms: discountRooms } = useDiscountRooms()
+  const { isApproved } = useDiscountApproval()
+  const [activeOffers, setActiveOffers] = useState<ActiveOffer[]>([])
+  useEffect(() => {
+    getActiveOffers()
+      .then(setActiveOffers)
+      .catch(() => setActiveOffers([]))
+  }, [])
 
   // All booking params come from URL — read-only, no state needed
   const checkIn = searchParams.get("checkIn") ? parseDateParam(searchParams.get("checkIn")!) : null
@@ -100,13 +112,16 @@ export default function Booking() {
   const stayType = (searchParams.get("stayType") as "overnight" | "day") || "overnight"
   const dayDuration = Number(searchParams.get("duration")) || 3
   const startTime = searchParams.get("startTime") || ""
-  const overnightStartTime = searchParams.get("overnightStartTime") || ""
+  // Fixed house times — overnight check-in is always 2:00 PM (legacy
+  // overnightStartTime URL params are ignored so every booking follows
+  // the same clock).
+  const overnightStartTime = OVERNIGHT_CHECK_IN
 
   const endTime = useMemo(() => addHoursToTime(startTime, dayDuration), [startTime, dayDuration])
 
   // Guest-facing window: dated 24-hour stay - check-out is the same clock time
   // on the check-out date.
-  const overnightLabel = overnightWindow(checkIn, checkOut, overnightStartTime)
+  const overnightLabel = overnightWindow(checkIn, checkOut)
   const dayLabel = dayUseWindow(checkIn, startTime, endTime)
 
   useEffect(() => {
@@ -148,15 +163,33 @@ export default function Booking() {
   // Overnight bookings are always exactly 1 night (24 hours)
   const nights = isOvernight && hasDates ? Math.min(1, Math.ceil((checkOut!.getTime() - checkIn!.getTime()) / (1000 * 60 * 60 * 24))) : 0
   const validNights = isOvernight ? nights > 0 : true
-  const subtotal = isOvernight
+  // Discount-aware pricing — same precedence the Rooms grid and RoomDetail use:
+  // active offer > approved holiday engine > full rate. The backend recomputes
+  // this same total server-side; we never send a price it has to trust.
+  const bookingOffer = room
+    ? activeOffers.find((o) => o.roomType === room.type && (!checkIn || offerCoversDate(o, checkIn)))
+    : undefined
+  const engineDiscount = room ? getRoomDiscount(discountRooms, room.id) : undefined
+  const bookingDiscount = bookingOffer
+    ? { percent: bookingOffer.discountPercent, price: bookingOffer.discountedRate, reason: offerTitle(bookingOffer), validTo: bookingOffer.validTo }
+    : engineDiscount && isApproved(engineDiscount.eventRoomTypeKey)
+      ? { percent: engineDiscount.discountPercent, price: engineDiscount.discountedPrice, reason: engineDiscount.reason, validTo: engineDiscount.validTo }
+      : null
+  const bookingDiscountReason = bookingDiscount ? reasonWithUntil(bookingDiscount.reason, bookingDiscount.validTo) : null
+  const nightlyRate = bookingDiscount ? bookingDiscount.price : room ? room.price : 0
+  const originalSubtotal = isOvernight
     ? (validNights && room ? room.price * nights : 0)
     : (room ? Math.round(room.price * (dayDuration / 24)) : 0)
+  const subtotal = isOvernight
+    ? (validNights && room ? nightlyRate * nights : 0)
+    : (room ? Math.round(nightlyRate * (dayDuration / 24)) : 0)
+  const savedAmount = originalSubtotal - subtotal
   const taxes = Math.round(subtotal * 0.12)
   const total = subtotal + taxes
   const amountDue = paymentMode === "downpayment" ? Math.round(total / 2) : total
   const balanceDue = total - amountDue
 
-  const canSubmit = hasDate && validNights && !submitting && agreedToPolicy && ((isOvernight && !!overnightStartTime) || (!isOvernight && !!startTime))
+  const canSubmit = hasDate && validNights && !submitting && agreedToPolicy && (isOvernight || !!startTime)
 
   const handleSubmit = () => void runCreate()
 
@@ -227,7 +260,6 @@ export default function Booking() {
           start_time: isOvernight ? overnightStartTime : startTime,
           full_name: user.name,
           email: user.email,
-          total_price: total,
           payment_mode: paymentMode,
         }),
       })
@@ -325,12 +357,14 @@ export default function Booking() {
                       {checkOut ? checkOut.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}
                     </span>
                   </div>
-                  {overnightStartTime && (
-                    <div className="flex items-center gap-3 py-2 border-b border-hairline">
-                      <span className="text-sm text-muted">Check-in Time</span>
-                      <span className="text-sm font-semibold text-ink">{overnightStartTime}</span>
-                    </div>
-                  )}
+                  <div className="flex items-center gap-3 py-2 border-b border-hairline">
+                    <span className="text-sm text-muted">Check-in Time</span>
+                    <span className="text-sm font-semibold text-ink">{OVERNIGHT_CHECK_IN}</span>
+                  </div>
+                  <div className="flex items-center gap-3 py-2 border-b border-hairline">
+                    <span className="text-sm text-muted">Check-out Time</span>
+                    <span className="text-sm font-semibold text-ink">{OVERNIGHT_CHECK_OUT}</span>
+                  </div>
                   <div className="flex items-center gap-3 py-2 border-b border-hairline">
                     <span className="text-sm text-muted">Duration</span>
                     <span className="text-sm font-semibold text-ink">{nights} {nights === 1 ? "night" : "nights"}</span>
@@ -455,8 +489,23 @@ export default function Booking() {
                   <div className={`border-t border-hairline mt-md pt-md space-y-sm ${!validNights ? "opacity-50" : ""}`}>
                     <div className="flex justify-between typo-body-sm">
                       <span className="text-muted">{isOvernight ? "Per night" : `Day Use (${dayDuration}h)`}</span>
-                      <span className="text-ink">₱{(isOvernight ? room.price : Math.round(room.price * (dayDuration / 24))).toLocaleString()}</span>
+                      <span className="text-ink">
+                        {bookingDiscount && validNights && (
+                          <s className="text-muted mr-1.5">
+                            ₱{(isOvernight ? room.price : Math.round(room.price * (dayDuration / 24))).toLocaleString()}
+                          </s>
+                        )}
+                        ₱{(isOvernight ? nightlyRate : Math.round(nightlyRate * (dayDuration / 24))).toLocaleString()}
+                      </span>
                     </div>
+                    {bookingDiscount && validNights && savedAmount > 0 && (
+                      <div className="flex justify-between typo-body-sm">
+                        <span className="text-muted">
+                          {bookingDiscountReason} ({bookingDiscount.percent}% off)
+                        </span>
+                        <span className="text-[#A4423A]">-₱{savedAmount.toLocaleString()}</span>
+                      </div>
+                    )}
                     {isOvernight && (
                       <div className="flex justify-between typo-body-sm">
                         <span className="text-muted">
@@ -645,13 +694,23 @@ export default function Booking() {
         onOpenChange={(open) => setOverlapDialog((prev) => ({ ...prev, open }))}
         title="Overlapping Booking"
         description={
-          overlapDialog.roomName || overlapDialog.range
-            ? `You already have a booking${overlapDialog.roomName ? ` at ${overlapDialog.roomName}` : ""}${overlapDialog.range ? ` (${overlapDialog.range})` : ""}. Book another room anyway?`
-            : "You already have a booking at this time. Book another room anyway?"
+          overlapDialog.roomName || overlapDialog.range ? (
+            <>
+              <span className="block">
+                You already have a booking{overlapDialog.roomName ? ` at ${overlapDialog.roomName}` : ""}.
+              </span>
+              {overlapDialog.range && (
+                <span className="block mt-1.5 font-medium text-ink">{overlapDialog.range}</span>
+              )}
+              <span className="block mt-1.5">Book another room anyway?</span>
+            </>
+          ) : (
+            "You already have a booking at this time. Book another room anyway?"
+          )
         }
         confirmLabel="Continue booking"
         cancelLabel="Go back"
-        descriptionClassName="mt-3 text-ink/70"
+        descriptionClassName="mt-3 text-ink/70 text-center"
         onConfirm={() => {
           setOverlapDialog((prev) => ({ ...prev, open: false }))
           void runCreate({ skipConflictCheck: true })

@@ -4,6 +4,7 @@ import { cn, formatCurrency } from "@/lib/utils"
 import AiAbout from "@/components/admin/AiAbout"
 import type { DiscountOfferData } from "@/services/adminService"
 import { setDiscountOfferStatus } from "@/services/adminService"
+import { offerTitle } from "@/services/discountService"
 import { getActiveDiscounts, getUpcomingDiscounts, type ActiveDiscount, type DiscountRoom } from "@/lib/discountEngine"
 import { useDiscountApproval } from "@/hooks/useDiscountApproval"
 import { useToast } from "@/contexts/ToastContext"
@@ -297,6 +298,8 @@ export default function DiscountOffers({ offers: initialOffers, rooms, loading }
                         </span>
                       )}
                     </div>
+
+                    <p className="text-[11px] font-medium text-[#82285f] mb-2">{offerTitle(offer)}</p>
 
                     <div className="flex items-center gap-1.5 mb-3">
                       <Calendar className="w-3 h-3 text-muted" />

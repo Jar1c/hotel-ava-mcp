@@ -204,8 +204,10 @@ def balance_due(amount_paid, total_price):
 
 HOTEL_TZ = ZoneInfo("Asia/Manila")
 
-# Overnight stays store a date, not a clock, so they need a house time.
+# Overnight stays store a date, not a clock, so they need house times.
+# Standard hotel convention (mirrors OVERNIGHT_CHECK_IN/OUT in stayWindow.ts).
 DEFAULT_CHECK_IN_TIME = "2:00 PM"
+DEFAULT_CHECK_OUT_TIME = "12:00 PM"
 
 
 def hotel_now():
@@ -2741,8 +2743,9 @@ def _parse_time12(value):
 def _stay_window(b):
     """(start_dt, end_dt) naive wall-clock window of a booking row.
 
-    day-use:  check_in@start_time + duration hours (duration = total hours)
-    overnight: check_out@start_time + extension hours stored in duration
+    day-use:   check_in@start_time + duration hours (duration = total hours)
+    overnight: check_in@start_time -> check_out@DEFAULT_CHECK_OUT_TIME (noon)
+               + late-checkout extension hours stored in duration
     """
     check_in = datetime.strptime(b["check_in"], "%Y-%m-%d")
     h, mi = _parse_time12(b.get("start_time"))
@@ -2751,7 +2754,8 @@ def _stay_window(b):
         end = start + timedelta(hours=int(b.get("duration") or 0))
     else:
         check_out = datetime.strptime(b["check_out"], "%Y-%m-%d")
-        end = check_out.replace(hour=h, minute=mi) + timedelta(hours=int(b.get("duration") or 0))
+        oh, om = _parse_time12(DEFAULT_CHECK_OUT_TIME)
+        end = check_out.replace(hour=oh, minute=om) + timedelta(hours=int(b.get("duration") or 0))
     return start, end
 
 
@@ -2976,7 +2980,9 @@ def check_user_booking_conflict():
         if stay_type == "day":
             win_end = win_start + timedelta(hours=int(duration or 0))
         else:
-            win_end = datetime.strptime(check_out, "%Y-%m-%d").replace(hour=h, minute=mi)
+            # Overnight ends at fixed noon, not at the check-in clock time.
+            oh, om = _parse_time12(DEFAULT_CHECK_OUT_TIME)
+            win_end = datetime.strptime(check_out, "%Y-%m-%d").replace(hour=oh, minute=om)
             if duration:
                 win_end += timedelta(hours=int(duration))
 
@@ -3007,6 +3013,135 @@ def check_user_booking_conflict():
     except Exception as e:
         print(f"check-conflict error: {type(e).__name__}: {e}")
         return jsonify({"conflict": False}), 200
+
+
+# ── Server-side pricing ────────────────────────────────────────────────────────
+# The guest UI computes discounts client-side for display; create_booking must
+# arrive at the SAME number by itself — a client-sent total_price is never
+# trusted. Mirrors src/lib/discountEngine.ts (events/hash/approval gate),
+# Rooms/RoomCard/RoomDetail (offer > approved engine > full rate) and the
+# Booking summary (12% tax on the discounted subtotal).
+
+_HOLIDAY_EVENTS = [
+    {"name": "New Year's Celebration", "startMonth": 1, "startDay": 1, "endMonth": 1, "endDay": 5, "discountRange": (10, 15), "affectedTypes": ("Standard", "Deluxe", "Suite")},
+    {"name": "Sinulog Festival", "startMonth": 1, "startDay": 15, "endMonth": 1, "endDay": 20, "discountRange": (5, 10), "affectedTypes": ("Standard", "Deluxe", "Suite")},
+    {"name": "Valentine's Special", "startMonth": 2, "startDay": 10, "endMonth": 2, "endDay": 15, "discountRange": (10, 20), "affectedTypes": ("Deluxe", "Suite")},
+    {"name": "Summer Kickoff", "startMonth": 3, "startDay": 1, "endMonth": 3, "endDay": 31, "discountRange": (5, 10), "affectedTypes": ("Standard",)},
+    {"name": "Holy Week Promo", "startMonth": 4, "startDay": 1, "endMonth": 4, "endDay": 10, "discountRange": (15, 25), "affectedTypes": ("Standard", "Deluxe", "Suite")},
+    {"name": "Graduation Season", "startMonth": 4, "startDay": 15, "endMonth": 5, "endDay": 15, "discountRange": (8, 12), "affectedTypes": ("Standard", "Deluxe")},
+    {"name": "Mother's Day Special", "startMonth": 5, "startDay": 5, "endMonth": 5, "endDay": 12, "discountRange": (10, 15), "affectedTypes": ("Suite",)},
+    {"name": "Independence Day Promo", "startMonth": 6, "startDay": 8, "endMonth": 6, "endDay": 14, "discountRange": (10, 15), "affectedTypes": ("Standard", "Deluxe")},
+    {"name": "Rainy Season Savings", "startMonth": 6, "startDay": 15, "endMonth": 7, "endDay": 31, "discountRange": (10, 20), "affectedTypes": ("Standard", "Deluxe")},
+    {"name": "Back-to-School Promo", "startMonth": 8, "startDay": 1, "endMonth": 8, "endDay": 31, "discountRange": (12, 18), "affectedTypes": ("Standard", "Deluxe")},
+    {"name": "BER Months Early Bird", "startMonth": 9, "startDay": 1, "endMonth": 9, "endDay": 30, "discountRange": (15, 25), "affectedTypes": ("Standard", "Deluxe", "Suite")},
+    {"name": "Halloween Treat Promo", "startMonth": 10, "startDay": 25, "endMonth": 11, "endDay": 2, "discountRange": (10, 20), "affectedTypes": ("Standard", "Deluxe")},
+    {"name": "Pre-Holiday Blitz", "startMonth": 11, "startDay": 1, "endMonth": 11, "endDay": 30, "discountRange": (15, 25), "affectedTypes": ("Standard", "Deluxe", "Suite")},
+    {"name": "Christmas & Year-End Sale", "startMonth": 12, "startDay": 15, "endMonth": 12, "endDay": 31, "discountRange": (10, 20), "affectedTypes": ("Standard", "Deluxe", "Suite")},
+]
+
+
+def _js_hash(s: str) -> int:
+    """Python port of getHash() in src/lib/discountEngine.ts — int32 ops, |0 semantics."""
+    h = 0
+    for ch in s:
+        h = ((h << 5) - h + ord(ch)) & 0xFFFFFFFF
+        if h >= 0x80000000:
+            h -= 0x100000000
+    return abs(h)
+
+
+def _engine_room_category(room_type: str) -> str:
+    low = (room_type or "").lower()
+    if "suite" in low:
+        return "Suite"
+    if "deluxe" in low or "executive" in low:
+        return "Deluxe"
+    if "standard" in low or "regular" in low:
+        return "Standard"
+    return room_type or ""
+
+
+def _approved_discount_keys() -> set:
+    """Approved holiday-promo keys: file cache ∪ Supabase table (same merge the
+    /api/discounts/approved endpoint exposes)."""
+    keys = set(_load_approved_cache())
+    if _discounts_table_exists():
+        try:
+            result = supabase.table("approved_discounts").select("event_room_type_key").execute()
+            for row in result.data:
+                keys.add(row["event_room_type_key"])
+        except Exception as e:
+            print(f"_approved_discount_keys error: {e}")
+    return keys
+
+
+def _engine_discount_percent(room: dict, now=None) -> int | None:
+    """Approved holiday-engine discount for today, or None. Same event table,
+    date window, hash and approval gate the frontend engine uses."""
+    now = now or hotel_now()
+    month, day = now.month, now.day
+    date_val = month * 100 + day
+    category = _engine_room_category(room.get("type", ""))
+    approved = _approved_discount_keys()
+    for ev in _HOLIDAY_EVENTS:
+        start_val = ev["startMonth"] * 100 + ev["startDay"]
+        end_val = ev["endMonth"] * 100 + ev["endDay"]
+        if not (start_val <= date_val <= end_val):
+            continue
+        if category not in ev["affectedTypes"]:
+            continue
+        if f'{ev["name"]}-{category}' not in approved:
+            continue
+        lo, hi = ev["discountRange"]
+        return lo + _js_hash(f'{ev["name"]}-{room["id"]}-{month}') % (hi - lo + 1)
+    return None
+
+
+def _active_offer_rate(room: dict, check_in: str):
+    """Discounted nightly rate from a scheduled AI offer the admin switched on
+    (status=active, room type match, check-in inside the validity window)."""
+    try:
+        for o in _build_discount_offers():
+            if o.get("status") != "active":
+                continue
+            if o.get("roomType") != room.get("type"):
+                continue
+            if o.get("validFrom") and check_in and check_in < o["validFrom"]:
+                continue
+            if o.get("validTo") and check_in and check_in > o["validTo"]:
+                continue
+            rate = o.get("discountedRate")
+            if rate:
+                return int(rate)
+    except Exception as e:
+        print(f"active offer pricing skipped: {e}")
+    return None
+
+
+def _compute_booking_total(room, stay_type, duration, check_in, check_out) -> int:
+    """Server-authoritative booking total: [active offer] > [approved holiday
+    discount] > full rate; day-use prorates per 24h, overnight = rate × nights;
+    +12% tax — exactly the math Booking.tsx / RoomDetail.tsx display."""
+    eff = int(room.get("price") or 0)
+    offer_rate = _active_offer_rate(room, check_in)
+    if offer_rate is not None:
+        eff = offer_rate
+    else:
+        pct = _engine_discount_percent(room)
+        if pct:
+            eff = int(eff * (1 - pct / 100) + 0.5)  # JS Math.round
+
+    if stay_type == "day":
+        hours = int(duration or 0)
+        subtotal = max(1, int(eff * (hours / 24) + 0.5))  # JS Math.round(price * (hours/24))
+    else:
+        try:
+            nights = (datetime.strptime(check_out, "%Y-%m-%d")
+                      - datetime.strptime(check_in, "%Y-%m-%d")).days
+        except Exception:
+            nights = 1
+        subtotal = eff * max(1, nights)
+    return subtotal + int(subtotal * 0.12 + 0.5)  # JS Math.round(subtotal * 0.12)
 
 
 @app.route("/api/bookings", methods=["POST"])
@@ -3048,13 +3183,11 @@ def create_booking():
     phone = data.get("phone", "")
     special_requests = data.get("special_requests", "")
     payment_method = data.get("payment_method", "gcash")
-    total_price = data.get("total_price", 0)
+    # A client-sent total_price is deliberately ignored — the server recomputes
+    # it from room rate + active discounts once the room row loads.
     payment_mode = data.get("payment_mode", "full")
     if payment_mode not in ("full", "downpayment"):
         payment_mode = "full"
-    # Downpayment: charge half now, the rest is settled at the hotel.
-    # total_price stays the full amount so revenue reports stay correct.
-    amount_due = max(1, round(total_price / 2)) if payment_mode == "downpayment" else total_price
     stay_type = data.get("stay_type", "overnight")
     stays = data.get("stays", "24 Hours")
     duration = data.get("duration")
@@ -3079,6 +3212,12 @@ def create_booking():
             return jsonify({"error": "Room not found"}), 404
 
         room = room_res.data[0]
+
+        # Server-authoritative price — client totals are never trusted.
+        total_price = _compute_booking_total(room, stay_type, duration, check_in, check_out)
+        # Downpayment: charge half now, the rest is settled at the hotel.
+        # total_price stays the full amount so revenue reports stay correct.
+        amount_due = max(1, round(total_price / 2)) if payment_mode == "downpayment" else total_price
 
         # Check for overlapping bookings — same [) bounds + statuses as the
         # bookings_no_overlap exclusion constraint (pending + confirmed).
@@ -5698,17 +5837,7 @@ def _discounts_table_exists() -> bool:
 def get_approved_discounts():
     """Get all approved discount event-room-type keys.
     Merges file (source of truth) + Supabase table so data is never lost."""
-    keys = set(_load_approved_cache())  # Always read file first
-
-    if _discounts_table_exists():
-        try:
-            result = supabase.table("approved_discounts").select("event_room_type_key").execute()
-            for row in result.data:
-                keys.add(row["event_room_type_key"])
-        except Exception as e:
-            print(f"get_approved_discounts error: {e}")
-
-    return jsonify({"approved": sorted(keys)}), 200
+    return jsonify({"approved": sorted(_approved_discount_keys())}), 200
 
 
 @app.route("/api/discounts/active", methods=["GET"])

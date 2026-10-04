@@ -8,7 +8,7 @@ import { setCache, getCached } from "@/lib/cache"
 import { formatDate as toISODate, parseDateParam } from "@/lib/dates"
 import { rankRooms } from "@/lib/roomRanking"
 import RoomCard, { type RoomOfferDiscount } from "@/components/rooms/RoomCard"
-import { getActiveOffers, offerCoversDate, type ActiveOffer } from "@/services/discountService"
+import { getActiveOffers, offerCoversDate, offerTitle, type ActiveOffer } from "@/services/discountService"
 import RoomFilters from "@/components/rooms/RoomFilters"
 import {
   DEFAULT_ROOM_FILTERS,
@@ -204,6 +204,8 @@ export default function Rooms() {
       percent: offer.discountPercent,
       price: offer.discountedRate,
       original: offer.baseRate,
+      reason: offerTitle(offer),
+      validTo: offer.validTo,
     }
   }, [offerByType, filters.checkIn])
 
