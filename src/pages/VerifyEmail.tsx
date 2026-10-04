@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import LoadingDots from "@/components/LoadingDots"
 import hotelLogo from "@/assets/images/Hotel Ava logo.png"
 import { API_BASE } from "@/lib/apiBase"
+import { setAccess, setRefresh } from "@/lib/tokenStore"
 
 type VerifyState = "loading" | "success" | "redirecting" | "expired"
 
@@ -35,8 +36,8 @@ export default function VerifyEmail() {
         if (res.ok) {
           // If backend returned tokens, auto-login
           if (data.access_token && data.refresh_token) {
-            sessionStorage.setItem("access_token", data.access_token)
-            sessionStorage.setItem("refresh_token", data.refresh_token)
+            setAccess(data.access_token)
+            setRefresh(data.refresh_token)
             setState("redirecting")
             // Redirect to stored returnTo (booking page) or fallback to home
             const returnTo = sessionStorage.getItem("postVerifyReturnTo") || "/"

@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router"
 import { XCircle, ArrowRight, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { API_BASE } from "@/lib/apiBase"
+import { getAccessToken } from "@/lib/tokenStore"
 
 const PRIMARY = "#82285f"
 
@@ -16,7 +17,7 @@ export default function PaymentFailed() {
     if (!bookingId || reportedRef.current) return
     reportedRef.current = true
     const apiBase = API_BASE
-    const token = sessionStorage.getItem("access_token")
+    const token = getAccessToken()
     fetch(`${apiBase}/bookings/${bookingId}/payment-failed`, {
       method: "POST",
       headers: {

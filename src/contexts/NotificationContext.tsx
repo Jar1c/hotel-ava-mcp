@@ -5,6 +5,7 @@ import { notificationsApi, devicesApi, type NotificationData } from "@/services/
 import { useAuth } from "@/contexts/AuthContext"
 import { useToast } from "@/contexts/ToastContext"
 import { supabase } from "@/lib/supabase"
+import { getAccessToken } from "@/lib/tokenStore"
 import { playNotificationSound, unlockNotificationSound } from "@/lib/notificationSound"
 import NewLoginDialog from "@/components/security/NewLoginDialog"
 import { Button } from "@/components/ui/button"
@@ -291,7 +292,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (event === "TOKEN_REFRESHED" || event === "SIGNED_IN") {
-        supabase.realtime.setAuth(sessionStorage.getItem("access_token"))
+        supabase.realtime.setAuth(getAccessToken())
       }
     })
     return () => subscription.unsubscribe()
@@ -335,7 +336,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 
     // Realtime runs RLS with the socket's JWT — without this it connects anon
     // and every postgres_changes event on notifications is filtered out.
-    supabase.realtime.setAuth(sessionStorage.getItem("access_token"))
+    supabase.realtime.setAuth(getAccessToken())
 
     const channel = supabase
       .channel(`notifications:${user.id}`)
@@ -373,7 +374,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         (payload) => {
           const row = payload.new as { revoked?: boolean; access_hash?: string }
           if (!row?.revoked || !row.access_hash) return
-          const token = sessionStorage.getItem("access_token")
+          const token = getAccessToken()
           if (!token) return
           void sha256Hex(token).then((hash) => {
             if (hash === row.access_hash) handleRemoteRevoked()

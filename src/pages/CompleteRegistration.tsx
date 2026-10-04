@@ -6,6 +6,7 @@ import { useAuth } from "@/contexts/AuthContext"
 import LoadingDots from "@/components/LoadingDots"
 import hotelLogo from "@/assets/images/Hotel Ava logo.png"
 import { API_BASE } from "@/lib/apiBase"
+import { getAccessToken } from "@/lib/tokenStore"
 
 const PRIMARY = "#82285f"
 
@@ -37,7 +38,7 @@ export default function CompleteRegistration() {
     try {
       const fullName = `${firstName.trim()} ${lastName.trim()}`
       const apiBase = API_BASE
-      const token = sessionStorage.getItem("access_token")
+      const token = getAccessToken()
 
       const res = await fetch(`${apiBase}/auth/complete-registration`, {
         method: "POST",

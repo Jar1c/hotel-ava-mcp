@@ -1,7 +1,8 @@
 import { API_BASE } from "@/lib/apiBase"
+import { getAccessToken } from "@/lib/tokenStore"
 
 async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const token = sessionStorage.getItem("access_token")
+  const token = getAccessToken()
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(options.headers as Record<string, string> || {}),
