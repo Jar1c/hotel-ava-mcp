@@ -1445,6 +1445,8 @@ def get_profile():
         "phone": p.get("phone", ""),
         "created_at": p.get("created_at", ""),
         "name_changed_at": p.get("name_changed_at", ""),
+        "deletion_requested_at": p.get("deletion_requested_at"),
+        "scheduled_deletion_at": p.get("scheduled_deletion_at"),
     }), 200
 
 
@@ -1843,6 +1845,362 @@ def revoke_other_sessions():
         return jsonify({"success": True, "revoked": len(ids)}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+# ── Account deletion (30-day grace period) ────────────────────────────────────
+# Flow: user re-auths + types DELETE -> scheduled_deletion_at = +30 days
+# (account stays usable but flagged; frontend shows a banner and blocks new
+# bookings). After the grace period the purge job anonymizes bookings/reviews,
+# scrubs PII from notifications, deletes the profile + auth user.
+
+DELETION_GRACE_DAYS = 30
+GOOGLE_REAUTH_WINDOW_MIN = 10  # fresh Google sign-in proves the user is present
+
+
+def _parse_ts(value):
+    """ISO timestamp (str) -> aware datetime, or None."""
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except Exception:
+        return None
+
+
+def _redact_notifications(uid, name, email):
+    """Scrub this guest's name/email out of notifications (admin-facing
+    booking/refund alerts keep working, PII does not survive the purge)."""
+    try:
+        rows = supabase_admin.table("notifications") \
+            .select("id,title,message,booking_id,user_id").limit(5000).execute().data or []
+        name = (name or "").strip()
+        email = (email or "").strip()
+        needles = [(name, "Former Guest")] if len(name) >= 4 else []
+        if len(email) >= 4:
+            needles.append((email, "[removed]"))
+        for n in rows:
+            t = n.get("title") or ""
+            m = n.get("message") or ""
+            # Their own notifications get deleted in step 5 anyway; here we only
+            # scrub text that literally contains the guest's name/email.
+            if not any(nd in t or nd in m for nd, _ in needles):
+                continue
+            nt, nm = t, m
+            for nd, repl in needles:
+                nt = nt.replace(nd, repl)
+                nm = nm.replace(nd, repl)
+            if (nt, nm) != (t, m):
+                supabase_admin.table("notifications") \
+                    .update({"title": nt, "message": nm}).eq("id", n["id"]).execute()
+    except Exception as e:
+        print(f"[deletion] notification redact skipped: {e}")
+
+
+def _purge_deleted_account(row: dict) -> dict:
+    """Permanently delete one account that is past its scheduled time.
+
+    Idempotent / retry-safe: every step tolerates already-done state, so a
+    failed run can simply be retried. Order matters — references are nulled
+    BEFORE any row delete so bookings/reviews are never caught by a cascade.
+    """
+    uid = row.get("id")
+    name = (row.get("name") or "").strip()
+    email = (row.get("email") or "").strip()
+    log = {"user": uid, "steps": []}
+
+    # 1. PII scrub in notifications mentioning this guest (admins keep alerts)
+    _redact_notifications(uid, name, email)
+    log["steps"].append("notifications_redacted")
+
+    # 2. Anonymize bookings — keep amounts/dates/status, drop identity
+    bres = supabase_admin.table("bookings").select("id").eq("user_id", uid).execute()
+    b_ids = [b["id"] for b in (bres.data or [])]
+    if b_ids:
+        supabase_admin.table("bookings").update({
+            "user_id": None,
+            "full_name": "Former Guest",
+            "email": "",
+            "phone": "",
+            "special_requests": "",
+        }).in_("id", b_ids).eq("user_id", uid).execute()
+        log["steps"].append(f"bookings_anonymized={len(b_ids)}")
+
+    # 3. Anonymize reviews — keep rating/comment/images, drop the reference
+    rres = supabase_admin.table("reviews").select("id").eq("user_id", uid).execute()
+    r_ids = [r["id"] for r in (rres.data or [])]
+    if r_ids:
+        supabase_admin.table("reviews").update({"user_id": None}) \
+            .in_("id", r_ids).eq("user_id", uid).execute()
+        log["steps"].append(f"reviews_anonymized={len(r_ids)}")
+
+    # 4. Avatar files in storage (avatars/{user_id}.*)
+    try:
+        listed = supabase_admin.storage.from_("avatars").list()
+        doomed = [f["name"] for f in (listed or [])
+                  if str(f.get("name", "")).startswith(f"{uid}.")]
+        if doomed:
+            supabase_admin.storage.from_("avatars").remove(doomed)
+        log["steps"].append(f"avatars_removed={len(doomed)}")
+    except Exception as e:
+        print(f"[deletion] avatar cleanup skipped: {e}")
+
+    # 5. Dependent rows (explicit deletes — devices, sessions, notifications)
+    for tbl in ("user_sessions", "user_devices", "notifications",
+                "quick_signin_codes", "login_challenges"):
+        try:
+            supabase_admin.table(tbl).delete().eq("user_id", uid).execute()
+        except Exception as e:
+            print(f"[deletion] {tbl} delete skipped: {e}")
+
+    # 6. Profile row (bookings/reviews no longer reference it at this point)
+    try:
+        supabase_admin.table("users").delete().eq("id", uid).execute()
+        log["steps"].append("profile_deleted")
+    except Exception as e:
+        print(f"[deletion] users delete skipped: {e}")
+
+    # 7. Auth user (service role, server-side only) — 404 on retry is fine
+    try:
+        supabase_admin.auth.admin.delete_user(uid)
+        log["steps"].append("auth_user_deleted")
+    except Exception as e:
+        msg = str(e).lower()
+        if "404" in msg or "not found" in msg or "not_exist" in msg:
+            log["steps"].append("auth_user_already_gone")
+        else:
+            raise
+    return log
+
+
+@app.route("/api/auth/delete-request", methods=["POST"])
+def delete_account_request():
+    """Schedule permanent deletion 30 days out (re-auth + typed confirmation)."""
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    user_id = get_user_from_token(token)
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.get_json(silent=True) or {}
+
+    # Explicit, un-missable consent
+    if str(data.get("typed_confirm", "")).strip() != "DELETE":
+        return jsonify({"error": "Type DELETE to confirm.",
+                        "code": "confirm_required"}), 400
+
+    try:
+        pres = supabase_admin.table("users") \
+            .select("id,name,email,deletion_requested_at,scheduled_deletion_at") \
+            .eq("id", user_id).limit(1).execute()
+    except Exception:
+        return jsonify({"error": "Account deletion is not set up yet. Run "
+                                 "migrate-account-deletion.sql first.",
+                        "code": "migration_required"}), 503
+    prof = (pres.data or [{}])[0]
+    if not prof.get("id"):
+        return jsonify({"error": "Profile not found"}), 404
+    if prof.get("scheduled_deletion_at"):
+        return jsonify({"error": "Deletion is already scheduled.",
+                        "code": "already_scheduled"}), 409
+
+    # ── Re-auth ────────────────────────────────────────────────────────────
+    # password: verified SERVER-side via GoTrue password grant (tokens
+    # discarded). google: a Google sign-in finished within the last 10 min
+    # (admin last_sign_in_at) — what a Google-only account can prove.
+    password = str(data.get("password") or "")
+    reauth = str(data.get("reauth") or "")
+    if password:
+        try:
+            r = http_requests.post(
+                f"{SUPABASE_URL}/auth/v1/token?grant_type=password",
+                headers={"apikey": SUPABASE_KEY, "Content-Type": "application/json"},
+                json={"email": prof.get("email"), "password": password},
+                timeout=15,
+            )
+        except Exception:
+            return jsonify({"error": "Could not verify your password. Try again.",
+                            "code": "reauth_failed"}), 502
+        if not r.ok:
+            return jsonify({"error": "That password is incorrect.",
+                            "code": "bad_reauth"}), 401
+    elif reauth == "google":
+        try:
+            au = supabase_admin.auth.admin.get_user_by_id(user_id)
+            u = getattr(au, "user", None) or au
+            last = _parse_ts(getattr(u, "last_sign_in_at", None))
+        except Exception:
+            last = None
+        if not last or (datetime.now(timezone.utc) - last).total_seconds() \
+                > GOOGLE_REAUTH_WINDOW_MIN * 60:
+            return jsonify({"error": "Sign in with Google again to confirm it's you.",
+                            "code": "bad_reauth"}), 401
+    else:
+        return jsonify({"error": "Re-authentication required.",
+                        "code": "reauth_required"}), 400
+
+    # ── Blockers ───────────────────────────────────────────────────────────
+    try:
+        active = supabase_admin.table("bookings").select("id") \
+            .eq("user_id", user_id).in_("status", ["pending", "confirmed"]) \
+            .limit(1).execute()
+        if active.data:
+            return jsonify({"error": "Cancel or complete your bookings first.",
+                            "code": "active_bookings"}), 409
+        refund = supabase_admin.table("bookings").select("id") \
+            .eq("user_id", user_id).eq("status", "cancelled") \
+            .gt("amount_paid", 0).is_("refunded_at", "null") \
+            .limit(1).execute()
+        if refund.data:
+            return jsonify({"error": "A refund on one of your bookings is still "
+                                     "being resolved. Please wait for it to complete.",
+                            "code": "unresolved_refund"}), 409
+    except Exception as e:
+        return jsonify({"error": f"Could not check your bookings: {e}"}), 500
+
+    now = datetime.now(timezone.utc)
+    scheduled = now + timedelta(days=DELETION_GRACE_DAYS)
+    try:
+        supabase_admin.table("users").update({
+            "deletion_requested_at": now.isoformat(),
+            "scheduled_deletion_at": scheduled.isoformat(),
+        }).eq("id", user_id).execute()
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+    # Sign out every OTHER session — current one stays so the user can cancel
+    try:
+        current = _sha256(token)
+        res = supabase_admin.table("user_sessions").select("id") \
+            .eq("user_id", user_id).eq("revoked", False) \
+            .neq("access_hash", current).execute()
+        ids = [r["id"] for r in (res.data or [])]
+        if ids:
+            supabase_admin.table("user_sessions").update({"revoked": True}) \
+                .in_("id", ids).execute()
+    except Exception as e:
+        print(f"[deletion] revoke-others skipped: {e}")
+
+    print(f"[deletion] scheduled user={user_id} at={scheduled.isoformat()}")
+    return jsonify({
+        "success": True,
+        "deletion_requested_at": now.isoformat(),
+        "scheduled_deletion_at": scheduled.isoformat(),
+    }), 200
+
+
+@app.route("/api/auth/delete-cancel", methods=["POST"])
+def delete_account_cancel():
+    """Clear a pending deletion (only the requesting account, via its token)."""
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    user_id = get_user_from_token(token)
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+    try:
+        pres = supabase_admin.table("users") \
+            .select("scheduled_deletion_at").eq("id", user_id).limit(1).execute()
+        row = (pres.data or [{}])[0]
+        if not row.get("scheduled_deletion_at"):
+            return jsonify({"success": True, "cleared": False}), 200
+        supabase_admin.table("users").update({
+            "deletion_requested_at": None,
+            "scheduled_deletion_at": None,
+        }).eq("id", user_id).execute()
+        print(f"[deletion] cancelled user={user_id}")
+        return jsonify({"success": True, "cleared": True}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/auth/deletion-check", methods=["POST"])
+def deletion_check():
+    """Opportunistic, SELF-SCOPED purge: only the caller's own due request.
+
+    Safe for the frontend to fire (like the auto-complete call) — it can never
+    touch another account. The cross-account sweep is /api/account/deletion-job.
+    """
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    user_id = get_user_from_token(token)
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+    try:
+        pres = supabase_admin.table("users") \
+            .select("id,name,email,scheduled_deletion_at") \
+            .eq("id", user_id).limit(1).execute()
+    except Exception:
+        return jsonify({"deleted": False}), 200  # migration pending
+    row = (pres.data or [None])[0]
+    if not row:
+        return jsonify({"deleted": True}), 200  # already purged
+    due = _parse_ts(row.get("scheduled_deletion_at"))
+    if not due or due > datetime.now(timezone.utc):
+        return jsonify({"deleted": False}), 200
+    try:
+        _purge_deleted_account(row)
+    except Exception as e:
+        print(f"[deletion] self purge failed for {user_id}: {e}")
+        return jsonify({"error": "Deletion failed, will retry later.",
+                        "code": "purge_failed"}), 500
+    return jsonify({"deleted": True}), 200
+
+
+@app.route("/api/account/deletion-job", methods=["POST"])
+def deletion_job():
+    """Sweep every account past scheduled_deletion_at.
+
+    PROTECTED: requires X-Cron-Secret == env CRON_SECRET; unset CRON_SECRET =
+    endpoint disabled (403). The web app never calls this — it uses the
+    self-scoped /api/auth/deletion-check instead.
+    Backdate helper (local testing only): opt-in via DELETION_JOB_ALLOW_BACKDATE=1.
+    Idempotent: re-running skips finished accounts and retries failures safely.
+    """
+    secret = (os.getenv("CRON_SECRET") or "").strip()
+    if not secret or request.headers.get("X-Cron-Secret", "") != secret:
+        return jsonify({"error": "Forbidden"}), 403
+
+    data = request.get_json(silent=True) or {}
+    backdated = None
+    if data.get("backdate_email"):
+        if (os.getenv("DELETION_JOB_ALLOW_BACKDATE") or "") != "1":
+            return jsonify({"error": "backdate disabled",
+                            "code": "backdate_disabled"}), 403
+        try:
+            brow = (supabase_admin.table("users") \
+                .select("id,email,deletion_requested_at") \
+                .eq("email", str(data["backdate_email"]).strip().lower()) \
+                .limit(1).execute().data or [None])[0]
+            if not brow:
+                return jsonify({"error": "user not found"}), 404
+            now = datetime.now(timezone.utc)
+            supabase_admin.table("users").update({
+                "deletion_requested_at":
+                    brow.get("deletion_requested_at") or now.isoformat(),
+                "scheduled_deletion_at": now.isoformat(),
+            }).eq("id", brow["id"]).execute()
+            backdated = brow["id"]
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    try:
+        due = supabase_admin.table("users") \
+            .select("id,name,email,scheduled_deletion_at") \
+            .lte("scheduled_deletion_at", datetime.now(timezone.utc).isoformat()) \
+            .limit(25).execute().data or []
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+    processed, failed = [], []
+    for row in due:
+        try:
+            _purge_deleted_account(row)
+            processed.append(row["id"])
+            print(f"[deletion] purged user={row['id']}")
+        except Exception as e:
+            failed.append({"user": row["id"], "error": str(e)})
+            print(f"[deletion] purge failed user={row['id']}: {e}")
+    return jsonify({"due": len(due), "processed": processed,
+                    "failed": failed, "backdated": backdated}), 200
 
 
 # ── Quick Sign-In (Roblox-style code approval) ────────────────────────────────
@@ -3180,6 +3538,20 @@ def create_booking():
     except Exception as e:
         print(f"downpayment balance check skipped: {e}")
 
+    # Account deletion pending -> new bookings blocked until it is cancelled
+    try:
+        del_res = supabase_admin.table("users").select("scheduled_deletion_at") \
+            .eq("id", user_id).limit(1).execute()
+        if del_res.data and del_res.data[0].get("scheduled_deletion_at"):
+            return jsonify({
+                "error": "Your account is scheduled for deletion, so new bookings "
+                         "are disabled. Cancel the deletion in Settings > Login & "
+                         "security to book again.",
+                "code": "deletion_scheduled",
+            }), 409
+    except Exception as e:
+        print(f"deletion-scheduled gate skipped: {e}")
+
     room_id = data.get("room_id")
     check_in = data.get("check_in")
     check_out = data.get("check_out")
@@ -4081,7 +4453,8 @@ def get_bookings():
             rid = b.get("room_id")
             room = rooms_map.get(rid, {})
             user = users_map.get(uid, {})
-            guest_name = b.get("full_name") or user.get("name") or "Unknown"
+            guest_name = b.get("full_name") or user.get("name") \
+                or ("Former Guest" if not uid else "Unknown")
             guest_email = b.get("email") or user.get("email") or ""
             guest_avatar = user.get("avatar_url") or ""
             result.append({
@@ -4402,7 +4775,8 @@ def get_room_reviews(room_id):
             "images": r.get("images") or [],
             "admin_reply": r.get("admin_reply") or "",
             "admin_replied_at": r.get("admin_replied_at"),
-            "guest_name": names.get(r.get("user_id")) or "Guest",
+            "guest_name": ("Former Guest" if not r.get("user_id")
+                           else (names.get(r.get("user_id")) or "Guest")),
             "guest_avatar": avatars.get(r.get("user_id")) or "",
             "created_at": r.get("created_at"),
         } for r in rows]
@@ -4475,7 +4849,8 @@ def get_reviews():
                 "room_id": r.get("room_id"),
                 "room_name": room.get("name", "Unknown room"),
                 "room_type": room.get("type", ""),
-                "guest_name": u.get("name", "Guest"),
+                "guest_name": ("Former Guest" if not r.get("user_id")
+                               else (u.get("name") or "Guest")),
                 "guest_email": u.get("email", ""),
                 "guest_avatar": (u.get("avatar_url") or "").strip(),
                 "rating": r.get("rating"),
@@ -4547,7 +4922,8 @@ def get_featured_reviews():
                 "rating": r.get("rating"),
                 "comment": (r.get("comment") or "").strip(),
                 "created_at": r.get("created_at"),
-                "guest_name": u.get("name") or "Guest",
+                "guest_name": ("Former Guest" if not r.get("user_id")
+                               else (u.get("name") or "Guest")),
                 "guest_avatar": _public_review_avatar(u, first_name),
                 "room_name": room.get("name", ""),
             })

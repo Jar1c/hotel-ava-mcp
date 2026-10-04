@@ -1,6 +1,6 @@
 import { AlertCircle, CalendarDays, CreditCard, EyeOff, ShieldCheck, UserCheck } from "lucide-react"
 
-export const LAST_UPDATED = "September 30, 2026"
+export const LAST_UPDATED = "October 4, 2026"
 
 export interface TermsSection {
   id: string
@@ -28,6 +28,8 @@ export const SECTIONS: TermsSection[] = [
       "We collect your name, email, and booking details solely to manage reservations and communicate with you about your stay.",
       "Payment card details are processed by PayMongo. Hotel Ava does not store your card number or CVV.",
       "We do not sell or rent your personal information to third parties.",
+      "You can delete your account from Settings > Login & security. It is deactivated immediately, permanently deleted after a 30-day grace period, and you can cancel the deletion at any time during that window.",
+      "When an account is deleted, your profile, avatar, saved devices, and notifications are removed. Booking and payment records are kept only in anonymized form (amounts and dates, without your name or email) for the hotel's accounting and legal records.",
     ],
   },
   {
