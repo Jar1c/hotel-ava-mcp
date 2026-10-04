@@ -61,7 +61,7 @@ export default function Booking() {
     message: "",
   })
   // Non-blocking warning: guest already has an overlapping stay in ANOTHER room.
-  const [overlapDialogOpen, setOverlapDialogOpen] = useState(false)
+  const [overlapDialog, setOverlapDialog] = useState<{ open: boolean; roomName?: string; range?: string }>({ open: false })
   const [showSignInModal, setShowSignInModal] = useState(false)
   const [signInMode, setSignInMode] = useState<"default" | "quick">("default")
   const [googleLoading, setGoogleLoading] = useState(false)
@@ -196,7 +196,7 @@ export default function Booking() {
             duration: !isOvernight ? dayDuration : undefined,
           })
           if (conflictRes.conflict) {
-            setOverlapDialogOpen(true)
+            setOverlapDialog({ open: true, roomName: conflictRes.room_name, range: conflictRes.range })
             return
           }
         } catch {
@@ -638,17 +638,22 @@ export default function Booking() {
         </DialogContent>
       </Dialog>
 
-      {/* Non-blocking overlap warning — Cancel closes with nothing submitted;
-          Continue proceeds with the normal booking flow. */}
+      {/* Non-blocking overlap warning — Go back closes with nothing submitted;
+          Continue booking proceeds with the normal booking flow. */}
       <ConfirmDialog
-        open={overlapDialogOpen}
-        onOpenChange={setOverlapDialogOpen}
+        open={overlapDialog.open}
+        onOpenChange={(open) => setOverlapDialog((prev) => ({ ...prev, open }))}
         title="Overlapping Booking"
-        description="You already have a booking at this time. Book another room anyway?"
-        confirmLabel="Continue"
-        cancelLabel="Cancel"
+        description={
+          overlapDialog.roomName || overlapDialog.range
+            ? `You already have a booking${overlapDialog.roomName ? ` at ${overlapDialog.roomName}` : ""}${overlapDialog.range ? ` (${overlapDialog.range})` : ""}. Book another room anyway?`
+            : "You already have a booking at this time. Book another room anyway?"
+        }
+        confirmLabel="Continue booking"
+        cancelLabel="Go back"
+        descriptionClassName="mt-3 text-ink/70"
         onConfirm={() => {
-          setOverlapDialogOpen(false)
+          setOverlapDialog((prev) => ({ ...prev, open: false }))
           void runCreate({ skipConflictCheck: true })
         }}
       />

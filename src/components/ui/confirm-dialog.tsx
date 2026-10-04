@@ -3,6 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Button } from "@/components/ui/button"
 import { AlertTriangle } from "lucide-react"
 import LoadingDots from "@/components/LoadingDots"
+import { cn } from "@/lib/utils"
 
 interface ConfirmDialogProps {
   open: boolean
@@ -14,6 +15,8 @@ interface ConfirmDialogProps {
   cancelLabel?: string
   variant?: "danger" | "default"
   loading?: boolean
+  /** Optional text-style overrides for the description (merged over defaults). */
+  descriptionClassName?: string
   onConfirm: () => void
 }
 
@@ -26,6 +29,7 @@ export default function ConfirmDialog({
   cancelLabel = "Cancel",
   variant = "danger",
   loading = false,
+  descriptionClassName,
   onConfirm,
 }: ConfirmDialogProps) {
   return (
@@ -42,9 +46,9 @@ export default function ConfirmDialog({
           <DialogHeader className="text-center">
             <DialogTitle className="text-lg font-semibold text-ink">{title}</DialogTitle>
             {typeof description === "string" ? (
-              <DialogDescription className="text-sm text-muted mt-2 leading-relaxed">{description}</DialogDescription>
+              <DialogDescription className={cn("text-sm text-muted mt-2 leading-relaxed", descriptionClassName)}>{description}</DialogDescription>
             ) : (
-              <div className="text-sm text-muted mt-2 leading-relaxed text-left">{description}</div>
+              <div className={cn("text-sm text-muted mt-2 leading-relaxed text-left", descriptionClassName)}>{description}</div>
             )}
           </DialogHeader>
         </div>

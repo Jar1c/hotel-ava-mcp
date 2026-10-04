@@ -2933,6 +2933,13 @@ def check_room_availability():
         return jsonify({"error": str(e)}), 500
 
 
+def _fmt_clock(dt):
+    """'Oct 4, 2:00 PM' — manual format; strftime %-d is glibc-only and local dev runs on Windows."""
+    h12 = dt.hour % 12 or 12
+    ap = "AM" if dt.hour < 12 else "PM"
+    return f"{dt.strftime('%b')} {dt.day}, {h12}:{dt.minute:02d} {ap}"
+
+
 @app.route("/api/bookings/check-conflict", methods=["POST"])
 def check_user_booking_conflict():
     """Non-blocking pre-check: does THIS guest already have an active booking
@@ -2986,7 +2993,16 @@ def check_user_booking_conflict():
                 continue
             # Strict overlap: touching endpoints (back-to-back) don't count
             if o_start < win_end and win_start < o_end:
-                return jsonify({"conflict": True}), 200
+                resp = {"conflict": True}
+                try:
+                    resp["range"] = f"{_fmt_clock(o_start)} – {_fmt_clock(o_end)}"
+                    rn = supabase_admin.table("rooms") \
+                        .select("name").eq("id", other.get("room_id")).limit(1).execute()
+                    if rn.data:
+                        resp["room_name"] = rn.data[0].get("name")
+                except Exception:
+                    pass  # details are optional — frontend falls back to the generic line
+                return jsonify(resp), 200
         return jsonify({"conflict": False}), 200
     except Exception as e:
         print(f"check-conflict error: {type(e).__name__}: {e}")

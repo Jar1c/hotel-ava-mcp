@@ -576,7 +576,7 @@ export const userBookingsApi = {
     start_time?: string
     duration?: number
   }) =>
-    apiFetch<{ conflict: boolean }>("/bookings/check-conflict", {
+    apiFetch<{ conflict: boolean; room_name?: string; range?: string }>("/bookings/check-conflict", {
       method: "POST",
       body: JSON.stringify(payload),
     }),
