@@ -3,7 +3,8 @@ import { useParams, useNavigate, useSearchParams, Link } from "react-router"
 import { ArrowLeft, Calendar, Check, CreditCard, AlertCircle, Clock, Mail, Wallet, Landmark, X, QrCode } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
-import { publicRoomsApi, type PublicRoomData } from "@/services/api"
+import { publicRoomsApi, userBookingsApi, type PublicRoomData } from "@/services/api"
+import ConfirmDialog from "@/components/ui/confirm-dialog"
 import { rooms as fallbackRooms, type Room } from "@/data/rooms"
 import { getCached, setCache } from "@/lib/cache"
 import { overnightWindow, dayUseWindow } from "@/lib/stayWindow"
@@ -59,6 +60,8 @@ export default function Booking() {
     title: "",
     message: "",
   })
+  // Non-blocking warning: guest already has an overlapping stay in ANOTHER room.
+  const [overlapDialogOpen, setOverlapDialogOpen] = useState(false)
   const [showSignInModal, setShowSignInModal] = useState(false)
   const [signInMode, setSignInMode] = useState<"default" | "quick">("default")
   const [googleLoading, setGoogleLoading] = useState(false)
@@ -155,7 +158,9 @@ export default function Booking() {
 
   const canSubmit = hasDate && validNights && !submitting && agreedToPolicy && ((isOvernight && !!overnightStartTime) || (!isOvernight && !!startTime))
 
-  const handleSubmit = async () => {
+  const handleSubmit = () => void runCreate()
+
+  const runCreate = async (opts: { skipConflictCheck?: boolean } = {}) => {
     if (!canSubmit || !room) return
     if (!user) {
       setShowSignInModal(true)
@@ -175,6 +180,28 @@ export default function Booking() {
 
       if (!availRes.available) {
         throw new Error("This room is no longer available for the selected dates. Please go back and choose different dates.")
+      }
+
+      // Non-blocking warning: the guest's OWN active booking overlaps these
+      // exact dates/times in a DIFFERENT room. Same-room overlap never gets
+      // here (backend 409s it), and back-to-back stays never warn.
+      if (!opts.skipConflictCheck) {
+        try {
+          const conflictRes = await userBookingsApi.checkConflict({
+            room_id: room.id,
+            check_in: toISODate(checkIn!),
+            check_out: isOvernight && checkOut ? toISODate(checkOut) : undefined,
+            stay_type: stayType,
+            start_time: isOvernight ? overnightStartTime : startTime,
+            duration: !isOvernight ? dayDuration : undefined,
+          })
+          if (conflictRes.conflict) {
+            setOverlapDialogOpen(true)
+            return
+          }
+        } catch {
+          // Warning-only check — a failure must never block the booking
+        }
       }
 
       const apiBase = API_BASE
@@ -610,6 +637,21 @@ export default function Booking() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Non-blocking overlap warning — Cancel closes with nothing submitted;
+          Continue proceeds with the normal booking flow. */}
+      <ConfirmDialog
+        open={overlapDialogOpen}
+        onOpenChange={setOverlapDialogOpen}
+        title="Overlapping Booking"
+        description="You already have a booking at this time. Book another room anyway?"
+        confirmLabel="Continue"
+        cancelLabel="Cancel"
+        onConfirm={() => {
+          setOverlapDialogOpen(false)
+          void runCreate({ skipConflictCheck: true })
+        }}
+      />
 
       {/* Terms popup — stays on this page, keeps the form state */}
       <TermsPopup open={termsOpen} onOpenChange={setTermsOpen} targetId={termsTarget} />

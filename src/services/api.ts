@@ -565,6 +565,21 @@ export const userBookingsApi = {
 
   extendConfirm: (id: string) =>
     apiFetch<ExtendConfirmResponse>(`/bookings/${id}/extend/confirm`, { method: "POST" }),
+
+  /** Non-blocking: does this guest's own active booking overlap a NEW stay in
+   *  a different room? Back-to-back stays never conflict (strict datetime). */
+  checkConflict: (payload: {
+    room_id: string
+    check_in: string
+    check_out?: string
+    stay_type?: string
+    start_time?: string
+    duration?: number
+  }) =>
+    apiFetch<{ conflict: boolean }>("/bookings/check-conflict", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
 }
 
 // ── Booking verification (public — the QR code a guest shows at check-in) ────

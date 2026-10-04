@@ -2933,6 +2933,66 @@ def check_room_availability():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/bookings/check-conflict", methods=["POST"])
+def check_user_booking_conflict():
+    """Non-blocking pre-check: does THIS guest already have an active booking
+    (pending/confirmed — in-house included, cancelled/completed excluded) whose
+    stay window overlaps the new one in a DIFFERENT room?
+
+    Strict full-datetime overlap with no gap buffer, so back-to-back stays
+    (checkout time == next check-in time) never warn. Warning only — the
+    same-room hard rule stays in create_booking (409) and the DB
+    bookings_no_overlap constraint. Fail-open: any error answers
+    conflict=false so a broken check can never block a booking.
+    """
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    set_auth(token)
+    user_id = get_user_from_token(token)
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.get_json() or {}
+    room_id = data.get("room_id")
+    check_in = data.get("check_in")
+    check_out = data.get("check_out")
+    stay_type = data.get("stay_type", "overnight")
+    start_time = data.get("start_time")
+    duration = data.get("duration")
+
+    # create_booking 400s on these itself — nothing to warn about yet
+    if not check_in or (stay_type == "overnight" and not check_out):
+        return jsonify({"conflict": False}), 200
+
+    try:
+        h, mi = _parse_time12(start_time)
+        win_start = datetime.strptime(check_in, "%Y-%m-%d").replace(hour=h, minute=mi)
+        if stay_type == "day":
+            win_end = win_start + timedelta(hours=int(duration or 0))
+        else:
+            win_end = datetime.strptime(check_out, "%Y-%m-%d").replace(hour=h, minute=mi)
+            if duration:
+                win_end += timedelta(hours=int(duration))
+
+        res = supabase_admin.table("bookings") \
+            .select("id, room_id, check_in, check_out, stay_type, start_time, duration") \
+            .eq("user_id", user_id) \
+            .in_("status", ["pending", "confirmed"]).execute()
+        for other in res.data or []:
+            if (other.get("room_id") or "") == (room_id or ""):
+                continue  # same room → the hard 409 rule, not this warning
+            try:
+                o_start, o_end = _stay_window(other)
+            except Exception:
+                continue
+            # Strict overlap: touching endpoints (back-to-back) don't count
+            if o_start < win_end and win_start < o_end:
+                return jsonify({"conflict": True}), 200
+        return jsonify({"conflict": False}), 200
+    except Exception as e:
+        print(f"check-conflict error: {type(e).__name__}: {e}")
+        return jsonify({"conflict": False}), 200
+
+
 @app.route("/api/bookings", methods=["POST"])
 def create_booking():
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
