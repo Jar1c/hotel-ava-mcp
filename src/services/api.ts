@@ -1,5 +1,6 @@
 import type { ArrivalState } from "@/lib/arrival"
 import { API_BASE } from "@/lib/apiBase"
+import { getAccessToken, getRefreshToken, setAccess, setRefresh } from "@/lib/tokenStore"
 
 /** Flag to prevent multiple concurrent refresh attempts */
 let isRefreshing = false
@@ -62,12 +63,12 @@ async function tryRefreshToken(): Promise<boolean> {
       const current = sessData.session
 
       if (current?.access_token) {
-        const stored = sessionStorage.getItem("access_token")
+        const stored = getAccessToken()
         if (current.access_token !== stored) {
           // Client already holds a newer pair (auto-refresh rotated it while
           // we were idle) — adopt it instead of burning another rotation.
-          sessionStorage.setItem("access_token", current.access_token)
-          sessionStorage.setItem("refresh_token", current.refresh_token || "")
+          setAccess(current.access_token)
+          setRefresh(current.refresh_token || "")
           return await syncSessionHashes(current.access_token, current.refresh_token || "")
         }
         // Stored pair IS the client's pair and the backend rejected it
@@ -75,14 +76,14 @@ async function tryRefreshToken(): Promise<boolean> {
         const { data, error } = await supabase.auth.refreshSession()
         const rotated = data.session
         if (rotated && !error) {
-          sessionStorage.setItem("access_token", rotated.access_token)
-          sessionStorage.setItem("refresh_token", rotated.refresh_token || "")
+          setAccess(rotated.access_token)
+          setRefresh(rotated.refresh_token || "")
           return await syncSessionHashes(rotated.access_token, rotated.refresh_token || "")
         }
       }
 
       // No browser session (legacy backend-only login) — rotate via Flask.
-      const refreshToken = sessionStorage.getItem("refresh_token")
+      const refreshToken = getRefreshToken()
       if (!refreshToken) return false
 
       const res = await fetch(`${API_BASE}/auth/refresh`, {
@@ -103,8 +104,8 @@ async function tryRefreshToken(): Promise<boolean> {
       }
 
       const data = await res.json()
-      sessionStorage.setItem("access_token", data.access_token)
-      sessionStorage.setItem("refresh_token", data.refresh_token)
+      setAccess(data.access_token)
+      setRefresh(data.refresh_token)
       return true
     } catch {
       return false
@@ -145,7 +146,7 @@ function deviceModel(): Promise<string> {
 }
 
 async function apiFetch<T>(path: string, options: RequestInit = {}, _isRetry = false): Promise<T> {
-  const token = sessionStorage.getItem("access_token")
+  const token = getAccessToken()
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(options.headers as Record<string, string> || {}),
@@ -199,6 +200,8 @@ export interface AuthUser {
   role: string
   avatar_url?: string
   name_changed_at?: string
+  deletion_requested_at?: string | null
+  scheduled_deletion_at?: string | null
 }
 
 export interface LoginResponse {
@@ -271,11 +274,11 @@ export const authApi = {
   trackLogin: (): Promise<TrackLoginResult> =>
     apiFetch<TrackLoginResult>("/auth/track-login", {
       method: "POST",
-      body: JSON.stringify({ refresh_token: sessionStorage.getItem("refresh_token") || "" }),
+      body: JSON.stringify({ refresh_token: getRefreshToken() || "" }),
     }),
 
   uploadAvatar: async (file: File): Promise<{ avatar_url: string }> => {
-    const token = sessionStorage.getItem("access_token")
+    const token = getAccessToken()
     const form = new FormData()
     form.append("file", file)
 
@@ -300,6 +303,22 @@ export const authApi = {
 
   resetPassword: (data: { access_token: string; refresh_token: string; new_password: string }) =>
     apiFetch<{ message: string }>("/auth/reset-password", { method: "POST", body: JSON.stringify(data) }),
+
+  /** Schedule account deletion (30-day grace). Server re-verifies the re-auth
+   *  (password grant or fresh Google sign-in) — the typed confirm alone is not enough. */
+  deleteRequest: (data: { typed_confirm: string; password?: string; reauth?: "google" }) =>
+    apiFetch<{ success: boolean; scheduled_deletion_at: string }>("/auth/delete-request", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  /** Cancel a pending deletion (any time before the scheduled date). */
+  deleteCancel: () =>
+    apiFetch<{ success: boolean; cleared: boolean }>("/auth/delete-cancel", { method: "POST" }),
+
+  /** Self-scoped purge check — only ever touches the caller's own account. */
+  deletionCheck: () =>
+    apiFetch<{ deleted: boolean }>("/auth/deletion-check", { method: "POST" }),
 
   refreshTokens: (refreshToken: string) =>
     fetch(`${API_BASE}/auth/refresh`, {
@@ -406,7 +425,7 @@ export const publicRoomsApi = {
 
 export const uploadApi = {
   image: async (file: File): Promise<{ url: string; path: string }> => {
-    const token = sessionStorage.getItem("access_token")
+    const token = getAccessToken()
     const form = new FormData()
     form.append("file", file)
 
@@ -927,7 +946,7 @@ export const reviewsApi = {
 
   /** Guest submits a review for a completed booking (one per booking, ≤5 photos) */
   create: async (payload: { booking_id: string; rating: number; comment: string; images?: File[] }): Promise<{ id: string }> => {
-    const token = sessionStorage.getItem("access_token")
+    const token = getAccessToken()
     const form = new FormData()
     form.append("booking_id", payload.booking_id)
     form.append("rating", String(payload.rating))
@@ -955,7 +974,7 @@ export const reviewsApi = {
     id: string,
     payload: { rating: number; comment: string; images?: File[]; keepImages?: string[] },
   ): Promise<MyReview> => {
-    const token = sessionStorage.getItem("access_token")
+    const token = getAccessToken()
     const form = new FormData()
     form.append("rating", String(payload.rating))
     form.append("comment", payload.comment)

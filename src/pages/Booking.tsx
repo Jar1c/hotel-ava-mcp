@@ -9,6 +9,7 @@ import { rooms as fallbackRooms, type Room } from "@/data/rooms"
 import { getCached, setCache } from "@/lib/cache"
 import { overnightWindow, dayUseWindow, OVERNIGHT_CHECK_IN, OVERNIGHT_CHECK_OUT } from "@/lib/stayWindow"
 import { API_BASE } from "@/lib/apiBase"
+import { getAccessToken } from "@/lib/tokenStore"
 import { formatDate as toISODate, parseDateParam } from "@/lib/dates"
 import { getRoomDiscount } from "@/lib/discountEngine"
 import { getActiveOffers, offerCoversDate, offerTitle, reasonWithUntil, type ActiveOffer } from "@/services/discountService"
@@ -199,6 +200,15 @@ export default function Booking() {
       setShowSignInModal(true)
       return
     }
+    if (user.scheduled_deletion_at) {
+      setErrorDialog({
+        open: true,
+        title: "Booking Blocked",
+        message:
+          "Your account is scheduled for deletion, so new bookings are disabled. Cancel the deletion in Settings > Login & security to book again.",
+      })
+      return
+    }
     setSubmitting(true)
     try {
       // Check availability first
@@ -238,7 +248,7 @@ export default function Booking() {
       }
 
       const apiBase = API_BASE
-      const token = sessionStorage.getItem("access_token")
+      const token = getAccessToken()
 
       const res = await fetch(`${apiBase}/bookings`, {
         method: "POST",

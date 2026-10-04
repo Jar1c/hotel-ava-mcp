@@ -4,7 +4,8 @@ import { ChevronRight, SlidersHorizontal, ChevronLeft, CheckCircle, CreditCard, 
 import BookingQr from "@/components/BookingQr"
 import { Button } from "@/components/ui/button"
 import { userBookingsApi, ApiError, type UserBookingData } from "@/services/api"
-import { bookingsApi } from "@/services/api"
+import { bookingsApi, authApi } from "@/services/api"
+import { useAuth } from "@/contexts/AuthContext"
 import { useToast } from "@/contexts/ToastContext"
 import { useNotifications } from "@/contexts/NotificationContext"
 import LoadingDots from "@/components/LoadingDots"
@@ -202,6 +203,7 @@ export default function MyBookings() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const { toast } = useToast()
+  const { logout } = useAuth()
   const { unreadBookingCount, markBookingNotificationsRead } = useNotifications()
   const [bookings, setBookings] = useState<UserBookingData[]>([])
   const [loading, setLoading] = useState(true)
@@ -285,6 +287,22 @@ export default function MyBookings() {
   useEffect(() => {
     // Fire auto-complete in background (non-blocking)
     bookingsApi.autoComplete().catch(() => {})
+    // Self-scoped deletion purge check — only ever THIS account; when the
+    // 30-day grace is over the backend purges it and we sign out locally.
+    authApi
+      .deletionCheck()
+      .then((r) => {
+        if (r?.deleted) {
+          toast({
+            title: "Account deleted",
+            description: "This account has been permanently deleted.",
+            variant: "default",
+          })
+          void logout()
+        }
+      })
+      .catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // You're looking at the bookings list, so the red badge on "My Bookings" is

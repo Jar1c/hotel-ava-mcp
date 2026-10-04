@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from "react"
 import { authApi, syncSessionHashes, type LoginChallenge, type LoginResponse, type TrackLoginResult } from "@/services/api"
 import { supabase } from "@/lib/supabase"
+import { getAccessToken, getRefreshToken, setAccess, setRefresh, clearTokens } from "@/lib/tokenStore"
 import LoginChallengeDialog from "@/components/auth/LoginChallengeDialog"
 
 export type UserRole = "public" | "guest" | "admin"
@@ -12,6 +13,8 @@ export interface User {
   role: UserRole
   avatar?: string
   name_changed_at?: string
+  deletion_requested_at?: string | null
+  scheduled_deletion_at?: string | null
 }
 
 interface AuthContextValue {
@@ -34,6 +37,8 @@ interface AuthContextValue {
   setChallenge: (challenge: LoginChallenge | null) => void
   /** Finish a sign-in verified server-side (OTP step-up / quick sign-in). */
   completeSession: (res: LoginResponse) => Promise<void>
+  /** Re-fetch profile from the backend (deletion schedule, name, avatar…). */
+  refreshUser: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
@@ -194,19 +199,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return merged
   }, [])
 
-  // Sync Supabase session → sessionStorage (for Flask backend)
+  // Sync Supabase session → tokenStore/localStorage (for Flask backend)
   const syncSupabaseSession = useCallback(async (): Promise<string | null> => {
     try {
       const { data: { session } } = await supabase.auth.getSession()
       if (session?.access_token) {
-        sessionStorage.setItem("access_token", session.access_token)
-        sessionStorage.setItem("refresh_token", session.refresh_token || "")
+        setAccess(session.access_token)
+        setRefresh(session.refresh_token || "")
         return session.access_token
       }
     } catch {
       // ignore
     }
-    return sessionStorage.getItem("access_token")
+    return getAccessToken()
   }, [])
 
   /**
@@ -253,6 +258,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         role: (profile.role || prev?.role || "guest") as UserRole,
         avatar: (profile.avatar_url || "").trim() || (isGoogleUser ? googleAvatar : "") || (prev?.avatar || ""),
         name_changed_at: profile.name_changed_at || prev?.name_changed_at || "",
+        deletion_requested_at: profile.deletion_requested_at ?? null,
+        scheduled_deletion_at: profile.scheduled_deletion_at ?? null,
       }
 
       // NEVER apply an identity-less user over a good one (header "…" regression)
@@ -286,8 +293,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const is401 = err?.message?.includes("401") || err?.message?.includes("Unauthorized")
       if (is401) {
         // Hard logout only when backend rejects the token
-        sessionStorage.removeItem("access_token")
-        sessionStorage.removeItem("refresh_token")
+        clearTokens()
         localStorage.removeItem("auth_user")
         applyUser(null)
       } else {
@@ -338,8 +344,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // sessionStorage; the next API 401 then refreshed with a spent token,
       // GoTrue revoked the family, and the user was signed out mid-session.
       if (session?.access_token) {
-        sessionStorage.setItem("access_token", session.access_token)
-        sessionStorage.setItem("refresh_token", session.refresh_token || "")
+        setAccess(session.access_token)
+        setRefresh(session.refresh_token || "")
         // Re-check revocation after a client-side rotation: the server-side
         // fast check is hash-based, so a rotated token would slip past it and
         // resurrect a session that was revoked on another device. The sync
@@ -367,8 +373,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             gate = null
           }
           if (gate?.verification_required && gate.challenge_id) {
-            sessionStorage.removeItem("access_token")
-            sessionStorage.removeItem("refresh_token")
+            clearTokens()
             setChallenge({
               challenge: "otp",
               challenge_id: gate.challenge_id,
@@ -408,8 +413,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } else if (event === "SIGNED_OUT") {
         // Only hard-logout when Supabase explicitly signs out — not when a
         // transient INITIAL_SESSION comes back empty (that wiped the user → "Guest")
-        sessionStorage.removeItem("access_token")
-        sessionStorage.removeItem("refresh_token")
+        clearTokens()
         localStorage.removeItem("auth_user")
         applyUser(null)
         setLoading(false)
@@ -427,14 +431,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // "logged out from another device" even after the token rotated — the
       // case that used to auto sign-in the user again on every reload.
       if (token) {
-        const ok = await syncSessionHashes(token, sessionStorage.getItem("refresh_token") || "")
+        const ok = await syncSessionHashes(token, getRefreshToken() || "")
         if (!mounted) return
         if (!ok) {
           // Revoked elsewhere — kill the browser session too so this tab can
           // never rehydrate it. (The revoked event already fired the modal.)
           supabase.auth.signOut({ scope: "local" }).catch(() => {})
-          sessionStorage.removeItem("access_token")
-          sessionStorage.removeItem("refresh_token")
+          clearTokens()
           localStorage.removeItem("auth_user")
           applyUser(null)
           setLoading(false)
@@ -442,7 +445,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      const hasSbSession = !!sessionStorage.getItem("access_token")
+      const hasSbSession = !!getAccessToken()
       const cachedProfile = getCachedProfile()
 
       const restoreFromCache = () => {
@@ -489,8 +492,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (restoreFromCache()) {
         void supabase.auth.getSession().then(({ data: { session } }) => {
           if (!mounted || !session?.access_token) return
-          sessionStorage.setItem("access_token", session.access_token)
-          sessionStorage.setItem("refresh_token", session.refresh_token || "")
+          setAccess(session.access_token)
+          setRefresh(session.refresh_token || "")
           verifySession(session.user)
         })
         return
@@ -501,8 +504,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       void supabase.auth.getSession().then(({ data: { session } }) => {
         if (!mounted) return
         if (session?.user) {
-          sessionStorage.setItem("access_token", session.access_token)
-          sessionStorage.setItem("refresh_token", session.refresh_token || "")
+          setAccess(session.access_token)
+          setRefresh(session.refresh_token || "")
           const fromSession = userFromSession(session.user)
           if (hasDisplayIdentity(fromSession)) {
             applyUser(fromSession)
@@ -528,8 +531,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (email: string, password: string, _name?: string) => {
     const res = await authApi.login({ email, password })
 
-    sessionStorage.setItem("access_token", res.access_token)
-    sessionStorage.setItem("refresh_token", res.refresh_token)
+    setAccess(res.access_token)
+    setRefresh(res.refresh_token)
     logoutSuppressRef.current = false
 
     // Also open a Supabase session in the browser (best-effort). Without it an
@@ -546,8 +549,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Adopt the browser session's pair as THE pair. The Flask-issued pair
         // above would otherwise rotate on its own chain and collide with this
         // one (GoTrue reuse detection → both revoked → sudden logout).
-        sessionStorage.setItem("access_token", data.session.access_token)
-        sessionStorage.setItem("refresh_token", data.session.refresh_token || "")
+        setAccess(data.session.access_token)
+        setRefresh(data.session.refresh_token || "")
       })
       .catch(() => {
         /* Flask session above already works on its own */
@@ -586,8 +589,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   /** Clear local auth state without touching the server. */
   const clearSession = useCallback(() => {
-    sessionStorage.removeItem("access_token")
-    sessionStorage.removeItem("refresh_token")
+    clearTokens()
     localStorage.removeItem("auth_user")
     applyUser(null)
     setLoading(false)
@@ -626,8 +628,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   /** Finish a sign-in that was verified server-side (OTP step-up / quick sign-in). */
   const completeSession = useCallback(async (res: LoginResponse) => {
-    sessionStorage.setItem("access_token", res.access_token)
-    sessionStorage.setItem("refresh_token", res.refresh_token)
+    setAccess(res.access_token)
+    setRefresh(res.refresh_token)
     logoutSuppressRef.current = false
     setChallenge(null)
     const userObj: User = {
@@ -685,8 +687,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [applyUser, mergeIdentity]
   )
 
+  const refreshUser = useCallback(async () => {
+    await verifySession()
+  }, [verifySession])
+
   return (
-    <AuthContext.Provider value={{ user, role, isAuthenticated, isAdmin, login, register, logout, setRole, updateUser, loading, clearSession, consumeLogoutSuppress, pendingChallenge, setChallenge, completeSession }}>
+    <AuthContext.Provider value={{ user, role, isAuthenticated, isAdmin, login, register, logout, setRole, updateUser, loading, clearSession, consumeLogoutSuppress, pendingChallenge, setChallenge, completeSession, refreshUser }}>
       {children}
       {pendingChallenge && (
         <LoginChallengeDialog

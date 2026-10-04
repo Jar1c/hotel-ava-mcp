@@ -1,18 +1,49 @@
 import { Outlet, useLocation, useNavigate } from "react-router"
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import Header from "@/components/layout/Header"
 import Footer from "@/components/layout/Footer"
 import BottomNav from "@/components/layout/BottomNav"
 import InactivityGuard from "@/components/InactivityGuard"
 import { useAuth } from "@/contexts/AuthContext"
+import { useToast } from "@/contexts/ToastContext"
+import { authApi } from "@/services/api"
 
 const hideHeaderFooter = ["/login", "/register", "/forgot-password", "/reset-password", "/verify-email"]
+
+function deletionDateLabel(iso: string): string {
+  const t = new Date(iso).getTime()
+  if (Number.isNaN(t)) return "soon"
+  return new Date(t).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })
+}
 
 export default function RootLayout() {
   const location = useLocation()
   const navigate = useNavigate()
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, user, refreshUser } = useAuth()
+  const { toast } = useToast()
+  const [cancelBusy, setCancelBusy] = useState(false)
   const isAuthPage = hideHeaderFooter.includes(location.pathname)
+
+  const cancelDeletion = async () => {
+    setCancelBusy(true)
+    try {
+      await authApi.deleteCancel()
+      await refreshUser()
+      toast({
+        title: "Deletion cancelled",
+        description: "Your account is back to normal.",
+        variant: "success",
+      })
+    } catch {
+      toast({
+        title: "Couldn't cancel deletion",
+        description: "Please try again.",
+        variant: "error",
+      })
+    } finally {
+      setCancelBusy(false)
+    }
+  }
 
   // Scroll to top on route change (pathname only, not hash)
   useEffect(() => {
@@ -46,6 +77,25 @@ export default function RootLayout() {
   return (
     <div className="min-h-screen bg-canvas flex flex-col">
       {!isAuthPage && <Header />}
+      {!isAuthPage && isAuthenticated && user?.scheduled_deletion_at && (
+        <div className="bg-red-50 border-b border-red-200 dark:bg-red-500/10 dark:border-red-500/30">
+          <div className="mx-auto w-full max-w-container px-4 py-2 flex items-center justify-between gap-3 text-sm text-red-800 dark:text-red-300">
+            <span>
+              Your account is scheduled for deletion on{" "}
+              <strong>{deletionDateLabel(user.scheduled_deletion_at)}</strong>.
+              Cancel any time before then.
+            </span>
+            <button
+              type="button"
+              onClick={() => void cancelDeletion()}
+              disabled={cancelBusy}
+              className="shrink-0 font-semibold underline hover:no-underline disabled:opacity-60"
+            >
+              {cancelBusy ? "Cancelling..." : "Cancel deletion"}
+            </button>
+          </div>
+        </div>
+      )}
       <main className={`flex-1 mx-auto w-full${isAuthPage ? "" : " max-w-container"} pb-16 md:pb-0`}>
         <Outlet />
       </main>

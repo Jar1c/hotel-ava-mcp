@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { useSearchParams } from "react-router-dom"
-import { Lock, Save, Eye, EyeOff, Sun, Moon, Monitor, Palette, Smartphone, QrCode, Camera, CircleCheck, CircleAlert, Mail, Link2 } from "lucide-react"
+import { Save, Eye, EyeOff, Sun, Moon, Monitor, Smartphone, QrCode, Camera, CircleCheck, CircleAlert, Mail } from "lucide-react"
 import type { UserIdentity } from "@supabase/supabase-js"
 import { Button } from "@/components/ui/button"
 import ConfirmDialog from "@/components/ui/confirm-dialog"
@@ -12,6 +12,7 @@ import { useAuth } from "@/contexts/AuthContext"
 import { useToast } from "@/contexts/ToastContext"
 import { supabase, supabaseUrl, supabaseAnonKey } from "@/lib/supabase"
 import { authApi, sessionsApi, quickSigninApi, type SessionInfo } from "@/services/api"
+import { getAccessToken, getRefreshToken } from "@/lib/tokenStore"
 
 const COLOR_PRESETS: { key: ColorPreset; label: string; primary: string; secondary: string }[] = [
   { key: "royal-plum", label: "Royal Plum", primary: "#82285f", secondary: "#455d58" },
@@ -29,14 +30,25 @@ const MODE_OPTIONS: { key: ThemeMode; label: string; icon: typeof Sun }[] = [
 ]
 
 const TABS = [
-  { key: "appearance", label: "Appearance", icon: Palette },
-  { key: "security", label: "Login & security", icon: Lock },
-  { key: "devices", label: "Devices", icon: Smartphone },
-  { key: "quick-signin", label: "Quick Sign-In", icon: QrCode },
+  { key: "appearance", label: "Appearance" },
+  { key: "security", label: "Login & security" },
+  { key: "devices", label: "Devices" },
+  { key: "quick-signin", label: "Quick Sign-In" },
 ] as const
 
 const settingsInputClass =
-  "w-full px-3 py-2 border border-hairline rounded-[8px] text-sm bg-canvas focus:outline-none focus:border-primary/50 transition-colors dark:bg-surface"
+  "w-full px-3 py-2 border border-hairline rounded-[8px] text-sm bg-canvas focus:outline-none focus:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-1 transition-colors dark:bg-surface"
+
+function GoogleGlyph({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
+      <path fill="#4285F4" d="M23.49 12.27c0-.79-.07-1.54-.19-2.27H12v4.51h6.47a5.57 5.57 0 0 1-2.4 3.58v3h3.86c2.26-2.09 3.56-5.17 3.56-8.82z" />
+      <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.86-3c-1.08.72-2.45 1.16-4.07 1.16-3.13 0-5.78-2.11-6.73-4.96H1.29v3.09A11.99 11.99 0 0 0 12 24z" />
+      <path fill="#FBBC05" d="M5.27 14.29a7.18 7.18 0 0 1 0-4.58V6.62H1.29a12 12 0 0 0 0 10.76l3.98-3.09z" />
+      <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.7 0 3.99 2.47 1.29 6.62l3.98 3.09C6.22 6.86 8.87 4.75 12 4.75z" />
+    </svg>
+  )
+}
 
 type TabKey = typeof TABS[number]["key"]
 
@@ -63,7 +75,7 @@ function extractQsCode(raw: string): string | null {
 
 export default function Settings() {
   const { mode, setMode, colorPreset, setColorPreset } = useTheme()
-  const { user } = useAuth()
+  const { user, refreshUser } = useAuth()
   const { toast } = useToast()
   const [searchParams, setSearchParams] = useSearchParams()
   // URL-driven (?tab=devices) — a reload or deep link lands on the same tab
@@ -85,6 +97,7 @@ export default function Settings() {
   const [confirmPassword, setConfirmPassword] = useState("")
   const [showCurrent, setShowCurrent] = useState(false)
   const [showNew, setShowNew] = useState(false)
+  const [showConfirm, setShowConfirm] = useState(false)
   const [savingPassword, setSavingPassword] = useState(false)
 
   const [passwordError, setPasswordError] = useState("")
@@ -104,6 +117,15 @@ export default function Settings() {
   const [reauthError, setReauthError] = useState("")
   const pendingReauthRef = useRef<(() => Promise<void>) | null>(null)
 
+  // ── Account deletion (30-day grace period) ──
+  const [delOpen, setDelOpen] = useState(false)
+  const [delPassword, setDelPassword] = useState("")
+  const [delTyped, setDelTyped] = useState("")
+  const [delError, setDelError] = useState("")
+  const [delBusy, setDelBusy] = useState(false)
+  const [googleReauthed, setGoogleReauthed] = useState(false)
+  const [delCancelBusy, setDelCancelBusy] = useState(false)
+
   const hasEmailIdentity = identities?.some((i) => i.provider === "email") ?? false
   const googleIdentity = identities?.find((i) => i.provider === "google") ?? null
   const googleEmail = String(googleIdentity?.identity_data?.email || "")
@@ -117,8 +139,8 @@ export default function Settings() {
       data: { session },
     } = await supabase.auth.getSession()
     if (session) return true
-    const access_token = sessionStorage.getItem("access_token")
-    const refresh_token = sessionStorage.getItem("refresh_token")
+    const access_token = getAccessToken()
+    const refresh_token = getRefreshToken()
     if (!access_token || !refresh_token) return false
     const { error } = await supabase.auth.setSession({ access_token, refresh_token })
     return !error
@@ -179,6 +201,40 @@ export default function Settings() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Coming back from Google re-auth in the delete flow: is it the SAME account?
+  useEffect(() => {
+    if (!user?.id) return
+    const params = new URLSearchParams(window.location.search)
+    if (params.get("reauth") !== "delete") return
+    sessionStorage.removeItem("delete_reauth_intent")
+    params.delete("reauth")
+    const qs = params.toString()
+    window.history.replaceState({}, "", `${window.location.pathname}${qs ? `?${qs}` : ""}`)
+    ;(async () => {
+      try {
+        const { data: { user: sbUser } } = await supabase.auth.getUser()
+        if (sbUser && sbUser.id === user.id) {
+          setGoogleReauthed(true)
+          setDelOpen(true)
+          setDelError("")
+        } else {
+          toast({
+            title: "Google account doesn't match",
+            description: "Sign in with the Google account that matches your email, then try again.",
+            variant: "error",
+          })
+        }
+      } catch {
+        toast({
+          title: "Google sign-in couldn't be confirmed",
+          description: "Please try again.",
+          variant: "error",
+        })
+      }
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id])
+
   /** Re-auth gate: verify the account password WITHOUT touching any session —
    *  direct GoTrue password grant, returned tokens discarded. */
   const verifyPassword = async (password: string): Promise<boolean> => {
@@ -220,7 +276,7 @@ export default function Settings() {
     }
   }
 
-  const linkErrorToast = (message: string, verb: "connect" | "disconnect") => {
+  const linkErrorToast = (message: string) => {
     if (message.includes("manual linking") || message.includes("manual_linking")) {
       toast({
         title: "Account linking is turned off",
@@ -229,7 +285,7 @@ export default function Settings() {
       })
       return
     }
-    if (verb === "connect" && (message.includes("already linked") || message.includes("already exists"))) {
+    if (message.includes("already linked") || message.includes("already exists")) {
       toast({
         title: "Google already connected",
         description: "That Google account is already linked to your account.",
@@ -238,7 +294,7 @@ export default function Settings() {
       return
     }
     toast({
-      title: verb === "connect" ? "Couldn't connect Google" : "Couldn't disconnect Google",
+      title: "Couldn't connect Google",
       description: "Something went wrong. Please try again.",
       variant: "error",
     })
@@ -256,20 +312,108 @@ export default function Settings() {
     })
     if (error) {
       sessionStorage.removeItem("link_intent")
-      linkErrorToast(error.message || "", "connect")
+      linkErrorToast(error.message || "")
     }
     // On success the browser navigates away to Google's consent screen.
   }
 
-  const disconnectGoogle = async () => {
-    if (!googleIdentity) return
-    const { error } = await supabase.auth.unlinkIdentity(googleIdentity)
-    if (error) {
-      linkErrorToast(error.message || "", "disconnect")
+  // ── Account deletion (30-day grace period) ──
+
+  const formatDeletionDate = (iso: string) => {
+    try {
+      return new Date(iso).toLocaleDateString("en-PH", {
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+      })
+    } catch {
+      return "soon"
+    }
+  }
+
+  const openDeleteDialog = () => {
+    setDelPassword("")
+    setDelTyped("")
+    setDelError("")
+    setGoogleReauthed(false)
+    setDelOpen(true)
+  }
+
+  /** Google-only accounts re-prove presence with a fresh Google sign-in;
+   *  backend checks last_sign_in_at within 10 minutes. */
+  const startGoogleDeleteReauth = async () => {
+    setDelError("")
+    if (!(await ensureSupabaseSession())) {
+      setDelError("Your session expired. Sign in again and retry.")
       return
     }
-    toast({ title: "Google disconnected", description: "You can reconnect it at any time.", variant: "success" })
-    await loadIdentities()
+    sessionStorage.setItem("delete_reauth_intent", "google")
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: `${window.location.origin}/settings?tab=security&reauth=delete`,
+      },
+    })
+    if (error) {
+      sessionStorage.removeItem("delete_reauth_intent")
+      setDelError(error.message || "Could not start Google sign-in.")
+    }
+  }
+
+  const handleDeleteSubmit = async () => {
+    if (delTyped.trim() !== "DELETE") {
+      setDelError("Type DELETE to confirm.")
+      return
+    }
+    const usePassword = hasEmailIdentity && delPassword.length > 0
+    if (!usePassword && !googleReauthed) {
+      setDelError(
+        hasEmailIdentity ? "Enter your password to continue." : "Confirm with Google first."
+      )
+      return
+    }
+    setDelBusy(true)
+    setDelError("")
+    try {
+      await authApi.deleteRequest({
+        typed_confirm: "DELETE",
+        ...(usePassword ? { password: delPassword } : {}),
+        ...(!hasEmailIdentity ? { reauth: "google" as const } : {}),
+      })
+      setDelOpen(false)
+      await refreshUser()
+      toast({
+        title: "Account scheduled for deletion",
+        description: "You can cancel any time before the deletion date from Settings.",
+        variant: "success",
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : ""
+      setDelError(message || "Something went wrong. Please try again.")
+    } finally {
+      setDelBusy(false)
+    }
+  }
+
+  const handleCancelDeletion = async () => {
+    setDelCancelBusy(true)
+    try {
+      await authApi.deleteCancel()
+      await refreshUser()
+      toast({
+        title: "Deletion cancelled",
+        description: "Your account is back to normal.",
+        variant: "success",
+      })
+    } catch {
+      toast({
+        title: "Couldn't cancel deletion",
+        description: "Please try again.",
+        variant: "error",
+      })
+    } finally {
+      setDelCancelBusy(false)
+    }
   }
 
   const handleSetPassword = async () => {
@@ -444,24 +588,23 @@ export default function Settings() {
   return (
     <div className="px-base py-section">
       <div className="max-w-3xl mx-auto">
-        <h1 className="typo-display-lg text-ink mb-lg">Settings</h1>
+        <h1 className="typo-display-lg text-ink">Settings</h1>
+        <p className="text-sm text-muted mb-lg">Manage how you sign in and secure your account</p>
 
         {/* Top tabs — same pattern as admin settings; works on mobile + desktop */}
         <div className="flex gap-1 border-b border-hairline mb-lg overflow-x-auto">
           {TABS.map((tab) => {
-            const Icon = tab.icon
             const active = activeTab === tab.key
             return (
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
-                className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-all whitespace-nowrap cursor-pointer ${
+                className={`flex items-center px-4 py-2.5 text-sm font-medium border-b-2 transition-all whitespace-nowrap cursor-pointer ${
                   active
                     ? "border-primary text-primary"
                     : "border-transparent text-muted hover:text-ink"
                 }`}
               >
-                <Icon className="h-4 w-4" />
                 {tab.label}
               </button>
             )
@@ -472,8 +615,8 @@ export default function Settings() {
         <div>
             {/* Appearance Tab */}
             {activeTab === "appearance" && (
-              <div className="bg-white border border-hairline rounded-[12px] p-md dark:bg-surface-soft dark:border-hairline">
-                <h2 className="typo-title-sm text-ink mb-lg">Appearance</h2>
+              <div className="bg-white border border-hairline rounded-[12px] p-6 dark:bg-surface-soft dark:border-hairline">
+                <h2 className="text-base font-semibold text-ink mb-lg">Appearance</h2>
 
                 {/* Mode Toggle */}
                 <div className="mb-lg">
@@ -540,13 +683,10 @@ export default function Settings() {
 
             {/* Security Tab */}
             {activeTab === "security" && (
-              <div className="space-y-md">
+              <div className="space-y-6">
                 {/* ── Connected accounts ── */}
-                <div className="bg-white border border-hairline rounded-[12px] p-md dark:bg-surface-soft dark:border-hairline">
-                  <h2 className="typo-title-sm text-ink mb-md flex items-center gap-2">
-                    <Link2 className="h-4 w-4" />
-                    Connected accounts
-                  </h2>
+                <div className="bg-white border border-hairline rounded-[12px] p-6 dark:bg-surface-soft dark:border-hairline">
+                  <h2 className="text-base font-semibold text-ink mb-md">Connected accounts</h2>
 
                   {identitiesFailed ? (
                     <div className="flex items-center justify-between gap-3">
@@ -565,14 +705,14 @@ export default function Settings() {
                   ) : (
                     <>
                       {/* Email */}
-                      <div className="flex items-center justify-between gap-3 py-3 border-b border-hairline dark:border-hairline/60">
+                      <div className="flex flex-col gap-3 py-4 border-b border-hairline sm:flex-row sm:items-center sm:justify-between dark:border-hairline/60">
                         <div className="flex items-center gap-3 min-w-0">
                           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-hairline bg-canvas dark:border-hairline/60 dark:bg-surface">
                             <Mail className="h-4 w-4 text-muted" />
                           </span>
                           <div className="min-w-0">
                             <p className="text-sm font-medium text-ink">Email</p>
-                            <p className="text-xs text-muted truncate">
+                            <p className="text-[13px] text-ink/70 truncate">
                               {hasEmailIdentity
                                 ? user?.email
                                 : `${user?.email} — email sign-in not set up`}
@@ -580,8 +720,8 @@ export default function Settings() {
                           </div>
                         </div>
                         {hasEmailIdentity ? (
-                          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-secondary/10 px-2 py-0.5 text-[11px] font-medium text-secondary">
-                            <CircleCheck className="h-3 w-3" />
+                          <span className="inline-flex shrink-0 items-center gap-1.5 text-[13px] font-medium text-ink/70">
+                            <span className="h-2 w-2 rounded-full bg-emerald-500" aria-hidden="true" />
                             Connected
                           </span>
                         ) : (
@@ -597,35 +737,24 @@ export default function Settings() {
                       </div>
 
                       {/* Google */}
-                      <div className="flex items-center justify-between gap-3 py-3">
+                      <div className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
                         <div className="flex items-center gap-3 min-w-0">
-                          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-hairline bg-canvas text-sm font-semibold text-ink dark:border-hairline/60 dark:bg-surface">
-                            G
+                          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-hairline bg-white dark:border-hairline/60 dark:bg-surface">
+                            <GoogleGlyph className="h-4 w-4" />
                           </span>
                           <div className="min-w-0">
                             <p className="text-sm font-medium text-ink">Google</p>
-                            <p className="text-xs text-muted truncate">
+                            <p className="text-[13px] text-ink/70 truncate">
                               {googleIdentity ? googleEmail : "Not connected"}
                             </p>
                           </div>
                         </div>
                         <div className="flex shrink-0 items-center gap-2">
                           {googleIdentity ? (
-                            <>
-                              <span className="inline-flex items-center gap-1 rounded-full bg-secondary/10 px-2 py-0.5 text-[11px] font-medium text-secondary">
-                                <CircleCheck className="h-3 w-3" />
-                                Connected
-                              </span>
-                              <Button
-                                variant="destructive"
-                                size="sm"
-                                className="!rounded-[8px]"
-                                disabled={!hasEmailIdentity}
-                                onClick={() => runWithReauth(disconnectGoogle)}
-                              >
-                                Disconnect
-                              </Button>
-                            </>
+                            <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-ink/70">
+                              <span className="h-2 w-2 rounded-full bg-emerald-500" aria-hidden="true" />
+                              Connected
+                            </span>
                           ) : (
                             <Button
                               variant="outline"
@@ -639,18 +768,17 @@ export default function Settings() {
                         </div>
                       </div>
 
-                      {/* Never leave the account with zero login methods */}
-                      {googleIdentity && !hasEmailIdentity && (
-                        <p className="text-xs text-muted mt-1">
-                          Set a password first to disconnect your last login method.
+                      {hasEmailIdentity && googleIdentity && (
+                        <p className="border-t border-hairline pt-4 text-[13px] text-muted dark:border-hairline/60">
+                          Both use the same email, so they are one account.
                         </p>
                       )}
 
                       {/* Google-only accounts set their password here */}
                       {showSetPw && !hasEmailIdentity && (
-                        <div className="mt-4 pt-4 border-t border-hairline space-y-sm dark:border-hairline/60">
+                        <div className="mt-4 max-w-[400px] pt-4 border-t border-hairline space-y-sm dark:border-hairline/60">
                           <div>
-                            <label className="block text-xs font-medium text-muted mb-1">New Password</label>
+                            <label className="block text-[13px] font-medium text-ink/70 mb-1">New Password</label>
                             <input
                               type="password"
                               value={setPw}
@@ -660,7 +788,7 @@ export default function Settings() {
                             />
                           </div>
                           <div>
-                            <label className="block text-xs font-medium text-muted mb-1">Confirm New Password</label>
+                            <label className="block text-[13px] font-medium text-ink/70 mb-1">Confirm New Password</label>
                             <input
                               type="password"
                               value={setPwConfirm}
@@ -669,7 +797,7 @@ export default function Settings() {
                               placeholder="Confirm new password"
                             />
                           </div>
-                          {setPwError && <p className="text-xs text-red-500">{setPwError}</p>}
+                          {setPwError && <p className="text-[13px] text-red-500">{setPwError}</p>}
                           <div className="flex items-center gap-2 pt-1">
                             <Button
                               onClick={() => void handleSetPassword()}
@@ -699,23 +827,22 @@ export default function Settings() {
 
                 {/* ── Change password (existing) ── */}
                 {showChangePassword && (
-                <div className="bg-white border border-hairline rounded-[12px] p-md dark:bg-surface-soft dark:border-hairline">
-                  <h2 className="typo-title-sm text-ink mb-md flex items-center gap-2">
-                    <Lock className="h-4 w-4" />
-                    Change Password
-                  </h2>
+                <div className="bg-white border border-hairline rounded-[12px] p-6 dark:bg-surface-soft dark:border-hairline">
+                  <h2 className="text-base font-semibold text-ink mb-md">Change Password</h2>
 
-                <div className="space-y-sm">
+                <div className="max-w-[400px] space-y-sm">
                   {/* Current password */}
                   <div>
-                    <label className="block text-xs font-medium text-muted mb-1">Current Password</label>
+                    <label htmlFor="spw-current" className="block text-[13px] font-medium text-ink/70 mb-1">Current Password</label>
                     <div className="relative">
                       <input
+                        id="spw-current"
                         type={showCurrent ? "text" : "password"}
                         value={currentPassword}
                         onChange={(e) => setCurrentPassword(e.target.value)}
-                        className="w-full px-3 py-2 border border-hairline rounded-[8px] text-sm bg-canvas focus:outline-none focus:border-primary/50 transition-colors dark:bg-surface"
+                        className="w-full px-3 py-2 border border-hairline rounded-[8px] text-sm bg-canvas focus:outline-none focus:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-1 transition-colors dark:bg-surface"
                         placeholder="Enter current password"
+                        aria-describedby={passwordError ? "spw-error" : undefined}
                       />
                       <button
                         type="button"
@@ -729,13 +856,15 @@ export default function Settings() {
 
                   {/* New password */}
                   <div>
-                    <label className="block text-xs font-medium text-muted mb-1">New Password</label>
+                    <label htmlFor="spw-new" className="block text-[13px] font-medium text-ink/70 mb-1">New Password</label>
                     <div className="relative">
                       <input
+                        id="spw-new"
                         type={showNew ? "text" : "password"}
                         value={newPassword}
                         onChange={(e) => setNewPassword(e.target.value)}
-                        className="w-full px-3 py-2 border border-hairline rounded-[8px] text-sm bg-canvas focus:outline-none focus:border-primary/50 transition-colors dark:bg-surface"
+                        aria-describedby={[newPassword ? "spw-reqs" : "", passwordError ? "spw-error" : ""].filter(Boolean).join(" ") || undefined}
+                        className="w-full px-3 py-2 border border-hairline rounded-[8px] text-sm bg-canvas focus:outline-none focus:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-1 transition-colors dark:bg-surface"
                         placeholder="Enter new password"
                       />
                       <button
@@ -748,16 +877,16 @@ export default function Settings() {
                     </div>
                     {/* Password requirements */}
                     {newPassword && (
-                      <div className="mt-2 space-y-1">
-                        <p className={`text-xs flex items-center gap-1.5 ${hasLength ? "text-emerald-600" : "text-muted"}`}>
+                      <div id="spw-reqs" className="mt-2 space-y-1">
+                        <p className={`text-[13px] flex items-center gap-1.5 ${hasLength ? "text-emerald-600" : "text-muted"}`}>
                           <span className={`w-1.5 h-1.5 rounded-full ${hasLength ? "bg-emerald-500" : "bg-gray-300"}`} />
                           At least 8 characters
                         </p>
-                        <p className={`text-xs flex items-center gap-1.5 ${hasUpper ? "text-emerald-600" : "text-muted"}`}>
+                        <p className={`text-[13px] flex items-center gap-1.5 ${hasUpper ? "text-emerald-600" : "text-muted"}`}>
                           <span className={`w-1.5 h-1.5 rounded-full ${hasUpper ? "bg-emerald-500" : "bg-gray-300"}`} />
                           One uppercase letter
                         </p>
-                        <p className={`text-xs flex items-center gap-1.5 ${hasNumber ? "text-emerald-600" : "text-muted"}`}>
+                        <p className={`text-[13px] flex items-center gap-1.5 ${hasNumber ? "text-emerald-600" : "text-muted"}`}>
                           <span className={`w-1.5 h-1.5 rounded-full ${hasNumber ? "bg-emerald-500" : "bg-gray-300"}`} />
                           One number
                         </p>
@@ -767,45 +896,96 @@ export default function Settings() {
 
                   {/* Confirm password */}
                   <div>
-                    <label className="block text-xs font-medium text-muted mb-1">Confirm New Password</label>
-                    <input
-                      type="password"
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
-                      className="w-full px-3 py-2 border border-hairline rounded-[8px] text-sm bg-canvas focus:outline-none focus:border-primary/50 transition-colors dark:bg-surface"
-                      placeholder="Confirm new password"
-                    />
+                    <label htmlFor="spw-confirm" className="block text-[13px] font-medium text-ink/70 mb-1">Confirm New Password</label>
+                    <div className="relative">
+                      <input
+                        id="spw-confirm"
+                        type={showConfirm ? "text" : "password"}
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        className="w-full px-3 py-2 border border-hairline rounded-[8px] text-sm bg-canvas focus:outline-none focus:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-1 transition-colors dark:bg-surface"
+                        placeholder="Confirm new password"
+                        aria-describedby={passwordError ? "spw-error" : undefined}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowConfirm(!showConfirm)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-ink"
+                      >
+                        {showConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
                   </div>
                 </div>
 
                 {passwordError && (
-                  <p className="text-xs text-red-500 mt-sm">{passwordError}</p>
+                  <p id="spw-error" className="text-[13px] text-red-500 mt-sm">{passwordError}</p>
                 )}
                 {passwordSuccess && (
-                  <p className="text-xs text-emerald-600 mt-sm">{passwordSuccess}</p>
+                  <p className="text-[13px] text-emerald-600 mt-sm">{passwordSuccess}</p>
                 )}
 
                 <Button
                   onClick={handlePasswordChange}
                   disabled={!newPassword || !confirmPassword || savingPassword}
-                  className="mt-md !rounded-[8px] bg-primary text-primary-foreground hover:bg-primary-active"
+                  className="mt-md !rounded-[8px] bg-primary text-primary-foreground hover:bg-primary-active disabled:bg-muted disabled:text-muted-foreground"
                 >
                   <Save className="h-4 w-4 mr-2" />
                   {savingPassword ? "Saving..." : "Update Password"}
                 </Button>
                 </div>
                 )}
+
+                {/* ── Danger zone: account deletion ── */}
+                <div className="pt-2">
+                  <p className="text-[13px] font-semibold text-muted mb-3">Danger zone</p>
+                  <div className="bg-white border border-hairline rounded-[12px] p-6 dark:bg-surface-soft dark:border-hairline">
+                  <h2 className="text-base font-semibold text-ink mb-md">Delete account</h2>
+                  {user?.scheduled_deletion_at ? (
+                    <div className="rounded-[8px] border border-red-200 bg-red-50 p-4 dark:border-red-500/30 dark:bg-red-500/10">
+                      <p className="text-sm text-ink">
+                        Scheduled for deletion on{" "}
+                        <strong>{formatDeletionDate(user.scheduled_deletion_at)}</strong>.
+                      </p>
+                      <p className="mt-1 text-xs text-muted">
+                        New bookings are disabled. You can cancel any time before that date.
+                      </p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="mt-3 !rounded-[8px] border-red-300 text-red-600 hover:border-red-600 hover:bg-red-600 hover:text-white dark:border-red-500/40 dark:text-red-400 dark:hover:bg-red-600 dark:hover:text-white"
+                        onClick={() => void handleCancelDeletion()}
+                        disabled={delCancelBusy}
+                      >
+                        {delCancelBusy ? "Cancelling..." : "Cancel deletion"}
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex items-start justify-between gap-4">
+                      <p className="text-sm text-muted">
+                        Permanently delete your account after a 30-day grace period.
+                        You can cancel any time before then.
+                      </p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="!rounded-[8px] shrink-0 border-red-300 bg-white text-red-600 hover:border-red-600 hover:bg-red-600 hover:text-white dark:border-red-500/40 dark:bg-transparent dark:text-red-400 dark:hover:border-red-600 dark:hover:bg-red-600 dark:hover:text-white"
+                        onClick={openDeleteDialog}
+                      >
+                        Delete account
+                      </Button>
+                    </div>
+                  )}
+                </div>
+                </div>
               </div>
             )}
 
             {/* Devices & activity Tab */}
             {activeTab === "devices" && (
-              <div className="bg-white border border-hairline rounded-[12px] p-md dark:bg-surface-soft dark:border-hairline">
+              <div className="bg-white border border-hairline rounded-[12px] p-6 dark:bg-surface-soft dark:border-hairline">
                 <div className="flex items-center justify-between gap-3 mb-md flex-wrap">
-                  <h2 className="typo-title-sm text-ink flex items-center gap-2">
-                    <Smartphone className="h-4 w-4" />
-                    Devices &amp; activity
-                  </h2>
+                  <h2 className="text-base font-semibold text-ink">Devices & activity</h2>
                   {otherSessions.length > 0 && (
                     <Button
                       variant="outline"
@@ -905,7 +1085,7 @@ export default function Settings() {
                   <div className="flex h-12 w-12 items-center justify-center rounded-[14px] bg-primary/10">
                     <QrCode className="h-6 w-6 text-primary" />
                   </div>
-                  <h2 className="typo-title-sm text-ink mt-4">Approve another device</h2>
+                  <h2 className="text-base font-semibold text-ink mt-4">Approve another device</h2>
                   <p className="mt-1 max-w-[24rem] text-sm leading-relaxed text-muted">
                     Enter the code shown on the other device's Login page — it signs in as
                     you, no password needed.
@@ -1014,7 +1194,7 @@ export default function Settings() {
             </DialogContent>
           </Dialog>
 
-          {/* Re-enter password before connecting/disconnecting a sign-in method */}
+          {/* Re-enter password before connecting a sign-in method */}
           <Dialog
             open={reauthOpen}
             onOpenChange={(open) => {
@@ -1066,6 +1246,88 @@ export default function Settings() {
                   className="!rounded-[8px] bg-primary text-primary-foreground hover:bg-primary-active"
                 >
                   {reauthBusy ? "Checking..." : "Continue"}
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          {/* Delete account — 30-day grace period */}
+          <Dialog
+            open={delOpen}
+            onOpenChange={(open) => {
+              if (delBusy) return
+              setDelOpen(open)
+              if (!open) {
+                setDelError("")
+                setDelPassword("")
+                setDelTyped("")
+              }
+            }}
+          >
+            <DialogContent className="rounded-[12px] sm:max-w-[440px]">
+              <DialogHeader>
+                <DialogTitle>Delete your account?</DialogTitle>
+                <DialogDescription>Here&apos;s what happens:</DialogDescription>
+              </DialogHeader>
+              <ul className="space-y-1.5 text-sm text-muted list-disc pl-5">
+                <li>Your account is deactivated right away — new bookings are blocked.</li>
+                <li>It is permanently deleted after 30 days. You can cancel any time before then.</li>
+                <li>
+                  Booking and payment records stay in anonymized form for the hotel&apos;s
+                  records (amounts and dates only).
+                </li>
+              </ul>
+              {hasEmailIdentity ? (
+                <input
+                  type="password"
+                  value={delPassword}
+                  onChange={(e) => setDelPassword(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void handleDeleteSubmit()
+                  }}
+                  className={settingsInputClass}
+                  placeholder="Your password"
+                  autoFocus
+                />
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="!rounded-[8px] w-full"
+                  onClick={() => void startGoogleDeleteReauth()}
+                  disabled={delBusy}
+                >
+                  {googleReauthed
+                    ? "Google confirmed — ready to delete"
+                    : "Continue with Google to confirm"}
+                </Button>
+              )}
+              <input
+                value={delTyped}
+                onChange={(e) => setDelTyped(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void handleDeleteSubmit()
+                }}
+                className={settingsInputClass}
+                placeholder="Type DELETE to confirm"
+              />
+              {delError && <p className="text-xs text-red-500">{delError}</p>}
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="ghost"
+                  className="!rounded-[8px]"
+                  disabled={delBusy}
+                  onClick={() => setDelOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  className="!rounded-[8px]"
+                  onClick={() => void handleDeleteSubmit()}
+                  disabled={delBusy || delTyped.trim() !== "DELETE"}
+                >
+                  {delBusy ? "Deleting..." : "Delete account"}
                 </Button>
               </div>
             </DialogContent>
