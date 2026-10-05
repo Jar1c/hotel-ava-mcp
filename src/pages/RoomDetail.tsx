@@ -24,6 +24,8 @@ import { nearbyPlaces, travelLabel, type NearbyCategory } from "@/data/nearbyPla
 import { getCached, setCache } from "@/lib/cache"
 import { formatDate as toISODate, parseDateParam } from "@/lib/dates"
 import { overnightWindow, dayUseWindow, OVERNIGHT_CHECK_IN, OVERNIGHT_CHECK_OUT } from "@/lib/stayWindow"
+import { dayUseRate } from "@/lib/roomPricing"
+import { formatRoomCapacity } from "@/lib/capacity"
 import { getGeneratedAvatar, getStoredAvatar, onAvatarError } from "@/lib/avatar"
 import PhotoGallery from "@/components/rooms/PhotoGallery"
 import { Pagination } from "@/components/ui/pagination"
@@ -297,6 +299,10 @@ export default function RoomDetail() {
         images: cached.images.length > 0 ? cached.images : fallbackRooms[0].images,
         rating: cached.rating ?? undefined,
         reviews: cached.reviews,
+        day_use_3h: cached.day_use_3h ?? null,
+        day_use_6h: cached.day_use_6h ?? null,
+        day_use_8h: cached.day_use_8h ?? null,
+        day_use_12h: cached.day_use_12h ?? null,
       })
       setLoading(false)
     }
@@ -317,6 +323,10 @@ export default function RoomDetail() {
           images: data.images.length > 0 ? data.images : fallbackRooms[0].images,
           rating: data.rating ?? undefined,
           reviews: data.reviews,
+          day_use_3h: data.day_use_3h ?? null,
+          day_use_6h: data.day_use_6h ?? null,
+          day_use_8h: data.day_use_8h ?? null,
+          day_use_12h: data.day_use_12h ?? null,
         })
         setCache(`room_${id}`, data)
       })
@@ -423,7 +433,7 @@ export default function RoomDetail() {
     )
   }
 
-  const dayUsePrice = stayType === "day" ? Math.round(room.price * (dayDuration / 24)) : 0
+  const dayUsePrice = stayType === "day" ? dayUseRate(room, dayDuration) : 0
   const overnightTotal = stayType === "overnight" ? room.price * nights : 0
   const subtotal = stayType === "day" ? dayUsePrice : overnightTotal
   const discount = getRoomDiscount(discountRooms, room.id)
@@ -444,7 +454,7 @@ export default function RoomDetail() {
     : approvedDiscount
   const showDiscountReason = showDiscount ? reasonWithUntil(showDiscount.reason, showDiscount.validTo) : null
   const effectivePrice = showDiscount ? showDiscount.discountedPrice : room.price
-  const dayUseDiscounted = stayType === "day" ? Math.round(effectivePrice * (dayDuration / 24)) : 0
+  const dayUseDiscounted = stayType === "day" ? dayUseRate(room, dayDuration, effectivePrice) : 0
   const overnightDiscounted = stayType === "overnight" ? effectivePrice * nights : 0
   const discountedSubtotal = stayType === "day" ? dayUseDiscounted : overnightDiscounted
   const displaySubtotal = showDiscount ? discountedSubtotal : subtotal
@@ -513,12 +523,18 @@ export default function RoomDetail() {
                 )}
               </div>
 
-              <div className="flex items-center gap-4 mb-lg text-muted">
-                <div className="flex items-center gap-1">
-                  <Users className="h-4 w-4" />
-                  <span className="typo-body-sm">Up to {room.max_adults} Adults, {room.max_children} Children</span>
-                </div>
-              </div>
+              {(() => {
+                const capacity = formatRoomCapacity(room)
+                if (!capacity) return null
+                return (
+                  <div className="flex items-center gap-4 mb-lg text-muted">
+                    <div className="flex items-center gap-1">
+                      <Users className="h-4 w-4" />
+                      <span className="typo-body-sm">Up to {capacity}</span>
+                    </div>
+                  </div>
+                )
+              })()}
 
                 <div className="border-t border-hairline pt-lg">
                   <h2 className="typo-display-sm text-ink mb-md">About this room</h2>
@@ -1220,7 +1236,10 @@ export default function RoomDetail() {
                               : "bg-white text-muted border border-hairline hover:border-primary/30"
                           }`}
                         >
-                          {d}h
+                          <span className="block leading-tight">{d}h</span>
+                          <span className="block text-[11px] font-medium tabular-nums opacity-80">
+                            ₱{dayUseRate(room, d).toLocaleString()}
+                          </span>
                         </button>
                       ))}
                     </div>

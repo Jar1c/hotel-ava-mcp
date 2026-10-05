@@ -99,6 +99,7 @@ export default function LoginChallengeDialog({ challenge, onVerified, onClose }:
             autoComplete="one-time-code"
             maxLength={6}
             placeholder="123456"
+            aria-label="One-time code"
             value={code}
             onChange={(e) => setCode(e.target.value.replace(/[^0-9]/g, ""))}
             className="w-full rounded-[10px] border border-hairline bg-canvas py-2.5 text-center text-xl font-semibold tracking-[0.4em] text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary"

@@ -118,7 +118,7 @@ export default function GuestsTable({ guests, loading }: GuestsTableProps) {
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search name, email, phone…"
+              placeholder="Search name, email, phone…" aria-label="Search guests"
               className="w-full rounded-[5px] border border-[#e2e4e8] bg-white py-1.5 pl-8 pr-7 text-[11px] text-[#1a1d26] placeholder:text-[#9ca3af] focus:border-[#82285f] focus:outline-none"
             />
             {query && (
@@ -233,7 +233,7 @@ export default function GuestsTable({ guests, loading }: GuestsTableProps) {
                   <div className="bg-[#f5f6f8] rounded-[10px] p-4 space-y-3">
                     <DetailRow icon={<Mail className="h-4 w-4" />} label="Email" value={selectedGuest.email || "Not provided"} />
                     <DetailRow icon={<Clock className="h-4 w-4" />} label="Member Since" value={formatDate(selectedGuest.created_at || "")} />
-                    <DetailRow icon={<CalendarDays className="h-4 w-4" />} label="Guest ID" value={selectedGuest.id.slice(0, 8) + "..."} />
+                    <DetailRow icon={<CalendarDays className="h-4 w-4" />} label="Guest ID" value={selectedGuest.id.slice(0, 8) + "…"} />
                   </div>
                 </div>
 

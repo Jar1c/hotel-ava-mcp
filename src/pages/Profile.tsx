@@ -219,7 +219,7 @@ export default function Profile() {
             <div className="text-center md:text-left mb-6">
               <div className="flex justify-center md:justify-start">
                 <DropdownMenu modal={false}>
-                  <DropdownMenuTrigger className="relative group cursor-pointer">
+                  <DropdownMenuTrigger className="relative group cursor-pointer" aria-label="Change profile photo">
                       <Avatar className="size-20 md:size-24 !rounded-[6px]">
                         <AvatarImage src={displayAvatar || undefined} />
                         <AvatarFallback className="bg-gray-200">

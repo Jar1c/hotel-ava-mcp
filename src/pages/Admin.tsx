@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react"
 import { Outlet, useNavigate } from "react-router"
-import { Search, Bell, Calendar, DoorOpen, Users, Hash, CheckCheck, Settings, Tag, Clock, Star, ShieldAlert } from "lucide-react"
+import { Search, Bell, Calendar, DoorOpen, Users, Hash, CheckCheck, Settings, Tag, Clock, Star, ShieldAlert, Menu } from "lucide-react"
 import AdminSidebar from "@/components/admin/AdminSidebar"
 import { useAuth } from "@/contexts/AuthContext"
 import { useNotifications } from "@/contexts/NotificationContext"
@@ -46,6 +46,7 @@ export default function Admin() {
   const [searchQuery, setSearchQuery] = useState("")
   const [showDropdown, setShowDropdown] = useState(false)
   const [notifOpen, setNotifOpen] = useState(false)
+  const [navOpen, setNavOpen] = useState(false)
   const searchRef = useRef<HTMLDivElement>(null)
   useBellRing()
 
@@ -84,24 +85,51 @@ export default function Admin() {
 
   return (
     <div className="flex h-[calc(100vh-var(--capstone-h,0px))] bg-[#f0f1f3] overflow-hidden">
-      <AdminSidebar />
+      {/* Sidebar — desktop rail */}
+      <div className="hidden flex-shrink-0 lg:block">
+        <AdminSidebar />
+      </div>
+
+      {/* Sidebar — mobile drawer */}
+      {navOpen && (
+        <div className="fixed inset-0 z-50 lg:hidden">
+          <div
+            className="absolute inset-0 bg-black/40"
+            onClick={() => setNavOpen(false)}
+            aria-hidden="true"
+          />
+          <div className="absolute inset-y-0 left-0">
+            <AdminSidebar onNavigate={() => setNavOpen(false)} />
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
         {/* Top Bar */}
         <header className="flex items-center justify-between h-[60px] bg-white px-6 flex-shrink-0 border-b border-[#e2e4e8]">
-          {/* Smart Search */}
-          <div ref={searchRef} className="relative w-80">
+          {/* Nav toggle + Smart Search */}
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setNavOpen(true)}
+              aria-label="Open navigation"
+              className="flex size-9 shrink-0 items-center justify-center rounded-[5px] text-[#6b7280] hover:bg-[#f5f6f8] transition-colors cursor-pointer lg:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#82285f]/50 focus-visible:ring-offset-2"
+            >
+              <Menu className="size-5" />
+            </button>
+            <div ref={searchRef} className="relative w-80 max-w-full">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-[#9ca3af] pointer-events-none" />
               <input
                 type="text"
                 value={searchQuery}
+                aria-label="Search bookings, rooms, and guests"
                 onChange={(e) => {
                   setSearchQuery(e.target.value)
                   setShowDropdown(true)
                 }}
                 onFocus={() => setShowDropdown(true)}
-                placeholder="Search bookings, rooms, guests..."
+                placeholder="Search bookings, rooms, guests…"
                 className="w-full rounded-[5px] border border-[#e2e4e8] bg-[#f5f6f8] py-2 pl-9 pr-4 text-sm text-[#1a1d26] placeholder:text-[#9ca3af] focus:outline-none focus:ring-2 focus:ring-[#82285f]/15 focus:border-[#82285f] transition-all"
               />
             </div>
@@ -142,13 +170,14 @@ export default function Admin() {
                 </div>
               </div>
             )}
+            </div>
           </div>
 
           {/* Right side */}
           <div className="flex items-center gap-4">
             {/* Notification bell — live unread + dropdown */}
             <DropdownMenu open={notifOpen} onOpenChange={handleNotifOpenChange}>
-              <DropdownMenuTrigger data-notification-bell className="relative flex size-9 items-center justify-center rounded-[5px] text-[#6b7280] hover:bg-[#f5f6f8] transition-colors cursor-pointer">
+              <DropdownMenuTrigger data-notification-bell aria-label="Notifications" className="relative flex size-9 items-center justify-center rounded-[5px] text-[#6b7280] hover:bg-[#f5f6f8] transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#82285f]/50 focus-visible:ring-offset-2">
                 <Bell className="size-[18px]" />
                 {unreadCount > 0 && (
                   <span data-notification-badge className="absolute -top-0.5 -right-0.5 flex items-center justify-center min-w-4 h-4 px-1 rounded-full bg-[#A4423A] text-white text-[10px] font-bold">
@@ -240,7 +269,7 @@ export default function Admin() {
             <div className="flex items-center gap-3">
               <div className="text-right">
                 <p className="text-sm font-semibold text-[#1a1d26] leading-tight">{user?.name || "Admin"}</p>
-                <p className="text-[11px] text-[#9ca3af]">{user?.email || "admin@hotelava.com"}</p>
+                <p className="text-[13px] text-[#9ca3af] tabular-nums">{user?.email || "admin@hotelava.com"}</p>
               </div>
               <Avatar className="size-9">
                 {user?.avatar && <AvatarImage src={getDisplayAvatar(user.avatar, user.email) || undefined} />}

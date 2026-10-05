@@ -165,12 +165,15 @@ export default function AdminLogin() {
 
             {/* Email */}
             <div>
-              <label className="typo-caption text-muted block mb-1.5">Email</label>
+              <label htmlFor="email" className="typo-caption text-muted block mb-1.5">Email</label>
               <div className="relative">
                 <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted pointer-events-none" />
                 <input
+                  id="email"
                   type="email"
                   value={email}
+                  autoComplete="email"
+                  spellCheck={false}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="admin@hotelava.com"
                   className={inputClass("email")}
@@ -183,12 +186,14 @@ export default function AdminLogin() {
 
             {/* Password */}
             <div>
-              <label className="typo-caption text-muted block mb-1.5">Password</label>
+              <label htmlFor="password" className="typo-caption text-muted block mb-1.5">Password</label>
               <div className="relative">
                 <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted pointer-events-none" />
                 <input
+                  id="password"
                   type={showPassword ? "text" : "password"}
                   value={password}
+                  autoComplete="current-password"
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Min. 8 characters"
                   className={`${inputClass("password")} pr-11`}
@@ -199,6 +204,7 @@ export default function AdminLogin() {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
                   className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted hover:text-ink transition-colors"
                 >
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}

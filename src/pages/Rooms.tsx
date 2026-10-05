@@ -62,6 +62,10 @@ function mapApiRoom(r: PublicRoomData): Room {
     images: r.images,
     rating: r.rating ?? undefined,
     reviews: r.reviews,
+    day_use_3h: r.day_use_3h ?? null,
+    day_use_6h: r.day_use_6h ?? null,
+    day_use_8h: r.day_use_8h ?? null,
+    day_use_12h: r.day_use_12h ?? null,
   }
 }
 
@@ -348,9 +352,9 @@ export default function Rooms() {
           <div className="min-w-0 flex-1 lg:min-h-[70vh]">
         <div className="mb-md flex flex-wrap items-center justify-between gap-sm">
           <p className="typo-caption-sm text-muted">
-            {loading ? "Loading..."
+            {loading ? "Loading…"
               : hasDateFilter && checkingAvailability
-                ? "Checking availability for your dates..."
+                ? "Checking availability for your dates…"
                 : hasDateFilter
                   ? sortedRooms.length > 0
                     ? `${sortedRooms.length} ${sortedRooms.length === 1 ? "room" : "rooms"} available for your preference`

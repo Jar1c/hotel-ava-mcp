@@ -92,7 +92,7 @@ export default function Login() {
         <div className="text-center">
           <img src={hotelLogo} alt="Hotel Ava" className="h-14 w-auto mx-auto mb-6" />
           <LoadingDots size="md" />
-          <p className="text-sm text-muted mt-3">Signing you in...</p>
+          <p className="text-sm text-muted mt-3">Signing you in…</p>
         </div>
       </div>
     )
@@ -220,12 +220,16 @@ export default function Login() {
           <form onSubmit={handleEmailLogin} className="space-y-4">
             {/* Email */}
             <div>
-              <label className="text-xs font-medium text-muted block mb-1.5">Email</label>
+              <label htmlFor="email" className="text-xs font-medium text-muted block mb-1.5">Email</label>
               <div className="relative">
                 <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted pointer-events-none" />
                 <input
+                  id="email"
                   type="email"
                   placeholder="you@example.com"
+                  autoComplete="email"
+                  spellCheck={false}
+                  name="email"
                   className={inputClass("email")}
                   style={inputStyle("email")}
                   onFocus={() => setFocused("email")}
@@ -239,12 +243,15 @@ export default function Login() {
 
             {/* Password */}
             <div>
-              <label className="text-xs font-medium text-muted block mb-1.5">Password</label>
+              <label htmlFor="password" className="text-xs font-medium text-muted block mb-1.5">Password</label>
               <div className="relative">
                 <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted pointer-events-none" />
                 <input
+                  id="password"
                   type={showPassword ? "text" : "password"}
                   placeholder="Enter your password"
+                  autoComplete="current-password"
+                  name="password"
                   className={`${inputClass("password")} pr-11`}
                   style={inputStyle("password")}
                   onFocus={() => setFocused("password")}

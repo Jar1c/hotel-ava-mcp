@@ -16,6 +16,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { usePolling } from "@/hooks/usePolling"
 import { formatPaymentMethod } from "@/lib/payment"
 import { deriveArrival, canCancel, startMomentLabel, arrivalTimeLabel, checkoutMomentLabel } from "@/lib/arrival"
+import CancelReasonPicker, { composeCancelReason } from "@/components/CancelReasonPicker"
 import { cn } from "@/lib/utils"
 
 const PRIMARY = "#82285f"
@@ -212,6 +213,14 @@ export default function MyBookings() {
   const [activeTab, setActiveTab] = useState<TabFilter>("all")
   const [page, setPage] = useState(1)
   const [cancelDialog, setCancelDialog] = useState<{ open: boolean; id: string | null }>({ open: false, id: null })
+  const [cancelReason, setCancelReason] = useState("")
+  const [cancelReasonOther, setCancelReasonOther] = useState("")
+  const [cancelReasonError, setCancelReasonError] = useState(false)
+  const resetCancelReason = () => {
+    setCancelReason("")
+    setCancelReasonOther("")
+    setCancelReasonError(false)
+  }
 
   // Review state — the stay is over, we're asking the guest what they thought
   const [reviewTarget, setReviewTarget] = useState<UserBookingData | null>(null)
@@ -343,13 +352,13 @@ export default function MyBookings() {
     }
   }, [])
 
-  const handleCancel = async (id: string) => {
+  const handleCancel = async (id: string, reason?: string) => {
     setCancelling(id)
     try {
-      const res = await userBookingsApi.cancel(id)
-      setBookings((prev) => prev.map((b) => (b.id === id ? { ...b, status: "cancelled" } : b)))
+      const res = await userBookingsApi.cancel(id, reason)
+      setBookings((prev) => prev.map((b) => (b.id === id ? { ...b, status: "cancelled", cancellation_reason: reason ?? b.cancellation_reason ?? null } : b)))
       // Update detail if open
-      setDetailBooking((prev) => (prev?.id === id ? { ...prev, status: "cancelled" } : prev))
+      setDetailBooking((prev) => (prev?.id === id ? { ...prev, status: "cancelled", cancellation_reason: reason ?? prev.cancellation_reason ?? null } : prev))
       toast({
         title: "Booking cancelled",
         description: res.refunded
@@ -595,7 +604,7 @@ export default function MyBookings() {
                       {/* Bottom Row: Price + refund status + Actions */}
                       <div className="flex flex-wrap items-center justify-between gap-2 mt-3">
                         <div className={cn("min-w-0", dimmed && "opacity-70")}>
-                          <span className="font-display text-lg font-semibold text-ink">
+                          <span className="tabular-nums font-display text-lg font-semibold text-ink">
                             ₱{booking.total_price.toLocaleString()}
                           </span>
                           {refund && (
@@ -606,7 +615,7 @@ export default function MyBookings() {
                           {rawStatus === "confirmed" && canCancel(booking) && (
                             <button
                               type="button"
-                              onClick={(e) => { e.stopPropagation(); setCancelDialog({ open: true, id: booking.id }) }}
+                              onClick={(e) => { e.stopPropagation(); resetCancelReason(); setCancelDialog({ open: true, id: booking.id }) }}
                               disabled={cancelling === booking.id}
                               className="text-xs text-muted hover:text-ink underline-offset-2 hover:underline cursor-pointer disabled:opacity-50 disabled:no-underline"
                             >
@@ -634,11 +643,11 @@ export default function MyBookings() {
                                 ) : (
                                   <ChevronRight className="h-3.5 w-3.5 ml-0.5" />
                                 )}
-                                {paying === booking.id ? "Redirecting..." : "Pay Now"}
+                                {paying === booking.id ? "Redirecting…" : "Pay Now"}
                               </Button>
                               <button
                                 type="button"
-                                onClick={(e) => { e.stopPropagation(); setCancelDialog({ open: true, id: booking.id }) }}
+                                onClick={(e) => { e.stopPropagation(); resetCancelReason(); setCancelDialog({ open: true, id: booking.id }) }}
                                 disabled={cancelling === booking.id}
                                 className="text-xs text-muted hover:text-ink underline-offset-2 hover:underline cursor-pointer disabled:opacity-50 disabled:no-underline"
                               >
@@ -864,6 +873,16 @@ export default function MyBookings() {
                 </div>
               )}
 
+              {/* Reason for cancellation — why this booking was cancelled */}
+              {detailBooking.status.toLowerCase() === "cancelled" && detailBooking.cancellation_reason && (
+                <div className="mb-5">
+                  <h4 className="text-sm font-semibold text-ink mb-2">Reason for cancellation</h4>
+                  <div className="rounded-[10px] border border-hairline bg-gray-50 p-4 text-sm text-muted">
+                    {detailBooking.cancellation_reason}
+                  </div>
+                </div>
+              )}
+
               {/* Payment Details */}
               <div className="space-y-3 mb-5">
                 <h4 className="text-sm font-semibold text-ink">Payment Details</h4>
@@ -876,7 +895,7 @@ export default function MyBookings() {
                   <div className="flex items-center justify-between gap-3 pt-2.5 border-t border-gray-200">
                     <span className="text-sm font-semibold text-ink">Total Amount</span>
                     <span className="flex items-center justify-end gap-2">
-                      <span className="text-lg font-display font-bold" style={{ color: PRIMARY }}>
+                      <span className="tabular-nums text-lg font-display font-bold" style={{ color: PRIMARY }}>
                         ₱{detailBooking.total_price.toLocaleString()}
                       </span>
                       {(() => {
@@ -897,7 +916,7 @@ export default function MyBookings() {
                   {detailBooking.payment_mode === "downpayment" && (
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-muted">Paid online (50%)</span>
-                      <span className="text-sm font-semibold text-ink">
+                      <span className="tabular-nums text-sm font-semibold text-ink">
                         ₱{Math.max(0, detailBooking.amount_paid ?? 0).toLocaleString()}
                       </span>
                     </div>
@@ -906,7 +925,7 @@ export default function MyBookings() {
                     Math.max(0, (detailBooking.total_price ?? 0) - (detailBooking.amount_paid ?? 0)) > 0 && (
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-muted">Balance due at the hotel</span>
-                      <span className="text-sm font-semibold text-ink">
+                      <span className="tabular-nums text-sm font-semibold text-ink">
                         ₱{Math.max(0, detailBooking.total_price - (detailBooking.amount_paid ?? 0)).toLocaleString()}
                       </span>
                     </div>
@@ -953,7 +972,7 @@ export default function MyBookings() {
                     style={{ backgroundColor: PRIMARY, color: CANVAS }}
                   >
                     {paying === detailBooking.id ? <LoadingDots size="sm" className="mr-2" /> : <ChevronRight className="h-4 w-4 mr-1" />}
-                    {paying === detailBooking.id ? "Redirecting..." : "Pay Now"}
+                    {paying === detailBooking.id ? "Redirecting…" : "Pay Now"}
                   </Button>
                 )}
                 {/* Extend only makes sense once the guest is actually in the room —
@@ -979,7 +998,7 @@ export default function MyBookings() {
                   <div className="pt-3 text-center">
                     <button
                       type="button"
-                      onClick={() => { setDetailOpen(false); setCancelDialog({ open: true, id: detailBooking.id }) }}
+                      onClick={() => { resetCancelReason(); setDetailOpen(false); setCancelDialog({ open: true, id: detailBooking.id }) }}
                       disabled={cancelling === detailBooking.id}
                       className="cursor-pointer text-sm font-medium text-[#dc2626] transition-colors hover:text-[#b91c1c] hover:underline disabled:opacity-50"
                     >
@@ -1060,7 +1079,7 @@ export default function MyBookings() {
                     ) : (
                       <CreditCard className="h-4 w-4 mr-2" />
                     )}
-                    {extending === extendDialog.id ? "Redirecting..." : "Continue to Payment"}
+                    {extending === extendDialog.id ? "Redirecting…" : "Continue to Payment"}
                   </Button>
                 </>
               )
@@ -1137,22 +1156,29 @@ export default function MyBookings() {
         title="Cancel Booking?"
         description={
           <div className="text-left">
-            <p className="mb-2">Cancelling this booking follows our cancellation policy:</p>
-            <ul className="mb-3 list-disc space-y-1.5 pl-4">
-              <li>
-                <span className="font-medium text-ink">24+ hours before check-in</span> — free cancellation, full online
-                refund (7–14 banking days).
+            <p className="mb-2 font-medium text-ink">Cancellation policy</p>
+            <ul className="mb-3 space-y-1">
+              <li className="text-[13px]">
+                <span className="font-medium text-ink">24h+ before check-in</span> — full refund, 7–14 banking days.
               </li>
-              <li>
-                <span className="font-medium text-ink">Within 24 hours</span> — cancellation allowed, but the booking is
-                non-refundable.
+              <li className="text-[13px]">
+                <span className="font-medium text-ink">Within 24h or no-show</span> — no refund.
               </li>
-              <li>
-                <span className="font-medium text-ink">Already checked in</span> — cancellation unavailable, please
-                contact the front desk.
+              <li className="text-[13px]">
+                <span className="font-medium text-ink">Already checked in</span> — contact the front desk.
               </li>
             </ul>
-            <p>This action cannot be undone.</p>
+            <p className="mb-3 text-[13px] text-muted">This action cannot be undone.</p>
+            <div className="border-t border-hairline pt-3">
+              <p className="mb-2 text-[13px] font-medium text-ink">Reason for cancellation</p>
+              <CancelReasonPicker
+                selected={cancelReason}
+                otherText={cancelReasonOther}
+                error={cancelReasonError}
+                onSelect={(v) => { setCancelReason(v); setCancelReasonError(false) }}
+                onOtherChange={setCancelReasonOther}
+              />
+            </div>
           </div>
         }
         confirmLabel="Yes, Cancel"
@@ -1160,7 +1186,10 @@ export default function MyBookings() {
         variant="danger"
         loading={!!cancelling}
         onConfirm={() => {
-          if (cancelDialog.id) handleCancel(cancelDialog.id)
+          if (!cancelDialog.id) return
+          const reason = composeCancelReason(cancelReason, cancelReasonOther)
+          if (!reason) { setCancelReasonError(true); return }
+          handleCancel(cancelDialog.id, reason)
         }}
       />
 

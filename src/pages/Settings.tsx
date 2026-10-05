@@ -804,7 +804,7 @@ export default function Settings() {
                               disabled={setPwBusy || !setPw || !setPwConfirm}
                               className="!rounded-[8px] bg-primary text-primary-foreground hover:bg-primary-active"
                             >
-                              {setPwBusy ? "Setting..." : "Set password"}
+                              {setPwBusy ? "Setting…" : "Set password"}
                             </Button>
                             <Button
                               variant="ghost"
@@ -931,7 +931,7 @@ export default function Settings() {
                   className="mt-md !rounded-[8px] bg-primary text-primary-foreground hover:bg-primary-active disabled:bg-muted disabled:text-muted-foreground"
                 >
                   <Save className="h-4 w-4 mr-2" />
-                  {savingPassword ? "Saving..." : "Update Password"}
+                  {savingPassword ? "Saving…" : "Update Password"}
                 </Button>
                 </div>
                 )}
@@ -957,7 +957,7 @@ export default function Settings() {
                         onClick={() => void handleCancelDeletion()}
                         disabled={delCancelBusy}
                       >
-                        {delCancelBusy ? "Cancelling..." : "Cancel deletion"}
+                        {delCancelBusy ? "Cancelling…" : "Cancel deletion"}
                       </Button>
                     </div>
                   ) : (
@@ -1061,7 +1061,7 @@ export default function Settings() {
                               onClick={() => handleRevoke(s.id)}
                               className="!rounded-[8px] border-hairline text-ink shrink-0"
                             >
-                              {revokingId === s.id ? "..." : "Log out"}
+                              {revokingId === s.id ? "…" : "Log out"}
                             </Button>
                           )}
                         </div>
@@ -1110,6 +1110,7 @@ export default function Settings() {
                       setQsDone(false)
                     }}
                     placeholder="ABCD2345"
+                    aria-label="Device code"
                     autoComplete="off"
                     spellCheck={false}
                     maxLength={8}
@@ -1120,7 +1121,7 @@ export default function Settings() {
                     disabled={qsBusy || qsCode.length < 8}
                     className="!rounded-[12px] w-full bg-primary text-primary-foreground hover:bg-primary-active disabled:opacity-50"
                   >
-                    {qsBusy ? "Signing in device..." : "Sign in device"}
+                    {qsBusy ? "Signing in device…" : "Sign in device"}
                   </Button>
                   <Button
                     type="button"
@@ -1134,7 +1135,7 @@ export default function Settings() {
                 </div>
 
                 {/* Status */}
-                <div className="mx-auto mt-4 min-h-[20px] max-w-[28rem] text-center">
+                <div role="status" aria-live="polite" className="mx-auto mt-4 min-h-[20px] max-w-[28rem] text-center">
                   {qsError && (
                     <p className="flex items-center justify-center gap-1.5 text-xs text-red-500">
                       <CircleAlert className="h-3.5 w-3.5 shrink-0" />
@@ -1223,6 +1224,7 @@ export default function Settings() {
                 }}
                 className={settingsInputClass}
                 placeholder="Your password"
+                aria-label="Current password"
                 autoFocus
               />
               {reauthError && <p className="text-xs text-red-500">{reauthError}</p>}
@@ -1245,7 +1247,7 @@ export default function Settings() {
                   disabled={reauthBusy}
                   className="!rounded-[8px] bg-primary text-primary-foreground hover:bg-primary-active"
                 >
-                  {reauthBusy ? "Checking..." : "Continue"}
+                  {reauthBusy ? "Checking…" : "Continue"}
                 </Button>
               </div>
             </DialogContent>
@@ -1281,6 +1283,7 @@ export default function Settings() {
                 <input
                   type="password"
                   value={delPassword}
+                  aria-label="Your password"
                   onChange={(e) => setDelPassword(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") void handleDeleteSubmit()
@@ -1304,6 +1307,7 @@ export default function Settings() {
               )}
               <input
                 value={delTyped}
+                aria-label="Type DELETE to confirm"
                 onChange={(e) => setDelTyped(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") void handleDeleteSubmit()
@@ -1327,7 +1331,7 @@ export default function Settings() {
                   onClick={() => void handleDeleteSubmit()}
                   disabled={delBusy || delTyped.trim() !== "DELETE"}
                 >
-                  {delBusy ? "Deleting..." : "Delete account"}
+                  {delBusy ? "Deleting…" : "Delete account"}
                 </Button>
               </div>
             </DialogContent>

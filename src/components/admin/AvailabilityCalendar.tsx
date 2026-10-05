@@ -136,6 +136,7 @@ export default function AvailabilityCalendar() {
         <div className="flex items-center justify-between px-5 py-3 border-b border-[#e2e4e8]">
           <button
             onClick={prevMonth}
+            aria-label="Previous month"
             className="flex items-center justify-center size-8 rounded-[5px] text-[#6b7280] hover:bg-[#f5f6f8] transition-colors cursor-pointer"
           >
             <ChevronLeft className="size-4" />
@@ -143,6 +144,7 @@ export default function AvailabilityCalendar() {
           <h2 className="text-sm font-semibold text-[#1a1d26]">{monthLabel}</h2>
           <button
             onClick={nextMonth}
+            aria-label="Next month"
             className="flex items-center justify-center size-8 rounded-[5px] text-[#6b7280] hover:bg-[#f5f6f8] transition-colors cursor-pointer"
           >
             <ChevronRight className="size-4" />

@@ -99,12 +99,15 @@ export default function ForgotPassword() {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="text-xs font-medium text-muted block mb-1.5">Email</label>
+            <label htmlFor="email" className="text-xs font-medium text-muted block mb-1.5">Email</label>
             <div className="relative">
               <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted pointer-events-none" />
               <input
+                id="email"
                 type="email"
                 placeholder="you@example.com"
+                autoComplete="email"
+                spellCheck={false}
                 className="w-full pl-10 pr-4 py-2.5 rounded-[10px] border typo-body-sm text-ink placeholder:text-muted-soft bg-white transition-all duration-150 focus:outline-none"
                 style={inputStyle("email")}
                 onFocus={() => setFocused("email")}

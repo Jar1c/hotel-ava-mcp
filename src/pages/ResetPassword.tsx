@@ -151,7 +151,7 @@ export default function ResetPassword() {
       <div className="min-h-screen flex items-center justify-center bg-canvas px-4">
         <div className="flex flex-col items-center gap-3">
           <LoadingDots size="lg" className="text-primary" />
-          <p className="text-sm text-muted">Verifying reset link...</p>
+          <p className="text-sm text-muted">Verifying reset link…</p>
         </div>
       </div>
     )
@@ -196,12 +196,15 @@ export default function ResetPassword() {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="text-xs font-medium text-muted block mb-1.5">New Password</label>
+            <label htmlFor="password" className="text-xs font-medium text-muted block mb-1.5">New Password</label>
             <div className="relative">
               <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted pointer-events-none" />
               <input
+                id="password"
                 type={showPassword ? "text" : "password"}
                 placeholder="Min. 8 characters"
+                autoComplete="new-password"
+                name="new-password"
                 className="w-full pl-10 pr-11 py-2.5 rounded-[10px] border typo-body-sm text-ink placeholder:text-muted-soft bg-white transition-all duration-150 focus:outline-none"
                 style={inputStyle("password")}
                 onFocus={() => setFocused("password")}
@@ -212,6 +215,7 @@ export default function ResetPassword() {
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
+                aria-label={showPassword ? "Hide password" : "Show password"}
                 className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted hover:text-ink transition-colors"
               >
                 {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -236,12 +240,15 @@ export default function ResetPassword() {
           </div>
 
           <div>
-            <label className="text-xs font-medium text-muted block mb-1.5">Confirm Password</label>
+            <label htmlFor="confirm-password" className="text-xs font-medium text-muted block mb-1.5">Confirm Password</label>
             <div className="relative">
               <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted pointer-events-none" />
               <input
+                id="confirm-password"
                 type={showPassword ? "text" : "password"}
                 placeholder="Re-enter new password"
+                autoComplete="new-password"
+                name="confirm-password"
                 className="w-full pl-10 pr-4 py-2.5 rounded-[10px] border typo-body-sm text-ink placeholder:text-muted-soft bg-white transition-all duration-150 focus:outline-none"
                 style={inputStyle("confirm")}
                 onFocus={() => setFocused("confirm")}

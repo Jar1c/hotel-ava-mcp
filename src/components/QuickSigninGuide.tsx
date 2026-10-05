@@ -79,7 +79,8 @@ function SceneOpen() {
         <rect x="300.5" y="75.5" width="6" height="6" fill="var(--color-primary)" />
         <rect x="274" y="95" width="13" height="13" rx="1" fill="none" stroke="var(--color-primary)" strokeWidth="2.5" />
         <rect x="277.5" y="98.5" width="6" height="6" fill="var(--color-primary)" />
-        <rect x="297" y="97" width="5" height="5" fill="var(--color-ink)" fillOpacity="0.7" />
+        <rect x="297" y="95" width="13" height="13" rx="1" fill="none" stroke="var(--color-primary)" strokeWidth="2.5" />
+        <rect x="297" y="96" width="5" height="5" fill="var(--color-ink)" fillOpacity="0.7" />
         <rect x="304" y="96" width="5" height="5" fill="var(--color-ink)" fillOpacity="0.7" />
         <rect x="297" y="104" width="5" height="5" fill="var(--color-ink)" fillOpacity="0.7" />
       </g>

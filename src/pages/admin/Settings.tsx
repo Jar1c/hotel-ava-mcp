@@ -193,6 +193,7 @@ export default function Settings() {
                           value={phone}
                           onChange={(e) => setPhone(e.target.value)}
                           placeholder="Enter phone"
+                          aria-label="Phone number"
                           className="w-full pl-8 pr-3 py-1.5 rounded-[6px] border border-[#e2e4e8] text-[13px] text-[#1a1d26] bg-white focus:outline-none focus:border-[#82285f] focus:ring-1 focus:ring-[#82285f]/20 placeholder:text-[#d1d5db]"
                         />
                       </div>
@@ -230,7 +231,7 @@ export default function Settings() {
                       style={{ backgroundColor: PRIMARY }}
                     >
                       <Save className="w-3 h-3" />
-                      {saving ? "Saving..." : "Save"}
+                      {saving ? "Saving…" : "Save"}
                     </Button>
                   </div>
                 </div>
@@ -305,7 +306,7 @@ export default function Settings() {
                   style={{ backgroundColor: PRIMARY }}
                 >
                   <Lock className="w-3 h-3" />
-                  {pwSaving ? "Updating..." : "Update Password"}
+                  {pwSaving ? "Updating…" : "Update Password"}
                 </Button>
               </div>
             </form>

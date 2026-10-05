@@ -24,8 +24,12 @@ export interface Booking {
   payment_method?: string
   payment_mode?: string
   amount_paid?: number
+  /** ISO timestamp when PayMongo refunded this booking (null/absent = not refunded). */
+  refunded_at?: string | null
   /** Front-desk check-in stamp (ISO). null = the guest has not arrived yet. */
   checked_in_at?: string | null
+  /** Why the booking was cancelled — shown in the admin detail modal. */
+  cancellation_reason?: string | null
 }
 
 export interface MonthlyRevenue {
@@ -254,6 +258,11 @@ export interface AdminRoom {
   status: "available" | "occupied" | "maintenance"
   bookings: number
   revenue: number
+  /** Admin-set day-use rates; null/absent = auto pro-rata from price. */
+  day_use_3h?: number | null
+  day_use_6h?: number | null
+  day_use_8h?: number | null
+  day_use_12h?: number | null
 }
 
 export const adminRooms: AdminRoom[] = [

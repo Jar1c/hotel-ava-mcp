@@ -14,6 +14,11 @@ export interface Room {
   reviews?: number
   featured?: boolean
   bookedDates?: string[]
+  /** Admin-set day-use rates; null/absent = auto pro-rata from price. */
+  day_use_3h?: number | null
+  day_use_6h?: number | null
+  day_use_8h?: number | null
+  day_use_12h?: number | null
 }
 
 export const rooms: Room[] = [

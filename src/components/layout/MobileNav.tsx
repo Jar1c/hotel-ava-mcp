@@ -47,7 +47,7 @@ export default function MobileNav() {
 
   return (
     <>
-      <Button variant="ghost" size="icon-sm" onClick={() => setOpen(true)} className="cursor-pointer">
+      <Button variant="ghost" size="icon-sm" aria-label="Open menu" aria-expanded={open} onClick={() => setOpen(true)} className="cursor-pointer">
         <Menu className="h-5 w-5" />
       </Button>
 
@@ -71,6 +71,7 @@ export default function MobileNav() {
           </Link>
           <button
             onClick={() => setOpen(false)}
+            aria-label="Close menu"
             className="flex items-center justify-center w-8 h-8 rounded-[6px] hover:bg-[#f5f6f8] dark:hover:bg-surface-strong transition-colors text-[#6b7280] dark:text-muted cursor-pointer"
           >
             <X className="h-4 w-4" />

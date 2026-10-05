@@ -12,6 +12,10 @@ interface BookingQrProps {
   /** "Oct 4, 2020 · 2:00 PM" — rendered under the card while the booking is live. */
   checkInLabel?: string
   checkOutLabel?: string
+  /** QR edge length in px (default 188). */
+  size?: number
+  /** Hides the "Your Check-in QR" heading and the front-desk line. */
+  hideTitle?: boolean
   className?: string
 }
 
@@ -27,6 +31,8 @@ export default function BookingQr({
   inactiveMessage,
   checkInLabel,
   checkOutLabel,
+  size = 188,
+  hideTitle = false,
   className = "",
 }: BookingQrProps) {
   const canvasWrapRef = useRef<HTMLDivElement>(null)
@@ -58,28 +64,30 @@ export default function BookingQr({
 
   return (
     <div className={`rounded-[12px] border border-primary/10 bg-primary/5 p-5 text-center ${className}`}>
-      <p className="text-[15px] font-semibold text-ink">Your Check-in QR</p>
+      {!hideTitle && <p className="text-[15px] font-semibold text-ink">Your Check-in QR</p>}
 
-      <div className="mt-4 inline-flex rounded-[10px] border border-hairline bg-white p-2.5">
+      <div className={`inline-flex rounded-[10px] border border-hairline bg-white p-2.5 ${hideTitle ? "" : "mt-4"}`}>
         <QRCodeSVG
           value={value}
-          size={188}
+          size={size}
           level="H"
-          imageSettings={qrLogoSettings(188)}
+          imageSettings={qrLogoSettings(size)}
           className={inactive ? "opacity-40 grayscale" : undefined}
         />
       </div>
 
-      <div className="mt-4 space-y-1.5">
-        {inactive ? (
-          <p className="text-sm text-ink/70">{inactiveMessage}</p>
-        ) : (
-          <>
-            {validFrom && <p className="text-sm font-semibold text-ink">{validFrom}</p>}
-            <p className="text-sm text-ink/70">Show this at the front desk</p>
-          </>
-        )}
-      </div>
+      {(!hideTitle || validFrom || inactive) && (
+        <div className="mt-4 space-y-1.5">
+          {inactive ? (
+            <p className="text-sm text-ink/70">{inactiveMessage}</p>
+          ) : (
+            <>
+              {validFrom && <p className="text-sm font-semibold text-ink">{validFrom}</p>}
+              {!hideTitle && <p className="text-sm text-ink/70">Show this at the front desk</p>}
+            </>
+          )}
+        </div>
+      )}
 
       <div className="mt-3 flex items-center justify-center gap-1.5">
         <span className="font-mono text-sm font-bold text-ink select-all">#{reference}</span>

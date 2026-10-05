@@ -269,12 +269,14 @@ export default function Register() {
             {/* First Name & Last Name */}
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs font-medium text-muted block mb-1.5">First Name</label>
+                <label htmlFor="firstName" className="text-xs font-medium text-muted block mb-1.5">First Name</label>
                 <div className="relative">
                   <User className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted pointer-events-none" />
                   <input
+                    id="firstName"
                     type="text"
                     name="firstName"
+                    autoComplete="given-name"
                     placeholder="Juan"
                     className={inputClass("firstName")}
                     style={inputStyle("firstName")}
@@ -290,12 +292,14 @@ export default function Register() {
                 )}
               </div>
               <div>
-                <label className="text-xs font-medium text-muted block mb-1.5">Last Name</label>
+                <label htmlFor="lastName" className="text-xs font-medium text-muted block mb-1.5">Last Name</label>
                 <div className="relative">
                   <User className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted pointer-events-none" />
                   <input
+                    id="lastName"
                     type="text"
                     name="lastName"
+                    autoComplete="family-name"
                     placeholder="Dela Cruz"
                     className={inputClass("lastName")}
                     style={inputStyle("lastName")}
@@ -314,12 +318,15 @@ export default function Register() {
 
             {/* Email */}
             <div>
-              <label className="text-xs font-medium text-muted block mb-1.5">Email</label>
+              <label htmlFor="email" className="text-xs font-medium text-muted block mb-1.5">Email</label>
               <div className="relative">
                 <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted pointer-events-none" />
                 <input
+                  id="email"
                   type="email"
                   name="email"
+                  autoComplete="email"
+                  spellCheck={false}
                   placeholder="you@example.com"
                   className={inputClass("email")}
                   style={inputStyle("email")}
@@ -333,12 +340,14 @@ export default function Register() {
 
             {/* Password */}
             <div>
-              <label className="text-xs font-medium text-muted block mb-1.5">Password</label>
+              <label htmlFor="password" className="text-xs font-medium text-muted block mb-1.5">Password</label>
               <div className="relative">
                 <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted pointer-events-none" />
                 <input
+                  id="password"
                   type={showPassword ? "text" : "password"}
                   name="password"
+                  autoComplete="new-password"
                   placeholder="Min. 8 characters"
                   className={`${inputClass("password")} pr-11`}
                   style={inputStyle("password")}
@@ -350,6 +359,7 @@ export default function Register() {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
                   className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted hover:text-ink transition-colors"
                 >
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}

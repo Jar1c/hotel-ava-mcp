@@ -76,6 +76,12 @@ export default function RootLayout() {
 
   return (
     <div className="min-h-screen bg-canvas flex flex-col">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[10000] focus:bg-primary focus:text-white focus:px-4 focus:py-2 focus:rounded-[6px] focus:text-sm focus:font-semibold"
+      >
+        Skip to main content
+      </a>
       {!isAuthPage && <Header />}
       {!isAuthPage && isAuthenticated && user?.scheduled_deletion_at && (
         <div className="bg-red-50 border-b border-red-200 dark:bg-red-500/10 dark:border-red-500/30">
@@ -91,12 +97,12 @@ export default function RootLayout() {
               disabled={cancelBusy}
               className="shrink-0 font-semibold underline hover:no-underline disabled:opacity-60"
             >
-              {cancelBusy ? "Cancelling..." : "Cancel deletion"}
+              {cancelBusy ? "Cancelling…" : "Cancel deletion"}
             </button>
           </div>
         </div>
       )}
-      <main className={`flex-1 mx-auto w-full${isAuthPage ? "" : " max-w-container"} pb-16 md:pb-0`}>
+      <main id="main-content" tabIndex={-1} className={`flex-1 mx-auto w-full${isAuthPage ? "" : " max-w-container"} pb-16 md:pb-0`}>
         <Outlet />
       </main>
       {!isAuthPage && <Footer />}

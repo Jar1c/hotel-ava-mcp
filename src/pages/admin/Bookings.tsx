@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
+import { useSearchParams } from "react-router"
 import { QrCode } from "lucide-react"
 import BookingsTable from "@/components/admin/BookingsTable"
 import VerifyQrDialog from "@/components/admin/VerifyQrDialog"
@@ -16,6 +17,13 @@ export default function Bookings() {
   const [error, setError] = useState<string | null>(null)
   const [expired, setExpired] = useState(false)
   const { unreadBookingCount, markBookingNotificationsRead } = useNotifications()
+
+  // Dashboard cards deep-link here: ?view=arrivals|overdue|… or ?status=in-house
+  const [searchParams] = useSearchParams()
+  const initialFilter = useMemo(
+    () => searchParams.get("view") ?? searchParams.get("status") ?? "all",
+    [searchParams],
+  )
 
   const fetchBookings = useCallback((force = false) => {
     setLoading(true)
@@ -117,7 +125,7 @@ export default function Bookings() {
           </div>
         </div>
       ) : (
-        <BookingsTable bookings={bookings} loading={loading} onStatusChange={refetchAfterChange} />
+        <BookingsTable bookings={bookings} loading={loading} onStatusChange={refetchAfterChange} initialFilter={initialFilter} />
       )}
 
       <VerifyQrDialog open={verifyOpen} onOpenChange={setVerifyOpen} />

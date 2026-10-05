@@ -277,6 +277,22 @@ def stay_end_moment(b):
     return out + timedelta(days=1), 0
 
 
+def scheduled_checkout_moment(b):
+    """(date, minutes) the guest is DUE to leave, in hotel time.
+
+    Day-use stays end when their duration runs out; overnight stays end at
+    noon on the checkout date (DEFAULT_CHECK_OUT_TIME). Departures/overdue on
+    the dashboard use this clock — stay_end_moment is the auto-complete clock
+    (midnight after checkout) and must not drift with it.
+    """
+    if stay_type_of(b) == "day":
+        return stay_end_moment(b)
+    out = _as_date(b.get("check_out"))
+    if out is None:
+        return None, 0
+    return out, parse_clock(DEFAULT_CHECK_OUT_TIME, 12 * 60) or (12 * 60)
+
+
 def arrival_state(b, now=None):
     """none | early | in_house | ended — derived, never stored."""
     if (b.get("status") or "") in ("cancelled", "completed", "checked-out"):
@@ -2642,6 +2658,10 @@ def get_public_rooms():
                 "images": r.get("images") or [],
                 "rating": summary.get("rating"),
                 "reviews": summary.get("reviews", 0),
+                "day_use_3h": r.get("day_use_3h"),
+                "day_use_6h": r.get("day_use_6h"),
+                "day_use_8h": r.get("day_use_8h"),
+                "day_use_12h": r.get("day_use_12h"),
             })
 
         return jsonify(result), 200
@@ -2674,6 +2694,10 @@ def get_public_room(room_id):
             "images": r.get("images") or [],
             "rating": summary.get("rating"),
             "reviews": summary.get("reviews", 0),
+            "day_use_3h": r.get("day_use_3h"),
+            "day_use_6h": r.get("day_use_6h"),
+            "day_use_8h": r.get("day_use_8h"),
+            "day_use_12h": r.get("day_use_12h"),
         }), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -2732,11 +2756,39 @@ def get_rooms():
                 "status": status,
                 "bookings": stats["count"],
                 "revenue": stats["revenue"],
+                "day_use_3h": r.get("day_use_3h"),
+                "day_use_6h": r.get("day_use_6h"),
+                "day_use_8h": r.get("day_use_8h"),
+                "day_use_12h": r.get("day_use_12h"),
             })
 
         return jsonify(result), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+DAY_USE_KEYS = ("day_use_3h", "day_use_6h", "day_use_8h", "day_use_12h")
+
+
+def _room_day_payload(data):
+    """Day-use rates from the request — blank/absent becomes NULL (auto pro-rata)."""
+    out = {}
+    for k in DAY_USE_KEYS:
+        v = data.get(k)
+        out[k] = None if v in ("", None) else int(v)
+    return out
+
+
+def _execute_room_write(op, room_data):
+    """Run a rooms insert/update; retry without day-use columns if the
+    migrate-day-use-prices.sql migration hasn't run yet (PGRST column error)."""
+    try:
+        return op(room_data).execute()
+    except Exception as e:
+        if "day_use" not in str(e).lower():
+            raise
+        stripped = {k: v for k, v in room_data.items() if k not in DAY_USE_KEYS}
+        return op(stripped).execute()
 
 
 @app.route("/api/rooms", methods=["POST"])
@@ -2760,10 +2812,12 @@ def add_room():
             "images": data.get("images", []),
             "description": data.get("description", ""),
             "available": data.get("status") != "maintenance",
+            **_room_day_payload(data),
         }
         # Re-set auth after require_admin query (it may reset session context)
         set_auth(token)
-        res = supabase.table("rooms").insert(room_data).execute()
+        res = _execute_room_write(
+            lambda rd: supabase.table("rooms").insert(rd), room_data)
         r = res.data[0]
 
         return jsonify({
@@ -2781,6 +2835,10 @@ def add_room():
             "status": "available" if r["available"] else "maintenance",
             "bookings": 0,
             "revenue": 0,
+            "day_use_3h": r.get("day_use_3h"),
+            "day_use_6h": r.get("day_use_6h"),
+            "day_use_8h": r.get("day_use_8h"),
+            "day_use_12h": r.get("day_use_12h"),
         }), 201
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -2807,10 +2865,12 @@ def update_room(room_id):
             "images": data.get("images", []),
             "description": data.get("description", ""),
             "available": data.get("status") != "maintenance",
+            **_room_day_payload(data),
         }
         # Re-set auth after require_admin query
         set_auth(token)
-        res = supabase.table("rooms").update(room_data).eq("id", room_id).execute()
+        res = _execute_room_write(
+            lambda rd: supabase.table("rooms").update(rd).eq("id", room_id), room_data)
         r = res.data[0]
 
         # Fetch booking stats
@@ -2843,6 +2903,10 @@ def update_room(room_id):
             "status": status,
             "bookings": count,
             "revenue": revenue,
+            "day_use_3h": r.get("day_use_3h"),
+            "day_use_6h": r.get("day_use_6h"),
+            "day_use_8h": r.get("day_use_8h"),
+            "day_use_12h": r.get("day_use_12h"),
         }), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -3501,7 +3565,17 @@ def _compute_booking_total(room, stay_type, duration, check_in, check_out) -> in
 
     if stay_type == "day":
         hours = int(duration or 0)
-        subtotal = max(1, int(eff * (hours / 24) + 0.5))  # JS Math.round(price * (hours/24))
+        day_base = room.get(f"day_use_{hours}h")
+        if day_base not in (None, ""):
+            # Admin-set day rate; offers/holiday discounts apply at the same
+            # ratio the overnight rate carries (eff ÷ full price).
+            base = int(day_base)
+            price_full = int(room.get("price") or 0)
+            if price_full > 0 and eff != price_full:
+                base = int(base * (eff / price_full) + 0.5)  # JS Math.round
+            subtotal = max(1, base)
+        else:
+            subtotal = max(1, int(eff * (hours / 24) + 0.5))  # JS Math.round(price * (hours/24))
     else:
         try:
             nights = (datetime.strptime(check_out, "%Y-%m-%d")
@@ -3811,6 +3885,7 @@ def get_my_bookings():
                 "checked_in_at": b.get("checked_in_at"), "refunded_at": b.get("refunded_at"),
                 "arrival_state": arrival_state(b),
                 "created_at": b["created_at"],
+                "cancellation_reason": b.get("cancellation_reason"),
                 "stay_type": b.get("stay_type", "overnight"),
                 "stays": b.get("stays", "24 Hours"),
                 "duration": b.get("duration"),
@@ -3862,6 +3937,29 @@ def get_booking(booking_id):
         except Exception:
             end_time = None
 
+        paid_amount = float(b.get("amount_paid") or 0)
+        total_price = float(b.get("total_price") or 0)
+        if b.get("refunded_at"):
+            payment_status = "refunded"
+        elif total_price <= 0 or paid_amount >= total_price:
+            payment_status = "paid"
+        elif paid_amount > 0:
+            payment_status = "partial"
+        else:
+            payment_status = "unpaid"
+        # QR payload only for a confirmed, actually-paid booking
+        qr_data = b["id"] if (b.get("status") == "confirmed" and paid_amount > 0) else None
+
+        # Historical rows stored the whole PayMongo PI resource as JSON —
+        # expose only its id ("pi_...") for the payment-reference row.
+        pi_raw = b.get("payment_intent") or ""
+        payment_intent = pi_raw
+        if pi_raw.startswith("{"):
+            try:
+                payment_intent = json.loads(pi_raw).get("id") or ""
+            except Exception:
+                payment_intent = ""
+
         return jsonify({
             "id": b["id"],
             "room_name": room.get("name", "Unknown"),
@@ -3876,6 +3974,7 @@ def get_booking(booking_id):
             "pets": b.get("pets"),
             "total_price": b["total_price"],
             "status": b["status"],
+            "cancellation_reason": b.get("cancellation_reason"),
             "full_name": b.get("full_name", ""),
             "email": b.get("email", ""),
             "phone": b.get("phone", ""),
@@ -3891,6 +3990,9 @@ def get_booking(booking_id):
             "duration": b.get("duration"),
             "start_time": b.get("start_time"),
             "end_time": end_time,
+            "payment_intent": payment_intent,
+            "payment_status": payment_status,
+            "qr_data": qr_data,
         }), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -3948,7 +4050,6 @@ def verify_booking(booking_code):
             "id": b["id"],
             "reference": (b["id"] or "")[:8].upper(),
             "status": b.get("status") or "",
-            "guest_name": b.get("full_name") or "",
             "room_name": room.get("name", "Unknown"),
             "room_type": room.get("type", ""),
             "check_in": b.get("check_in"),
@@ -3957,8 +4058,6 @@ def verify_booking(booking_code):
             "start_time": b.get("start_time"),
             "duration": b.get("duration"),
             "guests": b.get("guests", 1),
-            "email": b.get("email") or "",
-            "phone": b.get("phone") or "",
             "total_price": b.get("total_price") or 0,
             "payment_method": b.get("payment_method") or "",
             "payment_mode": b.get("payment_mode") or "full",
@@ -3969,6 +4068,24 @@ def verify_booking(booking_code):
         }), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+def _update_booking_fields(build, fields):
+    """Persist a booking update through `build(fields)`; when an optional column
+    doesn't exist yet (refunded_at / cancellation_reason migrations), drop it
+    from the payload and retry so the cancellation itself never fails."""
+    while True:
+        try:
+            return build(fields).execute()
+        except Exception as e:
+            msg = str(e)
+            dropped = False
+            for col in ("amount_paid", "refunded_at", "refund_id", "cancellation_reason"):
+                if col in msg and col in fields:
+                    fields.pop(col, None)
+                    dropped = True
+            if not dropped:
+                raise
 
 
 @app.route("/api/bookings/<booking_id>/cancel", methods=["POST"])
@@ -4011,21 +4128,18 @@ def cancel_booking(booking_id):
             else:
                 refund_detail = "cancelled within 24 hours of check-in"
 
+        data = request.get_json(silent=True) or {}
+        reason = str(data.get("reason") or "").strip()[:300]
+
         fields = {"status": "cancelled"}
+        if reason:
+            fields["cancellation_reason"] = reason
         if refund_ok:
             fields["amount_paid"] = 0
             fields["refunded_at"] = hotel_now().isoformat()
             fields["refund_id"] = refund_detail
-        try:
-            supabase_admin.table("bookings").update(fields).eq("id", booking_id).execute()
-        except Exception as ue:
-            # refunded_at / refund_id need migrate-refund.sql — keep the
-            # cancellation itself working either way.
-            for col in ("amount_paid", "refunded_at", "refund_id"):
-                if col in str(ue):
-                    fields.pop(col, None)
-            if fields:
-                supabase_admin.table("bookings").update(fields).eq("id", booking_id).execute()
+        _update_booking_fields(
+            lambda f: supabase_admin.table("bookings").update(f).eq("id", booking_id), fields)
 
         invalidate_cache("bookings")
 
@@ -4483,6 +4597,7 @@ def get_bookings():
                 "amount_paid": b.get("amount_paid", 0),
                 "checked_in_at": b.get("checked_in_at"), "refunded_at": b.get("refunded_at"),
                 "arrival_state": arrival_state(b),
+                "cancellation_reason": b.get("cancellation_reason"),
             })
 
         return jsonify(result), 200
@@ -4492,7 +4607,9 @@ def get_bookings():
 
 @app.route("/api/bookings/auto-complete", methods=["POST"])
 def auto_complete_bookings():
-    """Auto-complete confirmed bookings past their end, and auto-cancel unpaid bookings past their date.
+    """Auto-complete NO-SHOW confirmed bookings past their end, and auto-cancel
+    unpaid bookings past their date. Checked-in guests are skipped — they are
+    closed only by an explicit checkout (PUT /api/bookings/<id>/status).
 
     The clock is Asia/Manila: start/end times are stored as the guest's local
     wall-clock ("10:00 AM", "2:00 PM"), so judging them against UTC would close
@@ -4526,6 +4643,11 @@ def auto_complete_bookings():
 
         completed_ids = []
         for b in confirmed:
+            # A guest who actually checked in is NEVER auto-closed — the stay
+            # stays confirmed (in-house / overdue on the dashboard) until an
+            # explicit checkout via PUT /status (which sends the review request).
+            if b.get("checked_in_at"):
+                continue
             if not stay_has_ended(b):
                 continue
 
@@ -4547,7 +4669,10 @@ def auto_complete_bookings():
         for b in pending:
             check_in = b.get("check_in", "")
             if check_in and check_in < today_s:
-                result = supabase_admin.table("bookings").update({"status": "cancelled"}).eq("id", b["id"]).eq("status", "pending").execute()
+                result = _update_booking_fields(
+                    lambda f: supabase_admin.table("bookings").update(f).eq("id", b["id"]).eq("status", "pending"),
+                    {"status": "cancelled",
+                     "cancellation_reason": "Auto-cancelled — payment not received"})
                 if result.data:
                     cancelled_ids.append(b["id"])
                     create_notification(b["user_id"], "booking", "Booking Expired",
@@ -4578,6 +4703,7 @@ def update_booking_status(booking_id):
 
     data = request.get_json()
     new_status = data.get("status")
+    reason = str(data.get("reason") or "").strip()[:300]
     valid_statuses = ["pending", "confirmed", "cancelled", "completed", "checked-out"]
     if new_status not in valid_statuses:
         return jsonify({"error": f"Invalid status. Must be one of: {', '.join(valid_statuses)}"}), 400
@@ -4598,8 +4724,12 @@ def update_booking_status(booking_id):
             if room_res.data:
                 room_name = room_res.data[0]["name"]
 
-        # Update status
-        result = supabase_admin.table("bookings").update({"status": new_status}).eq("id", booking_id).execute()
+        # Update status — a cancellation can carry the canceller's reason.
+        fields = {"status": new_status}
+        if new_status == "cancelled" and reason:
+            fields["cancellation_reason"] = reason
+        result = _update_booking_fields(
+            lambda f: supabase_admin.table("bookings").update(f).eq("id", booking_id), fields)
 
         if not result.data:
             return jsonify({"error": "Failed to update booking"}), 500
@@ -4613,7 +4743,9 @@ def update_booking_status(booking_id):
         if booking_user_id:
             status_messages = {
                 "confirmed": ("Booking Confirmed", f"Your booking for {room_name} on {b.get('check_in', '')} is confirmed!"),
-                "cancelled": ("Booking Cancelled", f"Your booking for {room_name} has been cancelled."),
+                "cancelled": ("Booking Cancelled",
+                    f"Your booking for {room_name} has been cancelled."
+                    + (f" Reason: {reason}" if reason else "")),
                 "completed": ("Stay Completed", f"Your stay at {room_name} has been marked as completed. We hope to see you again!"),
                 "checked-out": ("Checked Out", f"You have been checked out from {room_name}. Thank you for staying with us!"),
             }
@@ -5306,6 +5438,205 @@ def _build_dashboard_stats():
     }
 
 
+# �"?�"? Admin Dashboard Summary (exact counts, Asia/Manila) �"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?
+
+@app.route("/api/admin/dashboard-summary", methods=["GET"])
+def admin_dashboard_summary():
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    user_id = require_admin(token)
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+    set_auth(token)
+
+    try:
+        payload = cached_json("dash-summary", _build_dashboard_summary, ttl=30)
+        return jsonify(payload), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+def _exact_count(query) -> int:
+    """PostgREST count=exact — never truncated by the 1000-row data cap."""
+    return query.execute().count or 0
+
+
+def _build_dashboard_summary():
+    now = hotel_now()
+    today = now.date()
+    tomorrow = today + timedelta(days=1)
+    today_s, tomorrow_s = today.isoformat(), tomorrow.isoformat()
+    month_start = today.replace(day=1)
+    next_month = (month_start + timedelta(days=32)).replace(day=1)
+
+    # Unpaid = awaiting payment + confirmed downpayments with a balance left.
+    pending_unpaid = _exact_count(
+        supabase.table("bookings").select("id", count="exact").eq("status", "pending")
+    )
+    downpayment_rows = supabase.table("bookings").select("total_price, amount_paid") \
+        .eq("payment_mode", "downpayment").eq("status", "confirmed").execute().data or []
+    for r in downpayment_rows:
+        if (r.get("amount_paid") or 0) < (r.get("total_price") or 0):
+            pending_unpaid += 1
+
+    # Extension awaiting PayMongo confirm — marker survives until /extend/confirm.
+    pending_extend = _exact_count(
+        supabase.table("bookings").select("id", count="exact").like("payment_method", "extend:%")
+    )
+
+    pending_refunds = 0
+    pending_refunds_amount = 0.0
+    try:
+        refund_rows = supabase.table("bookings").select("id, amount_paid") \
+            .eq("status", "cancelled").gt("amount_paid", 0).is_("refunded_at", "null") \
+            .range(0, 999).execute().data or []
+    except Exception:
+        # migrate-refund.sql not run yet — refunded bookings carry amount_paid=0.
+        refund_rows = supabase.table("bookings").select("id, amount_paid") \
+            .eq("status", "cancelled").gt("amount_paid", 0) \
+            .range(0, 999).execute().data or []
+    pending_refunds = len(refund_rows)
+    pending_refunds_amount = sum(r.get("amount_paid") or 0 for r in refund_rows)
+
+    # Checked-in guests only (confirmed + stamp). In-house = started or past
+    # scheduled end (overdue is a subset); departures/overdue split on the
+    # scheduled checkout clock and are disjoint: due-today vs already passed.
+    in_house = departures_today = overdue = 0
+    candidates = supabase.table("bookings").select("*") \
+        .eq("status", "confirmed").filter("checked_in_at", "not.is", "null").execute().data or []
+    for b in candidates:
+        state = arrival_state(b, now)
+        if state in ("in_house", "ended"):
+            in_house += 1
+        end_day, end_minutes = scheduled_checkout_moment(b)
+        if end_day is None:
+            continue
+        passed = now.date() > end_day or (
+            now.date() == end_day and now.hour * 60 + now.minute >= end_minutes)
+        if passed:
+            overdue += 1
+        elif end_day == today:
+            departures_today += 1
+
+    total_rooms = sum(1 for r in (
+        supabase.table("rooms").select("id, available").execute().data or []
+    ) if r.get("available") is not False)
+    occupancy_rate = round(in_house / total_rooms * 100) if total_rooms else 0
+
+    # Arrivals = confirmed + paid + check-in today, still awaiting the guest
+    # (arrival_state none/early). "late" flags a passed arrival time with no
+    # check-in stamp yet — the list renders a small gray "Late" label.
+    arrival_rows = supabase.table("bookings") \
+        .select("id, full_name, user_id, room_id, start_time, check_in, check_out, "
+                "status, checked_in_at, stay_type, duration, amount_paid") \
+        .eq("status", "confirmed").gt("amount_paid", 0) \
+        .gte("check_in", today_s).lt("check_in", tomorrow_s) \
+        .order("check_in").limit(200).execute().data or []
+    arr_uids = list({r.get("user_id") for r in arrival_rows if r.get("user_id")})
+    arr_rids = list({r.get("room_id") for r in arrival_rows if r.get("room_id")})
+    arr_users = {u["id"]: u for u in (
+        supabase.table("users").select("id, name").in_("id", arr_uids).execute().data or []
+    )} if arr_uids else {}
+    arr_rooms = {r["id"]: r for r in (
+        supabase.table("rooms").select("id, name").in_("id", arr_rids).execute().data or []
+    )} if arr_rids else {}
+    arrivals_list = []
+    for r in arrival_rows:
+        if arrival_state(r, now) not in ("none", "early"):
+            continue
+        uid = r.get("user_id")
+        name = r.get("full_name") or (arr_users.get(uid) or {}).get("name") \
+            or ("Former Guest" if not uid else "Unknown")
+        start_day, start_minutes = check_in_moment(r)
+        late = not r.get("checked_in_at") and start_day is not None and (
+            now.date() > start_day or (now.date() == start_day and now.hour * 60 + now.minute >= start_minutes))
+        arrivals_list.append({
+            "id": r["id"],
+            "guestName": name,
+            "roomName": (arr_rooms.get(r.get("room_id")) or {}).get("name", "Room"),
+            "time": r.get("start_time") or "Today",
+            "late": late,
+        })
+    arrivals_today = len(arrivals_list)
+
+    # Monthly revenue = amount_paid on NON-cancelled stays starting this month.
+    # Cancelled money lives under "Refunds to process" instead — no refund-side
+    # subtraction. Paginated so >1000 rows stay exact.
+    def _sum_paid(make_query):
+        total, page = 0, 0
+        while page <= 50:
+            rows = make_query().range(page * 1000, page * 1000 + 999).execute().data or []
+            total += sum(r.get("amount_paid") or 0 for r in rows)
+            if len(rows) < 1000:
+                return total
+            page += 1
+        return total
+
+    def _paid_stay_sum(start_dt, end_dt):
+        return _sum_paid(
+            lambda: supabase.table("bookings").select("amount_paid")
+            .neq("status", "cancelled")
+            .gte("check_in", start_dt.isoformat()).lt("check_in", end_dt.isoformat())
+        )
+
+    monthly_revenue = _paid_stay_sum(month_start, next_month)
+
+    # Delta compares month-to-date against the SAME days of last month
+    # (Oct 1-5 vs Sep 1-5) — hidden by the frontend when prev = 0.
+    prev_start = (month_start - timedelta(days=1)).replace(day=1)
+    month_to_date_revenue = _paid_stay_sum(month_start, tomorrow)
+    prev_same_days_revenue = _paid_stay_sum(
+        prev_start, prev_start + timedelta(days=(today - month_start).days + 1))
+
+    # 30-day paid-revenue line: non-cancelled amount_paid bucketed by stay
+    # start (Manila day) — same rule as monthly revenue. Missing days = 0.
+    series_start = today - timedelta(days=29)
+    series_map = {}
+    page = 0
+    while page <= 50:
+        batch = supabase.table("bookings").select("amount_paid, check_in") \
+            .neq("status", "cancelled") \
+            .gte("check_in", series_start.isoformat()).lt("check_in", tomorrow_s) \
+            .range(page * 1000, page * 1000 + 999).execute().data or []
+        for r in batch:
+            day = (r.get("check_in") or "")[:10]
+            series_map[day] = series_map.get(day, 0) + (r.get("amount_paid") or 0)
+        if len(batch) < 1000:
+            break
+        page += 1
+
+    revenue_series = [
+        {"date": (series_start + timedelta(days=i)).isoformat(),
+         "amount": round(series_map.get((series_start + timedelta(days=i)).isoformat(), 0), 2)}
+        for i in range(30)
+    ]
+
+    last_day = next_month - timedelta(days=1)
+    period_label = (f"{month_start.strftime('%b')} {month_start.day} to "
+                    f"{last_day.strftime('%b')} {last_day.day}, {last_day.year}")
+    # "5:22 PM" — %I is zero-padded on Windows, strip it by hand.
+    updated_at = f"{now:%I:%M %p}".lstrip("0")
+
+    return {
+        "arrivalsToday": arrivals_today,
+        "departuresToday": departures_today,
+        "inHouse": in_house,
+        "overdueCheckouts": overdue,
+        "pendingUnpaid": pending_unpaid,
+        "pendingExtendRequests": pending_extend,
+        "pendingRefunds": pending_refunds,
+        "pendingRefundsAmount": round(pending_refunds_amount, 2),
+        "monthlyRevenue": monthly_revenue,
+        "occupancyRate": occupancy_rate,
+        "periodLabel": period_label,
+        "updatedAt": updated_at,
+        "totalRooms": total_rooms,
+        "monthToDateRevenue": month_to_date_revenue,
+        "prevMonthSameDaysRevenue": prev_same_days_revenue,
+        "arrivals": arrivals_list,
+        "revenueSeries": revenue_series,
+    }
+
+
 @app.route("/api/dashboard/monthly-revenue", methods=["GET"])
 def get_monthly_revenue():
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
@@ -5816,7 +6147,10 @@ def paymongo_webhook():
                 if booking_res.data:
                     b = booking_res.data[0]
                     if b["status"] != "cancelled":
-                        supabase_admin.table("bookings").update({"status": "cancelled"}).eq("id", booking_id).execute()
+                        _update_booking_fields(
+                            lambda f: supabase_admin.table("bookings").update(f).eq("id", booking_id),
+                            {"status": "cancelled",
+                             "cancellation_reason": "Auto-cancelled — payment failed"})
                         room_name = "your room"
                         if b.get("room_id"):
                             rr = supabase_admin.table("rooms").select("name").eq("id", b["room_id"]).execute()
@@ -5949,6 +6283,17 @@ def confirm_booking_after_payment(booking_id):
         if b["status"] == "confirmed":
             return jsonify({"booking_id": booking_id, "status": "confirmed"}), 200
 
+        # Server-side verification: a checkout booking flips to confirmed only
+        # when PayMongo itself says the money landed. Unpaid → stay pending and
+        # let the confirmation page keep polling. Idempotent: repeat/concurrent
+        # calls either early-return here or lose the .eq("status","pending")
+        # update below, so the notification fires at most once.
+        if pm.startswith("awaiting:"):
+            sid = pm.split(":", 1)[1]
+            paid, _method = session_payment_info(fetch_paymongo_session(sid))
+            if not paid:
+                return jsonify({"booking_id": booking_id, "status": "pending"}), 200
+
         # Update booking status to confirmed + record what was collected online
         update = {"status": "confirmed"}
         if float(b.get("amount_paid") or 0) <= 0:
@@ -6001,7 +6346,10 @@ def report_payment_failed(booking_id):
         if b["status"] in ("cancelled", "confirmed"):
             return jsonify({"booking_id": booking_id, "status": b["status"]}), 200
 
-        supabase_admin.table("bookings").update({"status": "cancelled"}).eq("id", booking_id).execute()
+        _update_booking_fields(
+            lambda f: supabase_admin.table("bookings").update(f).eq("id", booking_id),
+            {"status": "cancelled",
+             "cancellation_reason": "Auto-cancelled — payment failed"})
 
         room_name = "your room"
         if b.get("room_id"):
@@ -6045,6 +6393,8 @@ def _ai_reco_fallback():
         "activeDiscounts": 0,
         "bestDiscountPeriod": None,
         "confidence": 0,
+        "bookingsAnalyzed": 0,
+        "forecastBookings": 0,
         "recommendations": [
             {"id": "AI-1", "title": "Occupancy Forecast", "description": "Unable to compute predictions right now.", "priority": "medium", "action": "Try again in a moment."},
             {"id": "AI-2", "title": "Revenue Projection", "description": "Unable to compute projections right now.", "priority": "medium", "action": "Try again in a moment."},
@@ -6058,10 +6408,13 @@ def _build_ai_recommendations():
 
     rooms = supabase.table("rooms").select("id, type, price").execute().data or []
     # Cancelled bookings must not inflate forecasts (parity with the other
-    # analytics builders).
-    bookings = supabase.table("bookings").select(
-        "room_id, check_in, check_out, status, total_price"
-    ).neq("status", "cancelled").execute().data or []
+    # analytics builders). count=exact — the row fetch caps at 1000 but the
+    # reported sample size must not.
+    bookings_res = supabase.table("bookings").select(
+        "room_id, check_in, check_out, status, total_price", count="exact"
+    ).neq("status", "cancelled").execute()
+    bookings = bookings_res.data or []
+    bookings_analyzed = bookings_res.count if bookings_res.count is not None else len(bookings)
 
     if not rooms:
         return {
@@ -6072,6 +6425,8 @@ def _build_ai_recommendations():
             "activeDiscounts": 0,
             "bestDiscountPeriod": None,
             "confidence": 0,
+            "bookingsAnalyzed": bookings_analyzed,
+            "forecastBookings": 0,
             "recommendations": [
                 {"id": "AI-1", "title": "Occupancy Forecast", "description": "No room data available yet.", "priority": "medium", "action": "Add rooms to start generating insights."},
                 {"id": "AI-2", "title": "Revenue Projection", "description": "No bookings to project from yet.", "priority": "medium", "action": "Monitor performance."},
@@ -6086,8 +6441,9 @@ def _build_ai_recommendations():
 
     # ── Real rolling 30-day forecast straight from actual bookings ──
     # upcoming window: today .. +30d, compared against the 30d before today.
+    # Clock is Asia/Manila — datetime.now() would drift on a UTC server.
     total_rooms = max(len(rooms), 1)
-    today = datetime.now().date()
+    today = hotel_now().date()
     window_end = today + timedelta(days=30)
     prev_start = today - timedelta(days=30)
     capacity = total_rooms * 30
@@ -6130,8 +6486,10 @@ def _build_ai_recommendations():
     # Only real low-demand segments (not the "stable demand" fallback insight).
     if insights and insights[0].get("method") == "kmeans+gradient_boosting" and (insights[0].get("discountPercent") or 0) > 0:
         first = insights[0]
-        affected = ", ".join(first.get("affectedRooms") or []) or "all rooms"
-        best_period = f"{first.get('period', 'Upcoming period')}: {first['discountPercent']}% off {affected}"
+        affected_n = len(first.get("affectedRooms") or [])
+        scope = f"{affected_n} room types" if affected_n else "all room types"
+        window = (first.get("period") or "Upcoming period").replace("–", " to ")
+        best_period = f"{first['discountPercent']}% off on {scope}, {window}"
 
     confidence = min(95, 60 + len(bookings) // 2)
 
@@ -6167,6 +6525,10 @@ def _build_ai_recommendations():
         "activeDiscounts": len(live_offers),
         "bestDiscountPeriod": best_period,
         "confidence": confidence,
+        "bookingsAnalyzed": bookings_analyzed,
+        # Bookings touching the next-30-day window — thin samples produce the
+        # wild -99% / 1% forecasts the dashboard hides.
+        "forecastBookings": up_count,
         "recommendations": recommendations,
     }
 

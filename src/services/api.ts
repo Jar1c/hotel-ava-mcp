@@ -396,6 +396,11 @@ export interface PublicRoomData {
   /** Live average from guest reviews — null when the room has none yet */
   rating?: number | null
   reviews?: number
+  /** Admin-set day-use rates; null = auto pro-rata from the nightly price. */
+  day_use_3h?: number | null
+  day_use_6h?: number | null
+  day_use_8h?: number | null
+  day_use_12h?: number | null
 }
 
 export const publicRoomsApi = {
@@ -466,6 +471,11 @@ export interface RoomData {
   status: "available" | "occupied" | "maintenance"
   bookings: number
   revenue: number
+  /** Admin-set day-use rates; null = auto pro-rata from the nightly price. */
+  day_use_3h?: number | null
+  day_use_6h?: number | null
+  day_use_8h?: number | null
+  day_use_12h?: number | null
 }
 
 export const roomsApi = {
@@ -529,9 +539,17 @@ export interface UserBookingData {
   payment_mode?: "full" | "downpayment"
   /** Collected online so far; balance = total_price − amount_paid */
   amount_paid?: number
+  /** PayMongo payment-intent id (refund reference) — "" when none */
+  payment_intent?: string
+  /** Server-derived — the frontend only maps it to a label */
+  payment_status?: "unpaid" | "partial" | "paid" | "refunded"
+  /** Check-in QR payload — present only when confirmed AND paid */
+  qr_data?: string | null
   /** Front-desk check-in stamp. null = the guest has not arrived yet. */
   checked_in_at?: string | null
   refunded_at?: string | null
+  /** Why the booking was cancelled — shown to the guest and the admin. */
+  cancellation_reason?: string | null
   /** Derived from the clock — never stored. See ArrivalState. */
   arrival_state?: ArrivalState
   created_at: string
@@ -570,10 +588,10 @@ export const userBookingsApi = {
 
   getOne: (id: string) => apiFetch<UserBookingData & { full_name: string; email: string; phone: string; special_requests: string }>(`/bookings/${id}`),
 
-  cancel: (id: string) =>
+  cancel: (id: string, reason?: string) =>
     apiFetch<{ status: string; refunded?: boolean; refund_amount?: number }>(
       `/bookings/${id}/cancel`,
-      { method: "POST" },
+      { method: "POST", body: JSON.stringify(reason ? { reason } : {}) },
     ),
 
   retryPay: (id: string) =>
@@ -607,7 +625,7 @@ export interface VerifyBookingData {
   id: string
   reference: string
   status: string
-  guest_name: string
+  guest_name?: string
   room_name: string
   room_type: string
   check_in: string
@@ -662,6 +680,8 @@ export interface BookingData {
   amount_paid?: number
   checked_in_at?: string | null
   refunded_at?: string | null
+  /** Why the booking was cancelled — shown to the guest and the admin. */
+  cancellation_reason?: string | null
   arrival_state?: ArrivalState
 }
 
@@ -670,10 +690,10 @@ export const bookingsApi = {
     const params = limit ? `?limit=${limit}` : ""
     return apiFetch<BookingData[]>(`/bookings${params}`)
   },
-  updateStatus: (bookingId: string, status: string) =>
+  updateStatus: (bookingId: string, status: string, reason?: string) =>
     apiFetch<{ message: string; status: string }>(`/bookings/${bookingId}/status`, {
       method: "PUT",
-      body: JSON.stringify({ status }),
+      body: JSON.stringify(reason ? { status, reason } : { status }),
     }),
   autoComplete: () =>
     apiFetch<{ completed: number; ids: string[] }>("/bookings/auto-complete", { method: "POST" }),
@@ -729,6 +749,51 @@ export interface DashboardStats {
   activeGuests: number
 }
 
+/** One row of the dashboard's arrivals list. */
+export interface DashboardArrival {
+  id: string
+  guestName: string
+  roomName: string
+  /** Day-use start time, or "Today" when the stay has no set hour. */
+  time: string
+  /** Arrival time passed without a check-in stamp — renders a gray "Late". */
+  late?: boolean
+}
+
+/** A single day of paid revenue (Manila calendar day). */
+export interface RevenuePoint {
+  date: string
+  amount: number
+}
+
+/** Exact admin counts from GET /api/admin/dashboard-summary (Asia/Manila). */
+export interface DashboardSummary {
+  arrivalsToday: number
+  departuresToday: number
+  inHouse: number
+  overdueCheckouts: number
+  pendingUnpaid: number
+  pendingExtendRequests: number
+  pendingRefunds: number
+  /** Total amount_paid sitting in the refund queue (sum of refund-pending rows). */
+  pendingRefundsAmount?: number
+  monthlyRevenue: number
+  occupancyRate: number
+  /** e.g. "Oct 1 to Oct 31, 2026" — the month these numbers cover. */
+  periodLabel?: string
+  /** Manila wall-clock the payload was computed, e.g. "5:22 PM". */
+  updatedAt?: string
+  /** Rooms excluding available=false — occupancy denominator. */
+  totalRooms?: number
+  /** Non-cancelled amount_paid, stay dates from the 1st through today. */
+  monthToDateRevenue?: number
+  /** Same formula over the SAME days of the previous month (delta baseline). */
+  prevMonthSameDaysRevenue?: number
+  arrivals?: DashboardArrival[]
+  /** Last 30 Manila days, oldest first. */
+  revenueSeries?: RevenuePoint[]
+}
+
 export interface MonthlyRevenue {
   month: string
   revenue: number
@@ -742,6 +807,7 @@ export interface OccupancyData {
 
 export const dashboardApi = {
   getStats: () => apiFetch<DashboardStats>("/dashboard/stats"),
+  getSummary: () => apiFetch<DashboardSummary>("/admin/dashboard-summary"),
   getMonthlyRevenue: () => apiFetch<MonthlyRevenue[]>("/dashboard/monthly-revenue"),
   getOccupancy: () => apiFetch<OccupancyData[]>("/dashboard/occupancy"),
 }
@@ -820,6 +886,10 @@ export interface RecommendationsData {
   activeDiscounts: number
   bestDiscountPeriod?: string
   confidence: number
+  /** Non-cancelled bookings the forecast was built from — hides thin-data forecasts. */
+  bookingsAnalyzed?: number
+  /** Bookings touching the next-30-day window; thin windows read as -99% / 1%. */
+  forecastBookings?: number
   recommendations: AIRecommendation[]
 }
 

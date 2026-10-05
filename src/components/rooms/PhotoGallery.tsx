@@ -33,6 +33,7 @@ export default function PhotoGallery({ images, alt }: PhotoGalleryProps) {
             <button
               type="button"
               onClick={() => goTo("prev")}
+              aria-label="Previous photo"
               className="absolute left-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/40 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/60 cursor-pointer backdrop-blur-sm"
             >
               <ChevronLeft className="h-5 w-5" />
@@ -40,6 +41,7 @@ export default function PhotoGallery({ images, alt }: PhotoGalleryProps) {
             <button
               type="button"
               onClick={() => goTo("next")}
+              aria-label="Next photo"
               className="absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/40 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/60 cursor-pointer backdrop-blur-sm"
             >
               <ChevronRight className="h-5 w-5" />

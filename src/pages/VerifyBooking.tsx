@@ -122,7 +122,6 @@ export default function VerifyBooking() {
 
               <div className="px-lg py-base">
                 <Row icon={<BedDouble className="h-4 w-4" />} label="Reference" value={`#${data.reference}`} />
-                <Row icon={<User className="h-4 w-4" />} label="Guest" value={data.guest_name || "—"} />
                 <Row icon={<BedDouble className="h-4 w-4" />} label="Room" value={`${data.room_name}${data.room_type ? ` · ${data.room_type}` : ""}`} />
                 <Row
                   icon={<CalendarDays className="h-4 w-4" />}

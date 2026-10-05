@@ -143,7 +143,7 @@ function receiptFor(d: VerifyBookingData): ReceiptData {
     reference: d.reference,
     fullReference: d.id,
     issuedAt: d.created_at || null,
-    guestName: d.guest_name,
+    guestName: d.guest_name ?? "",
     guestEmail: d.email,
     guestPhone: d.phone,
     roomName,
@@ -426,6 +426,7 @@ export default function VerifyQrDialog({ open, onOpenChange }: Props) {
               value={value}
               onChange={(e) => setValue(e.target.value)}
               placeholder="Paste the QR link or type #6D8ED17E"
+              aria-label="QR link or booking code"
               className="min-w-0 flex-1 rounded-[8px] border border-[#e2e4e8] bg-white px-3 py-2 text-sm text-ink outline-none focus:border-[#82285f]"
             />
             <Button type="submit" disabled={busy || !value.trim()} className="!rounded-[8px]">

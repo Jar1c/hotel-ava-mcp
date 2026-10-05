@@ -122,6 +122,7 @@
 
 /* ── Dark Mode ─────────────────────────────────────── */
 .dark {
+  color-scheme: dark;
   --color-foreground: #e8e8e6;
   --color-background: #1a1a18;
   --color-border: #3a3a38;
@@ -262,6 +263,7 @@ html {
 
 html, body {
   scroll-behavior: smooth;
+  color-scheme: light;
 }
 
 @layer base {

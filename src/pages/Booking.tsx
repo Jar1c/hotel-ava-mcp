@@ -8,6 +8,7 @@ import ConfirmDialog from "@/components/ui/confirm-dialog"
 import { rooms as fallbackRooms, type Room } from "@/data/rooms"
 import { getCached, setCache } from "@/lib/cache"
 import { overnightWindow, dayUseWindow, OVERNIGHT_CHECK_IN, OVERNIGHT_CHECK_OUT } from "@/lib/stayWindow"
+import { dayUseRate } from "@/lib/roomPricing"
 import { API_BASE } from "@/lib/apiBase"
 import { getAccessToken } from "@/lib/tokenStore"
 import { formatDate as toISODate, parseDateParam } from "@/lib/dates"
@@ -137,6 +138,10 @@ export default function Booking() {
         amenities: cached.amenities,
         images: cached.images.length > 0 ? cached.images : fallbackRooms[0].images,
         bookedDates: fallbackRooms.find(fr => fr.id === cached.id)?.bookedDates || [],
+        day_use_3h: cached.day_use_3h ?? null,
+        day_use_6h: cached.day_use_6h ?? null,
+        day_use_8h: cached.day_use_8h ?? null,
+        day_use_12h: cached.day_use_12h ?? null,
       })
       setLoading(false)
     }
@@ -150,6 +155,10 @@ export default function Booking() {
           amenities: data.amenities,
           images: data.images.length > 0 ? data.images : fallbackRooms[0].images,
           bookedDates: fallbackRooms.find(fr => fr.id === data.id)?.bookedDates || [],
+          day_use_3h: data.day_use_3h ?? null,
+          day_use_6h: data.day_use_6h ?? null,
+          day_use_8h: data.day_use_8h ?? null,
+          day_use_12h: data.day_use_12h ?? null,
         }
         setRoom(r)
         setCache(`room_${id}`, data)
@@ -180,10 +189,10 @@ export default function Booking() {
   const nightlyRate = bookingDiscount ? bookingDiscount.price : room ? room.price : 0
   const originalSubtotal = isOvernight
     ? (validNights && room ? room.price * nights : 0)
-    : (room ? Math.round(room.price * (dayDuration / 24)) : 0)
+    : (room ? dayUseRate(room, dayDuration) : 0)
   const subtotal = isOvernight
     ? (validNights && room ? nightlyRate * nights : 0)
-    : (room ? Math.round(nightlyRate * (dayDuration / 24)) : 0)
+    : (room ? dayUseRate(room, dayDuration, nightlyRate) : 0)
   const savedAmount = originalSubtotal - subtotal
   const taxes = Math.round(subtotal * 0.12)
   const total = subtotal + taxes
@@ -285,7 +294,6 @@ export default function Booking() {
           window.location.href = data.checkout_url
         } else {
           setSubmitted(true)
-          setErrorDialog({ open: true, title: "Booking Confirmed", message: "Your reservation has been placed." })
           navigate(`/booking/confirmation/${data.booking_id || "success"}`)
         }
     } catch (err: any) {
@@ -500,12 +508,12 @@ export default function Booking() {
                     <div className="flex justify-between typo-body-sm">
                       <span className="text-muted">{isOvernight ? "Per night" : `Day Use (${dayDuration}h)`}</span>
                       <span className="text-ink">
-                        {bookingDiscount && validNights && (
+                        {bookingDiscount && validNights && savedAmount > 0 && (
                           <s className="text-muted mr-1.5">
-                            ₱{(isOvernight ? room.price : Math.round(room.price * (dayDuration / 24))).toLocaleString()}
+                            ₱{(isOvernight ? room.price : dayUseRate(room, dayDuration)).toLocaleString()}
                           </s>
                         )}
-                        ₱{(isOvernight ? nightlyRate : Math.round(nightlyRate * (dayDuration / 24))).toLocaleString()}
+                        ₱{(isOvernight ? nightlyRate : dayUseRate(room, dayDuration, nightlyRate)).toLocaleString()}
                       </span>
                     </div>
                     {bookingDiscount && validNights && savedAmount > 0 && (
@@ -813,7 +821,7 @@ export default function Booking() {
                   <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
                 </svg>
               )}
-              <span className="text-sm text-ink/80">{googleLoading ? "Opening Google..." : "Continue with Google"}</span>
+              <span className="text-sm text-ink/80">{googleLoading ? "Opening Google…" : "Continue with Google"}</span>
             </button>
 
             {/* Divider */}

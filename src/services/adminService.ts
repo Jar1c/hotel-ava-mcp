@@ -8,6 +8,7 @@ import {
   type BookingData,
   type GuestData,
   type DashboardStats,
+  type DashboardSummary,
   type MonthlyRevenue,
   type OccupancyData,
   type SeasonalData,
@@ -42,7 +43,7 @@ function revalidate<T>(key: string, fetcher: () => Promise<T>): Revalidatable<T>
   return null
 }
 
-// ── Rooms ────────────────────────────────────────────────────────────────────
+// â”€â”€ Rooms â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function getRooms(): Promise<AdminRoom[]> {
   const rv = revalidate<AdminRoom[]>("rooms", fetchRooms)
@@ -70,6 +71,10 @@ async function fetchRooms(): Promise<AdminRoom[]> {
     status: r.status,
     bookings: r.bookings,
     revenue: r.revenue,
+    day_use_3h: r.day_use_3h ?? null,
+    day_use_6h: r.day_use_6h ?? null,
+    day_use_8h: r.day_use_8h ?? null,
+    day_use_12h: r.day_use_12h ?? null,
   }))
   setCache("rooms", result)
   return result
@@ -89,6 +94,10 @@ export async function addRoom(room: Omit<AdminRoom, "id" | "bookings" | "revenue
       images: room.images,
       description: room.description,
       status: room.status,
+      day_use_3h: room.day_use_3h ?? null,
+      day_use_6h: room.day_use_6h ?? null,
+      day_use_8h: room.day_use_8h ?? null,
+      day_use_12h: room.day_use_12h ?? null,
     })
     clearCache("rooms")
     return {
@@ -106,6 +115,10 @@ export async function addRoom(room: Omit<AdminRoom, "id" | "bookings" | "revenue
       status: data.status,
       bookings: 0,
       revenue: 0,
+      day_use_3h: data.day_use_3h ?? null,
+      day_use_6h: data.day_use_6h ?? null,
+      day_use_8h: data.day_use_8h ?? null,
+      day_use_12h: data.day_use_12h ?? null,
     }
   } catch {
     return null
@@ -126,6 +139,10 @@ export async function updateRoom(room: AdminRoom): Promise<AdminRoom | null> {
       images: room.images,
       description: room.description,
       status: room.status,
+      day_use_3h: room.day_use_3h ?? null,
+      day_use_6h: room.day_use_6h ?? null,
+      day_use_8h: room.day_use_8h ?? null,
+      day_use_12h: room.day_use_12h ?? null,
     })
     clearCache("rooms")
     return {
@@ -143,6 +160,10 @@ export async function updateRoom(room: AdminRoom): Promise<AdminRoom | null> {
       status: data.status,
       bookings: data.bookings,
       revenue: data.revenue,
+      day_use_3h: data.day_use_3h ?? null,
+      day_use_6h: data.day_use_6h ?? null,
+      day_use_8h: data.day_use_8h ?? null,
+      day_use_12h: data.day_use_12h ?? null,
     }
   } catch {
     return null
@@ -159,10 +180,10 @@ export async function deleteRoom(roomId: string): Promise<boolean> {
   }
 }
 
-// ── Bookings ─────────────────────────────────────────────────────────────────
+// â”€â”€ Bookings â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function getBookings(opts: { force?: boolean } = {}): Promise<Booking[]> {
-  // After a status change the cached copy is already wrong — skip the
+  // After a status change the cached copy is already wrong â€” skip the
   // stale-while-revalidate window and go straight to the API.
   if (opts.force) return fetchBookings()
   const rv = revalidate<Booking[]>("bookings", fetchBookings)
@@ -171,9 +192,9 @@ export async function getBookings(opts: { force?: boolean } = {}): Promise<Booki
 }
 
 async function fetchBookings(): Promise<Booking[]> {
-  // Errors propagate on purpose: the old `catch → mockBookings` fallback made
-  // the admin table render DEMO rows (Maria Santos, #BK-001…) whenever the API
-  // failed — typically an expired session after leaving the tab idle. The pages
+  // Errors propagate on purpose: the old `catch â†’ mockBookings` fallback made
+  // the admin table render DEMO rows (Maria Santos, #BK-001â€¦) whenever the API
+  // failed â€” typically an expired session after leaving the tab idle. The pages
   // surface the failure instead of showing invented reservations.
   const bookings = await bookingsApi.getAll()
   const result = bookings.map((b: BookingData) => ({
@@ -200,7 +221,9 @@ async function fetchBookings(): Promise<Booking[]> {
     payment_method: b.payment_method || "",
     payment_mode: b.payment_mode || "full",
     amount_paid: b.amount_paid ?? 0,
+    refunded_at: b.refunded_at ?? null,
     checked_in_at: b.checked_in_at ?? null,
+    cancellation_reason: b.cancellation_reason ?? null,
   }))
   setCache("bookings", result)
   return result
@@ -238,6 +261,7 @@ async function fetchRecentBookings(limit: number): Promise<Booking[]> {
       payment_mode: b.payment_mode || "full",
       amount_paid: b.amount_paid ?? 0,
       checked_in_at: b.checked_in_at ?? null,
+      cancellation_reason: b.cancellation_reason ?? null,
     }))
     setCache(`bookings-recent-${limit}`, result)
     return result
@@ -246,7 +270,7 @@ async function fetchRecentBookings(limit: number): Promise<Booking[]> {
   }
 }
 
-// ── Guests ───────────────────────────────────────────────────────────────────
+// â”€â”€ Guests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function getGuests(): Promise<Guest[]> {
   const rv = revalidate<Guest[]>("guests", fetchGuests)
@@ -276,7 +300,7 @@ async function fetchGuests(): Promise<Guest[]> {
   }
 }
 
-// ── Dashboard Stats ──────────────────────────────────────────────────────────
+// â”€â”€ Dashboard Stats â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export type { DashboardStats }
 
@@ -305,7 +329,25 @@ async function fetchDashboardStats(): Promise<DashboardStats> {
   }
 }
 
-// ── Monthly Revenue Chart Data ───────────────────────────────────────────────
+//  Admin Dashboard Summary (exact counts) 
+
+export type { DashboardSummary }
+
+export async function getDashboardSummary(): Promise<DashboardSummary> {
+  const rv = revalidate<DashboardSummary>("dash-summary-v3", fetchDashboardSummary)
+  if (rv) { rv.revalidate?.catch(() => {}); return rv.data }
+  return fetchDashboardSummary()
+}
+
+async function fetchDashboardSummary(): Promise<DashboardSummary> {
+  // Errors propagate on purpose â€” the dashboard renders an explicit
+  // "Couldn't load summary" + Retry instead of pretending every count is 0.
+  const data = await dashboardApi.getSummary()
+  setCache("dash-summary-v3", data)
+  return data
+}
+
+// â”€â”€ Monthly Revenue Chart Data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export type { MonthlyRevenue }
 
@@ -325,7 +367,7 @@ async function fetchMonthlyRevenue(): Promise<MonthlyRevenue[]> {
   }
 }
 
-// ── Occupancy Chart Data ─────────────────────────────────────────────────────
+// â”€â”€ Occupancy Chart Data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export type { OccupancyData }
 
@@ -345,7 +387,7 @@ async function fetchOccupancyData(): Promise<OccupancyData[]> {
   }
 }
 
-// ── Analytics: Seasonal Data ─────────────────────────────────────────────────
+// â”€â”€ Analytics: Seasonal Data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export type { SeasonalData }
 
@@ -365,7 +407,7 @@ async function fetchSeasonalData(): Promise<SeasonalData[]> {
   }
 }
 
-// ── Analytics: Room Performance ──────────────────────────────────────────────
+// â”€â”€ Analytics: Room Performance â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export type { RoomPerformanceData }
 
@@ -385,7 +427,7 @@ async function fetchRoomPerformance(): Promise<RoomPerformanceData[]> {
   }
 }
 
-// ── Analytics: Key Insights ──────────────────────────────────────────────────
+// â”€â”€ Analytics: Key Insights â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export type { Insight }
 
@@ -405,7 +447,7 @@ async function fetchInsights(): Promise<Insight[]> {
   }
 }
 
-// ── Analytics: Forecast Data ─────────────────────────────────────────────────
+// â”€â”€ Analytics: Forecast Data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export type { ForecastPoint }
 
@@ -441,7 +483,7 @@ async function fetchRevForecast(): Promise<ForecastPoint[]> {
   }
 }
 
-// ── AI: Demand Insight Recommendations ───────────────────────────────────────
+// â”€â”€ AI: Demand Insight Recommendations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export type { DemandInsightData }
 
@@ -466,7 +508,7 @@ export async function setDemandInsightStatus(id: string, action: "accept" | "dis
   clearCache("analytics-demand")
 }
 
-// ── AI: Discount Offers ──────────────────────────────────────────────────────
+// â”€â”€ AI: Discount Offers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export type { DiscountOfferData }
 
@@ -491,7 +533,7 @@ export async function setDiscountOfferStatus(id: string, status: "active" | "sch
   clearCache("analytics-discounts")
 }
 
-// ── AI: Recommendations Summary ────────────────────────────────────────────────
+// â”€â”€ AI: Recommendations Summary â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export type { RecommendationsData, AIRecommendation }
 
@@ -507,7 +549,7 @@ async function fetchAIRecommendations(): Promise<RecommendationsData> {
     setCache("analytics-recommendations", data)
     return data
   } catch {
-    // Honest empty state — callers show "—" instead of fake numbers
+    // Honest empty state â€” callers show "â€”" instead of fake numbers
     return {
       next30DaysOccupancy: 0,
       occupancyTrend: "stable" as const,
@@ -519,3 +561,4 @@ async function fetchAIRecommendations(): Promise<RecommendationsData> {
     }
   }
 }
+

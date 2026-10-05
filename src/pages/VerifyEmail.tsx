@@ -75,7 +75,7 @@ export default function VerifyEmail() {
               <div className="mx-auto mb-5 flex items-center justify-center w-16 h-16 rounded-full bg-[#F4F6F8]">
                 <LoadingDots size="lg" className="text-primary" />
               </div>
-              <h1 className="text-lg font-bold text-[#2A2A28] mb-2">Verifying your email...</h1>
+              <h1 className="text-lg font-bold text-[#2A2A28] mb-2">Verifying your email…</h1>
               <p className="text-sm text-[#7A7A70]">Please wait while we confirm your address.</p>
             </>
           )}
@@ -108,7 +108,7 @@ export default function VerifyEmail() {
               </p>
               <div className="flex items-center justify-center gap-2 text-sm text-[#82285f]">
                 <LoadingDots size="sm" className="text-primary" />
-                <span className="font-medium">Redirecting...</span>
+                <span className="font-medium">Redirecting…</span>
               </div>
             </>
           )}

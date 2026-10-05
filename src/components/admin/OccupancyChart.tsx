@@ -19,7 +19,7 @@ export default function OccupancyChart({ data, loading }: OccupancyChartProps) {
     <div className="rounded-[6px] bg-white p-5 border border-[#e2e4e8] hover:shadow-[0_2px_8px_rgba(0,0,0,0.06)] transition-all duration-300">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-[14px] font-semibold text-[#1a1d26]">Occupancy Rate</h3>
-        <button className="text-[#b0b3b8] hover:text-[#6b7280] transition-colors">
+        <button aria-label="More options" className="text-[#b0b3b8] hover:text-[#6b7280] transition-colors">
           <svg className="size-4" viewBox="0 0 20 20" fill="currentColor">
             <circle cx="10" cy="4" r="1.5" />
             <circle cx="10" cy="10" r="1.5" />

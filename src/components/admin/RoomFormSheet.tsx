@@ -23,6 +23,11 @@ export interface RoomFormData {
   images: string[]
   description: string
   status: "available" | "occupied" | "maintenance"
+  /** Admin-set day-use rates (₱) — null/blank = auto pro-rata from price. */
+  day_use_3h?: number | null
+  day_use_6h?: number | null
+  day_use_8h?: number | null
+  day_use_12h?: number | null
 }
 
 const MAX_IMAGES = 5
@@ -107,6 +112,10 @@ function emptyForm(): RoomFormData {
     images: [],
     description: "",
     status: "available",
+    day_use_3h: null,
+    day_use_6h: null,
+    day_use_8h: null,
+    day_use_12h: null,
   }
 }
 
@@ -373,6 +382,41 @@ export default function RoomFormSheet({ open, onClose, onSave, editRoom, otherRo
                 </div>
               </div>
 
+              {/* Day use pricing — optional per-duration rates */}
+              <div>
+                <label className="block text-[10px] font-bold text-[#6b7280] uppercase tracking-wider mb-1">
+                  Day use pricing (₱) — optional
+                </label>
+                <div className="grid grid-cols-4 gap-2">
+                  {[3, 6, 8, 12].map((h) => {
+                    const key = (`day_use_${h}h`) as "day_use_3h" | "day_use_6h" | "day_use_8h" | "day_use_12h"
+                    const fallback = form.price ? Math.round((form.price * h) / 24) : null
+                    const val = form[key]
+                    return (
+                      <div key={h} className="relative">
+                        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-[#9ca3af] tabular-nums">
+                          {h}h
+                        </span>
+                        <input
+                          type="number"
+                          value={val ?? ""}
+                          onChange={(e) => {
+                            const v = e.target.value.replace(/[^0-9]/g, "").slice(0, 7)
+                            setForm((f) => ({ ...f, [key]: v ? Number(v) : null }))
+                          }}
+                          placeholder={fallback ? String(fallback) : "—"}
+                          aria-label={`Day use price for ${h} hours`}
+                          className="w-full rounded-[6px] border border-[#e2e4e8] bg-white pl-8 pr-2 py-2 text-[13px] text-[#1a1d26] placeholder:text-[#b0b3b8] focus:outline-none focus:ring-2 focus:ring-[#82285f]/15 focus:border-[#82285f] transition-all tabular-nums"
+                        />
+                      </div>
+                    )
+                  })}
+                </div>
+                <p className="text-[10px] text-[#9ca3af] mt-1">
+                  Blank = auto price from the nightly rate (₱/24 × hours). The placeholder shows what auto would charge.
+                </p>
+              </div>
+
               {/* Guest Limits */}
               <div className="grid grid-cols-3 gap-3">
                 <div>
@@ -491,7 +535,7 @@ export default function RoomFormSheet({ open, onClose, onSave, editRoom, otherRo
                 <textarea
                   value={form.description}
                   onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-                  placeholder="Describe the room, its features, and what makes it special..."
+                  placeholder="Describe the room, its features, and what makes it special…"
                   rows={3}
                   className="w-full rounded-[6px] border border-[#e2e4e8] bg-white px-3 py-2.5 text-[13px] text-[#1a1d26] placeholder:text-[#b0b3b8] focus:outline-none focus:ring-2 focus:ring-[#82285f]/15 focus:border-[#82285f] transition-all resize-none"
                 />
@@ -525,6 +569,7 @@ export default function RoomFormSheet({ open, onClose, onSave, editRoom, otherRo
                     <button
                       type="button"
                       onClick={() => removeImage(i)}
+                      aria-label="Remove image"
                       className="absolute top-1.5 right-1.5 size-6 rounded-full bg-white/90 text-[#A4423A] flex items-center justify-center hover:bg-white hover:scale-110 transition-all shadow-md opacity-0 group-hover:opacity-100"
                     >
                       <X className="size-3" />
@@ -546,7 +591,7 @@ export default function RoomFormSheet({ open, onClose, onSave, editRoom, otherRo
                   <div className="size-10 rounded-full bg-[#82285f]/8 flex items-center justify-center">
                     <CloudUpload className="size-5 text-[#82285f]/50" />
                   </div>
-                  <p className="text-[12px] font-semibold text-[#1a1d26]">Uploading to storage...</p>
+                  <p className="text-[12px] font-semibold text-[#1a1d26]">Uploading to storage…</p>
                 </div>
                 <div className="px-3 py-2 bg-white border-t border-[#e2e4e8]">
                   <div className="flex items-center gap-2">

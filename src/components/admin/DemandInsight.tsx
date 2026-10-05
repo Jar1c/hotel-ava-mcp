@@ -121,7 +121,7 @@ export default function DemandInsight({ insight }: DemandInsightProps) {
                 />
                 <span className="text-xs text-muted">1–80%</span>
                 <button type="button" onClick={handleSaveDiscount} disabled={busy} className="inline-flex items-center gap-1 rounded-[4px] bg-[#455d58] px-2.5 py-1.5 text-xs font-medium text-white hover:bg-[#374d48] disabled:opacity-50">
-                  <Save className="h-3 w-3" /> {busy ? "Saving..." : "Save"}
+                  <Save className="h-3 w-3" /> {busy ? "Saving…" : "Save"}
                 </button>
                 <button type="button" onClick={() => { setDiscountPercent(insight.discountPercent); setEditingDiscount(false) }} disabled={busy} className="rounded-[4px] border border-[#e2e4e8] px-2.5 py-1.5 text-xs font-medium text-muted hover:bg-white disabled:opacity-50">Cancel</button>
               </div>

@@ -103,6 +103,7 @@ export default function GuestSelector({ value, onChange, maxAdults = 10, maxChil
               <button
                 type="button"
                 onClick={() => updateValue("adults", -1)}
+                aria-label="Decrease adults"
                 disabled={value.adults <= 0}
                 className="size-8 rounded-full border border-hairline flex items-center justify-center text-ink hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
               >
@@ -112,6 +113,7 @@ export default function GuestSelector({ value, onChange, maxAdults = 10, maxChil
               <button
                 type="button"
                 onClick={() => updateValue("adults", 1)}
+                aria-label="Increase adults"
                 disabled={value.adults >= maxAdults}
                 className="size-8 rounded-full border border-hairline flex items-center justify-center text-ink hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
               >
@@ -131,6 +133,7 @@ export default function GuestSelector({ value, onChange, maxAdults = 10, maxChil
                 <button
                   type="button"
                   onClick={() => updateValue("children", -1)}
+                  aria-label="Decrease children"
                   disabled={value.children <= 0 || !allowChildren}
                   className="size-8 rounded-full border border-hairline flex items-center justify-center text-ink hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                 >
@@ -140,6 +143,7 @@ export default function GuestSelector({ value, onChange, maxAdults = 10, maxChil
                 <button
                   type="button"
                   onClick={() => updateValue("children", 1)}
+                  aria-label="Increase children"
                   disabled={value.children >= maxChildren || !allowChildren}
                   className="size-8 rounded-full border border-hairline flex items-center justify-center text-ink hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                 >
@@ -160,6 +164,7 @@ export default function GuestSelector({ value, onChange, maxAdults = 10, maxChil
                 <button
                   type="button"
                   onClick={() => updateValue("pets", -1)}
+                  aria-label="Decrease pets"
                   disabled={value.pets <= 0 || !allowPets}
                   className="size-8 rounded-full border border-hairline flex items-center justify-center text-ink hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                 >
@@ -169,6 +174,7 @@ export default function GuestSelector({ value, onChange, maxAdults = 10, maxChil
                 <button
                   type="button"
                   onClick={() => updateValue("pets", 1)}
+                  aria-label="Increase pets"
                   disabled={value.pets >= maxPets || !allowPets}
                   className="size-8 rounded-full border border-hairline flex items-center justify-center text-ink hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                 >

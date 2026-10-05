@@ -1,6 +1,8 @@
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
 import { Pencil, Trash2, Search, X } from "lucide-react"
 import { cn } from "@/lib/utils"
+import Pagination from "@/components/admin/Pagination"
+import { formatRoomCapacity } from "@/lib/capacity"
 import type { AdminRoom } from "@/data/admin"
 
 interface AdminRoomTableProps {
@@ -47,11 +49,14 @@ const sorters: Record<RoomSortKey, (a: AdminRoom, b: AdminRoom) => number> = {
   numberAsc: (a, b) => a.id.localeCompare(b.id),
 }
 
+const PAGE_SIZE = 10
+
 export default function AdminRoomTable({ rooms, onEdit, onDelete, highlightId }: AdminRoomTableProps) {
   const [filter, setFilter] = useState<RoomStatus | "all">("all")
   const [query, setQuery] = useState("")
   const [typeFilter, setTypeFilter] = useState("")
   const [sort, setSort] = useState<RoomSortKey>("nameAsc")
+  const [page, setPage] = useState(1)
 
   const types = useMemo(
     () => Array.from(new Set(rooms.map((r) => r.type).filter(Boolean))).sort((a, b) => a.localeCompare(b)),
@@ -69,6 +74,15 @@ export default function AdminRoomTable({ rooms, onEdit, onDelete, highlightId }:
       })
       .sort(sorters[sort])
   }, [rooms, filter, typeFilter, query, sort])
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const safePage = Math.min(page, totalPages)
+  const pageRows = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
+
+  // New filter/search/sort → jump back to page 1
+  useEffect(() => {
+    setPage(1)
+  }, [filter, typeFilter, query, sort, rooms])
 
   return (
     <div className="rounded-[6px] bg-white border border-[#e2e4e8]">
@@ -100,7 +114,7 @@ export default function AdminRoomTable({ rooms, onEdit, onDelete, highlightId }:
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search room name, type, no.…"
+            placeholder="Search room name, type, no.…" aria-label="Search rooms"
             className="w-full rounded-[5px] border border-[#e2e4e8] bg-white py-1.5 pl-8 pr-7 text-[11px] text-[#1a1d26] placeholder:text-[#9ca3af] focus:border-[#82285f] focus:outline-none"
           />
           {query && (
@@ -156,7 +170,7 @@ export default function AdminRoomTable({ rooms, onEdit, onDelete, highlightId }:
             </tr>
           </thead>
           <tbody>
-            {filtered.map((room) => {
+            {pageRows.map((room) => {
               const status = statusConfig[room.status]
               return (
                 <tr
@@ -187,10 +201,7 @@ export default function AdminRoomTable({ rooms, onEdit, onDelete, highlightId }:
                   </td>
                   <td className="px-5 py-3 text-right font-semibold text-[#1a1d26]">₱{room.price.toLocaleString()}</td>
                   <td className="px-5 py-3 text-center text-[#6b7280]">
-                    <span className="text-[11px]">{room.max_adults}A {room.max_children}C</span>
-                    {!room.allows_children && (
-                      <span className="ml-1 text-[9px] text-[#A4423A] font-medium" title="No children allowed">No kids</span>
-                    )}
+                    <span className="text-[11px]">{formatRoomCapacity(room) ?? "—"}</span>
                   </td>
                   <td className="px-5 py-3">
                     <span className={cn("inline-flex items-center gap-1.5 text-[11px] font-medium", status.textColor)}>
@@ -237,6 +248,12 @@ export default function AdminRoomTable({ rooms, onEdit, onDelete, highlightId }:
           </tbody>
         </table>
       </div>
+
+      {filtered.length > PAGE_SIZE && (
+        <div className="border-t border-[#e2e4e8] px-5 py-3">
+          <Pagination page={safePage} totalPages={totalPages} onPageChange={setPage} />
+        </div>
+      )}
     </div>
   )
 }

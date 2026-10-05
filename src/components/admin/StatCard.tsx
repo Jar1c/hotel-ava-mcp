@@ -1,55 +1,43 @@
-import type { ReactNode } from "react"
+import { Link } from "react-router"
 import { cn } from "@/lib/utils"
 
 interface StatCardProps {
   label: string
   value: string | number
-  icon: ReactNode
-  trend?: string
-  trendValue?: string
-  trendUp?: boolean
+  /** One-line 13px gray explanation rendered directly under the label. */
+  caption?: string
+  /** Deep-link into the matching Reservations filter (renders a real <Link>). */
+  to?: string
   className?: string
 }
 
-export default function StatCard({ label, value, icon, trend, trendValue, trendUp, className }: StatCardProps) {
-  return (
-    <div className={cn("rounded-[6px] bg-white p-5 border border-[#e2e4e8] hover:shadow-[0_2px_8px_rgba(0,0,0,0.06)] transition-all duration-300", className)}>
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex size-10 items-center justify-center rounded-[5px] bg-[#f5f6f8] text-[#6b7280]">
-          {icon}
-        </div>
-        <button className="text-[#b0b3b8] hover:text-[#6b7280] transition-colors">
-          <svg className="size-4" viewBox="0 0 20 20" fill="currentColor">
-            <circle cx="10" cy="4" r="1.5" />
-            <circle cx="10" cy="10" r="1.5" />
-            <circle cx="10" cy="16" r="1.5" />
-          </svg>
-        </button>
-      </div>
-      <p className="text-[11px] font-semibold text-[#9ca3af] uppercase tracking-wide mb-1">{label}</p>
-      <p className="text-[24px] font-bold text-[#1a1d26] font-display leading-tight mb-1">{value}</p>
-      {(trend || trendValue) && (
-        <div className="flex items-center gap-2 mt-2">
-          {trendValue && (
-            <span className={cn(
-              "inline-flex items-center gap-1 rounded-[4px] px-1.5 py-0.5 text-[10px] font-semibold",
-              trendUp ? "bg-[#3D6B4F]/10 text-[#3D6B4F]" : "bg-[#A4423A]/10 text-[#A4423A]"
-            )}>
-              <svg className="size-2.5" viewBox="0 0 12 12" fill="none">
-                {trendUp ? (
-                  <path d="M6 2L10 7H2L6 2Z" fill="currentColor" />
-                ) : (
-                  <path d="M6 10L2 5H10L6 10Z" fill="currentColor" />
-                )}
-              </svg>
-              {trendValue}
-            </span>
-          )}
-          {trend && (
-            <span className="text-[10px] text-[#9ca3af]">{trend}</span>
-          )}
-        </div>
-      )}
-    </div>
+const cardClass =
+  "rounded-[8px] bg-white border border-[#e5e7eb] p-5 text-left transition-colors " +
+  "hover:border-[#82285f]/40 hover:bg-[#faf7f9] " +
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#82285f]/50 focus-visible:ring-offset-2 focus-visible:ring-offset-white"
+
+/**
+ * Dashboard summary card: 13px gray label (optional caption beneath), then a
+ * 24px semibold tabular number. Plain — no icons, no trend chips, no kebab.
+ */
+export default function StatCard({ label, value, caption, to, className }: StatCardProps) {
+  const inner = (
+    <>
+      <p className={cn("text-[13px] text-[#6b7280]", caption ? "mb-0.5" : "mb-1.5")}>{label}</p>
+      {caption && <p className="text-[13px] text-[#9ca3af] mb-1.5">{caption}</p>}
+      <p className="text-[24px] font-semibold leading-tight text-[#1a1d26] tabular-nums">
+        {value}
+      </p>
+    </>
   )
+
+  if (to) {
+    return (
+      <Link to={to} className={cn(cardClass, "block w-full", className)}>
+        {inner}
+      </Link>
+    )
+  }
+
+  return <div className={cn(cardClass, className, "hover:bg-white hover:border-[#e5e7eb]")}>{inner}</div>
 }

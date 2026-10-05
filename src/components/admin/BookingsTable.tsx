@@ -11,6 +11,7 @@ import { getStoredAvatar, getGeneratedAvatar, onAvatarError } from "@/lib/avatar
 import { formatPaymentMethod } from "@/lib/payment"
 import { deriveArrival, canCheckIn, arrivalTimeLabel, startMomentLabel } from "@/lib/arrival"
 import Pagination from "@/components/admin/Pagination"
+import CancelReasonPicker, { composeCancelReason } from "@/components/CancelReasonPicker"
 
 type BookingStatus = "confirmed" | "pending" | "completed" | "cancelled" | "checked-out"
 /** What the row shows: a stay that is running reads as In-house, not Confirmed. */
@@ -24,6 +25,8 @@ interface BookingsTableProps {
   showFilters?: boolean
   loading?: boolean
   onStatusChange?: () => void
+  /** Deep-link filter from ?status= / ?view= — re-applied when the URL changes. */
+  initialFilter?: string
 }
 
 const statusConfig: Record<DisplayStatus, { label: string; dotColor: string; textColor: string }> = {
@@ -44,6 +47,64 @@ const statusFilters: { label: string; value: DisplayStatus | "all" }[] = [
   { label: "Checked Out", value: "checked-out" },
   { label: "Cancelled", value: "cancelled" },
 ]
+
+/**
+ * Derived filters — deep-link targets from the dashboard cards
+ * (?view=arrivals|departures|overdue|extending|refunds|unpaid).
+ * Computed client-side from the already-fetched list; no extra API calls.
+ */
+const viewFilters = {
+  arrivals: "Arrivals today",
+  departures: "Departures today",
+  overdue: "Overdue check-outs",
+  extending: "Extend requests",
+  refunds: "Refunds",
+  unpaid: "Unpaid",
+} as const
+
+type ViewKey = keyof typeof viewFilters
+type FilterValue = DisplayStatus | "all" | ViewKey
+
+function isViewKey(value: FilterValue): value is ViewKey {
+  return Object.prototype.hasOwnProperty.call(viewFilters, value)
+}
+
+function sanitizeFilter(value?: string | null): FilterValue {
+  const known = new Set<string>([
+    ...statusFilters.map((f) => f.value),
+    ...Object.keys(viewFilters),
+  ])
+  return value && known.has(value) ? (value as FilterValue) : "all"
+}
+
+/** Today as the browser's YYYY-MM-DD (the front desk runs on hotel time). */
+function localISODate(d: Date) {
+  const mm = String(d.getMonth() + 1).padStart(2, "0")
+  const dd = String(d.getDate()).padStart(2, "0")
+  return `${d.getFullYear()}-${mm}-${dd}`
+}
+
+/** Mirrors the exact-count predicates in _build_dashboard_summary(). */
+function matchesView(b: Booking, view: ViewKey, now: Date): boolean {
+  const counted = ["confirmed", "checked-out", "completed"].includes(b.status)
+  switch (view) {
+    case "arrivals":
+      return counted && b.checkIn.slice(0, 10) === localISODate(now)
+    case "departures":
+      return counted && b.checkOut.slice(0, 10) === localISODate(now)
+    case "overdue":
+      return b.status === "confirmed" && Boolean(b.checked_in_at) && deriveArrival(b, now) === "ended"
+    case "extending":
+      return (b.payment_method ?? "").startsWith("extend:")
+    case "refunds":
+      return b.status === "cancelled" && (b.amount_paid ?? 0) > 0 && !b.refunded_at
+    case "unpaid":
+      return (
+        b.status === "pending" ||
+        (b.status === "confirmed" && isDownpayment(b) && bookingBalance(b) > 0)
+      )
+  }
+}
 
 type SortKey = "newest" | "oldest" | "soonest" | "latest" | "amountDesc" | "amountAsc" | "guest"
 
@@ -166,14 +227,17 @@ function receiptFor(b: Booking): ReceiptData {
   }
 }
 
-export default function BookingsTable({ bookings, showFilters = true, loading, onStatusChange }: BookingsTableProps) {
-  const [filter, setFilter] = useState<DisplayStatus | "all">("all")
+export default function BookingsTable({ bookings, showFilters = true, loading, onStatusChange, initialFilter }: BookingsTableProps) {
+  const [filter, setFilter] = useState<FilterValue>(() => sanitizeFilter(initialFilter))
   const [query, setQuery] = useState("")
   const [roomFilter, setRoomFilter] = useState("")
   const [sort, setSort] = useState<SortKey>("newest")
   const [page, setPage] = useState(1)
   const [actingId, setActingId] = useState<string | null>(null)
   const [confirmAction, setConfirmAction] = useState<{ bookingId: string; bookingIdShort: string; action: RowAction; label: string } | null>(null)
+  const [cancelReason, setCancelReason] = useState("")
+  const [cancelReasonOther, setCancelReasonOther] = useState("")
+  const [cancelReasonError, setCancelReasonError] = useState(false)
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [receiptOpen, setReceiptOpen] = useState(false)
@@ -187,6 +251,12 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
     return () => window.clearInterval(id)
   }, [])
 
+  // A deep-link from the dashboard (?view= / ?status=) re-applies when the URL
+  // changes — the filter state alone only sees the first render.
+  useEffect(() => {
+    setFilter(sanitizeFilter(initialFilter))
+  }, [initialFilter])
+
   // Room names present in the data — drives the room dropdown.
   const rooms = useMemo(
     () => Array.from(new Set(bookings.map((b) => b.roomType).filter(Boolean))).sort((a, b) => a.localeCompare(b)),
@@ -196,7 +266,11 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
     const rows = bookings
-      .filter((b) => filter === "all" || displayStatus(b, now) === filter)
+      .filter((b) => {
+        if (filter === "all") return true
+        if (isViewKey(filter)) return matchesView(b, filter, now)
+        return displayStatus(b, now) === filter
+      })
       .filter((b) => !roomFilter || b.roomType === roomFilter)
       .filter((b) => {
         if (!q) return true
@@ -227,14 +301,14 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
     setModalOpen(true)
   }
 
-  async function handleStatusChange(bookingId: string, newStatus: RowAction) {
+  async function handleStatusChange(bookingId: string, newStatus: RowAction, reason?: string) {
     if (!bookingId) return
     setActingId(bookingId)
     try {
       if (newStatus === "check-in") {
         await bookingsApi.checkIn(bookingId)
       } else {
-        await bookingsApi.updateStatus(bookingId, newStatus)
+        await bookingsApi.updateStatus(bookingId, newStatus, reason)
       }
       onStatusChange?.()
     } catch (err) {
@@ -253,6 +327,9 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
   function openConfirm(booking: Booking, action: RowAction, label: string) {
     const bid = booking.fullId || booking.id
     setConfirmAction({ bookingId: bid, bookingIdShort: booking.id, action, label })
+    setCancelReason("")
+    setCancelReasonOther("")
+    setCancelReasonError(false)
     setModalOpen(false)
   }
 
@@ -293,7 +370,7 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
           a.style
         )}
       >
-        {actingId === bid ? "..." : a.label}
+        {actingId === bid ? "…" : a.label}
       </button>
     ))
   }
@@ -361,6 +438,15 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
                   )}
                 </button>
               ))}
+              {isViewKey(filter) && (
+                <button
+                  type="button"
+                  onClick={() => setFilter(filter)}
+                  className="rounded-[4px] bg-[#82285f] px-2.5 py-1 text-[10px] font-semibold text-white transition-all duration-200"
+                >
+                  {viewFilters[filter]}
+                </button>
+              )}
             </div>
             <div className="text-[11px] text-[#9ca3af]">
               {filtered.length} {filtered.length === 1 ? "booking" : "bookings"}
@@ -377,7 +463,7 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
                 type="text"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search name, email, booking ID, room…"
+                placeholder="Search name, email, booking ID, room…" aria-label="Search bookings"
                 className="w-full rounded-[5px] border border-[#e2e4e8] bg-white py-1.5 pl-8 pr-7 text-[11px] text-[#1a1d26] placeholder:text-[#9ca3af] focus:border-[#82285f] focus:outline-none"
               />
               {query && (
@@ -569,10 +655,20 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
                       <DetailRow icon={<Phone className="h-4 w-4" />} label="Phone" value={selectedBooking.phone} />
                     ) : null}
                     {selectedBooking.guestId ? (
-                      <DetailRow icon={<CalendarDays className="h-4 w-4" />} label="Guest ID" value={selectedBooking.guestId.slice(0, 8) + "..."} />
+                      <DetailRow icon={<CalendarDays className="h-4 w-4" />} label="Guest ID" value={selectedBooking.guestId.slice(0, 8) + "…"} />
                     ) : null}
                   </div>
                 </div>
+
+                {/* Cancellation reason — why this booking was cancelled */}
+                {selectedBooking.status === "cancelled" && selectedBooking.cancellation_reason && (
+                  <div className="space-y-3 mb-6">
+                    <h4 className="text-[10px] font-semibold uppercase tracking-wider text-[#9ca3af]">Cancellation Reason</h4>
+                    <div className="rounded-[10px] border border-[#e2e4e8] bg-[#f5f6f8] p-4 text-[13px] text-[#1a1d26]">
+                      {selectedBooking.cancellation_reason}
+                    </div>
+                  </div>
+                )}
 
                 {/* Booking Info */}
                 <div className="space-y-3 mb-6">
@@ -702,12 +798,24 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
                   {confirmAction.action === "check-in" && "Check In Guest?"}
                 </DialogTitle>
               </DialogHeader>
-              <p className="text-[13px] text-muted mb-6 leading-relaxed">
+              <p className={cn("text-[13px] text-muted leading-relaxed", confirmAction.action === "cancelled" ? "mb-4" : "mb-6")}>
                 {confirmAction.action === "confirmed" && `Booking #${confirmAction.bookingIdShort} will be confirmed. The guest will be notified.`}
                 {confirmAction.action === "cancelled" && `Booking #${confirmAction.bookingIdShort} will be cancelled. This cannot be undone.`}
                 {confirmAction.action === "checked-out" && `Booking #${confirmAction.bookingIdShort} will be marked as checked out.`}
                 {confirmAction.action === "check-in" && `Booking #${confirmAction.bookingIdShort} will be marked as arrived. The stay starts running at its booked time, and the guest will be notified.`}
               </p>
+              {confirmAction.action === "cancelled" && (
+                <div className="mb-6">
+                  <p className="mb-2 text-[13px] font-medium text-ink">Reason for cancellation</p>
+                  <CancelReasonPicker
+                    selected={cancelReason}
+                    otherText={cancelReasonOther}
+                    error={cancelReasonError}
+                    onSelect={(v) => { setCancelReason(v); setCancelReasonError(false) }}
+                    onOtherChange={setCancelReasonOther}
+                  />
+                </div>
+              )}
               <div className="flex items-center justify-end gap-2">
                 <button
                   onClick={() => setConfirmAction(null)}
@@ -716,7 +824,15 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
                   Go Back
                 </button>
                 <button
-                  onClick={() => handleStatusChange(confirmAction.bookingId, confirmAction.action)}
+                  onClick={() => {
+                    if (confirmAction.action === "cancelled") {
+                      const reason = composeCancelReason(cancelReason, cancelReasonOther)
+                      if (!reason) { setCancelReasonError(true); return }
+                      handleStatusChange(confirmAction.bookingId, confirmAction.action, reason)
+                    } else {
+                      handleStatusChange(confirmAction.bookingId, confirmAction.action)
+                    }
+                  }}
                   className={cn(
                     "px-4 py-2 rounded-[8px] text-[12px] font-semibold transition-colors cursor-pointer",
                     confirmAction.action === "confirmed" && "bg-[#3D6B4F] text-white hover:bg-[#2d5a3e]",

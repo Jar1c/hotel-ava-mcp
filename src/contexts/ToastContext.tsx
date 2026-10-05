@@ -64,7 +64,11 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     <ToastContext.Provider value={{ toast }}>
       {children}
       {/* Toast container - top right like phone notifications */}
-      <div className="fixed top-20 right-4 z-[9999] flex flex-col gap-2 pointer-events-none max-sm:right-2 max-sm:left-2 max-sm:top-16">
+      <div
+        role="status"
+        aria-live="polite"
+        className="fixed top-20 right-4 z-[9999] flex flex-col gap-2 pointer-events-none max-sm:right-2 max-sm:left-2 max-sm:top-16"
+      >
         {toasts.map((t) => (
           <div
             key={t.id}

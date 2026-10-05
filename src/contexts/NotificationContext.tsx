@@ -141,6 +141,16 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       return
     }
     seenIdsRef.current.add(notif.id)
+    // The booking confirmation page already tells this story — bell/list still
+    // get the row; only the popup (and its sound) is skipped. Match by
+    // type/booking_id, never by title text.
+    const path = window.location.pathname
+    if (
+      path.startsWith("/booking/confirmation") &&
+      (notif.type === "booking" || (notif.booking_id && path.includes(notif.booking_id)))
+    ) {
+      return
+    }
     const bell = document.querySelector<HTMLElement>("[data-notification-bell]")
     const rect = bell?.getBoundingClientRect()
     setRingNonce((n) => n + 1)

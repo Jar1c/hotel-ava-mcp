@@ -183,12 +183,14 @@ export default function CompleteRegistration() {
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-xs font-medium text-muted block mb-1.5">First Name</label>
+                    <label htmlFor="firstName" className="text-xs font-medium text-muted block mb-1.5">First Name</label>
                     <div className="relative">
                       <User className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted pointer-events-none" />
                       <input
+                        id="firstName"
                         type="text"
                         placeholder="Juan"
+                        autoComplete="given-name"
                         value={firstName}
                         onChange={(e) => setFirstName(formatName(e.target.value))}
                         maxLength={50}
@@ -197,12 +199,14 @@ export default function CompleteRegistration() {
                     </div>
                   </div>
                   <div>
-                    <label className="text-xs font-medium text-muted block mb-1.5">Last Name</label>
+                    <label htmlFor="lastName" className="text-xs font-medium text-muted block mb-1.5">Last Name</label>
                     <div className="relative">
                       <User className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted pointer-events-none" />
                       <input
+                        id="lastName"
                         type="text"
                         placeholder="Dela Cruz"
+                        autoComplete="family-name"
                         value={lastName}
                         onChange={(e) => setLastName(formatName(e.target.value))}
                         maxLength={50}

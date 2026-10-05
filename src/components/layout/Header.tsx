@@ -170,7 +170,7 @@ export default function Header() {
             <>
               {/* Notification bell */}
               <DropdownMenu open={dropdownOpen} onOpenChange={handleDropdownOpenChange}>
-                <DropdownMenuTrigger data-notification-bell className="relative flex size-9 items-center justify-center rounded-full bg-[#f0f1f3] dark:bg-surface-strong hover:bg-[#e2e4e8] dark:hover:bg-surface-strong text-[#6b7280] dark:text-muted transition-all duration-200 cursor-pointer">
+                <DropdownMenuTrigger data-notification-bell aria-label="Notifications" className="relative flex size-9 items-center justify-center rounded-full bg-[#f0f1f3] dark:bg-surface-strong hover:bg-[#e2e4e8] dark:hover:bg-surface-strong text-[#6b7280] dark:text-muted transition-all duration-200 cursor-pointer">
                   <Bell className="size-[18px]" />
                   {unreadCount > 0 && (
                     <span data-notification-badge className="absolute -top-0.5 -right-0.5 flex items-center justify-center size-4 rounded-full bg-[#A4423A] text-white text-[10px] font-bold">
@@ -352,6 +352,7 @@ export default function Header() {
             <button
               type="button"
               onClick={() => !isLoggingOut && setShowLogoutConfirm(false)}
+              aria-label="Close"
               className="absolute top-3 right-3 w-8 h-8 flex items-center justify-center rounded-full text-muted hover:text-ink hover:bg-gray-100 dark:hover:bg-surface transition-colors cursor-pointer z-10"
             >
               <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -376,7 +377,7 @@ export default function Header() {
                 disabled={isLoggingOut}
                 className="flex-1 py-2.5 text-sm font-medium !rounded-[8px] bg-primary text-on-primary hover:bg-primary-active cursor-pointer"
               >
-                {isLoggingOut ? "Signing out..." : "Sign Out"}
+                {isLoggingOut ? "Signing out…" : "Sign Out"}
               </Button>
             </div>
           </div>
