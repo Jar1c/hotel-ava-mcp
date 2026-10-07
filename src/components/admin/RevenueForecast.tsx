@@ -9,7 +9,7 @@ import {
   ResponsiveContainer,
   ReferenceLine,
 } from "recharts"
-import type { ForecastPoint } from "@/services/adminService"
+import type { ForecastPoint, ForecastAccuracyData } from "@/services/adminService"
 import { formatCurrency } from "@/lib/utils"
 import AiAbout from "@/components/admin/AiAbout"
 import ForecastQualityNote from "@/components/admin/ForecastQualityNote"
@@ -46,12 +46,12 @@ function CustomTooltip({ active, payload, label }: { active?: boolean; payload?:
   )
 }
 
-export default function RevenueForecast({ data, loading }: { data: ForecastPoint[]; loading?: boolean }) {
+export default function RevenueForecast({ data, loading, accuracy }: { data: ForecastPoint[]; loading?: boolean; accuracy?: ForecastAccuracyData | null }) {
   if (loading) {
     return (
-      <div className="bg-white rounded-[6px] border border-[#e2e4e8] p-6 animate-pulse">
-        <div className="h-5 w-36 bg-[#f0f1f3] rounded mb-4" />
-        <div className="h-[320px] bg-[#f0f1f3] rounded" />
+      <div className="bg-white rounded-[6px] border border-[#e2e4e8] p-6">
+        <div className="h-5 w-36 skeleton rounded mb-4" />
+        <div className="h-[320px] skeleton rounded" />
       </div>
     )
   }
@@ -137,7 +137,7 @@ export default function RevenueForecast({ data, loading }: { data: ForecastPoint
           Dashed = Predicted
         </div>
       </div>
-      <ForecastQualityNote data={data} kind="revenue" />
+      <ForecastQualityNote data={data} kind="revenue" accuracy={accuracy} />
     </div>
   )
 }

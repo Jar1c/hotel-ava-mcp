@@ -120,7 +120,7 @@ export default function AIInsights() {
             <div className="bg-white border border-[#e2e4e8] rounded-[8px] p-4 shadow-sm">
               <h3 className="text-[13px] font-bold text-[#1a1d26] mb-2">Top Recommendation</h3>
               {loading ? (
-                <div className="h-16 bg-[#f5f6f8] rounded-[6px] animate-pulse" />
+                <div className="h-16 skeleton rounded-[6px]" />
               ) : (recommendations?.recommendations ?? [])[0] ? (
                 <div>
                   <p className="text-[12px] font-semibold text-[#1a1d26]">{recommendations!.recommendations[0].title}</p>
@@ -134,7 +134,7 @@ export default function AIInsights() {
             <div className="bg-white border border-[#e2e4e8] rounded-[8px] p-4 shadow-sm">
               <h3 className="text-[13px] font-bold text-[#1a1d26] mb-2">Upcoming Demand Alert</h3>
               {loading ? (
-                <div className="h-16 bg-[#f5f6f8] rounded-[6px] animate-pulse" />
+                <div className="h-16 skeleton rounded-[6px]" />
               ) : demandInsights[0] ? (
                 <div>
                   <p className="text-[12px] font-semibold text-[#1a1d26]">{demandInsights[0].period}</p>
@@ -159,7 +159,7 @@ export default function AIInsights() {
           <div className="space-y-3">
             {loading ? (
               Array.from({ length: 3 }).map((_, i) => (
-                <div key={i} className="h-24 bg-white/50 rounded-[8px] animate-pulse" />
+                <div key={i} className="h-24 skeleton rounded-[8px]" />
               ))
             ) : (recommendations?.recommendations ?? []).length > 0 ? (
               (recommendations?.recommendations ?? []).map((rec, i) => (
@@ -201,7 +201,7 @@ export default function AIInsights() {
           <div className="space-y-3">
             {loading ? (
               Array.from({ length: 2 }).map((_, i) => (
-                <div key={i} className="h-20 bg-[#f5f6f8] rounded-[6px] animate-pulse" />
+                <div key={i} className="h-20 skeleton rounded-[6px]" />
               ))
             ) : discountOffers.length > 0 ? (
               discountOffers.map((offer) => (
@@ -213,12 +213,14 @@ export default function AIInsights() {
                     </span>
                   </div>
                   <p className="text-[11px] text-[#4a4f59] mb-2">
-                    {offer.validFrom} → {offer.validTo} • Confidence: {offer.confidence}%
+                    {offer.validFrom} → {offer.validTo}{offer.confidence != null ? ` • Confidence: ${offer.confidence}%` : ""}
                   </p>
                   <div className="flex items-center justify-between text-[11px]">
                     <span>Base: ₱{offer.baseRate.toLocaleString()}</span>
                     <span className="text-[#82285f] font-bold">Discounted: ₱{offer.discountedRate.toLocaleString()}</span>
-                    <span>Projected: ₱{offer.projectedRevenue.toLocaleString()}</span>
+                    <span>
+                      Projected: {offer.projectedRevenue != null ? `₱${offer.projectedRevenue.toLocaleString()}` : "—"}
+                    </span>
                   </div>
                 </div>
               ))
@@ -244,7 +246,7 @@ export default function AIInsights() {
           <div className="space-y-3">
             {loading ? (
               Array.from({ length: 2 }).map((_, i) => (
-                <div key={i} className="h-16 bg-[#f5f6f8] rounded-[6px] animate-pulse" />
+                <div key={i} className="h-16 skeleton rounded-[6px]" />
               ))
             ) : demandInsights.length > 0 ? (
               demandInsights.map((insight) => (

@@ -18,7 +18,7 @@ import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import DateInput from "@/components/ui/date-input"
 import GuestSelector, { type GuestCount } from "@/components/ui/guest-selector"
-import { publicRoomsApi, reviewsApi, type PublicRoomData, type RoomReviewsResponse } from "@/services/api"
+import { publicRoomsApi, reviewsApi, type PublicRoomData, type RoomReviewsResponse, type RoomQuote } from "@/services/api"
 import { getAmenityIcon, rooms as fallbackRooms, type Room } from "@/data/rooms"
 import { nearbyPlaces, travelLabel, type NearbyCategory } from "@/data/nearbyPlaces"
 import { getCached, setCache } from "@/lib/cache"
@@ -203,6 +203,26 @@ export default function RoomDetail() {
       .then(setActiveOffers)
       .catch(() => setActiveOffers([]))
   }, [])
+
+  // Server-computed price for the current stay selection (same math
+  // create_booking charges). Null until loaded or when the fetch fails, so
+  // the client-side fallbacks keep working.
+  const [quote, setQuote] = useState<RoomQuote | null>(null)
+  useEffect(() => {
+    if (!room?.id) return
+    let cancelled = false
+    setQuote(null)
+    publicRoomsApi.quote({
+      room_ids: [room.id],
+      check_in: checkIn ? toISODate(checkIn) : undefined,
+      check_out: stayType === "overnight" && checkOut ? toISODate(checkOut) : undefined,
+      stay_type: stayType,
+      duration: stayType === "day" ? dayDuration : undefined,
+    })
+      .then((list) => { if (!cancelled) setQuote(list[0] ?? null) })
+      .catch(() => { if (!cancelled) setQuote(null) })
+    return () => { cancelled = true }
+  }, [room?.id, checkIn, checkOut, stayType, dayDuration])
 
   // Master amenities list — union of all amenities across all room types
   const allAmenities = useMemo(() => {
@@ -443,22 +463,45 @@ export default function RoomDetail() {
   const activeOffer = activeOffers.find(
     (o) => o.roomType === room.type && (!checkIn || offerCoversDate(o, checkIn)),
   )
-  const showDiscount = activeOffer
-    ? {
-        discountPercent: activeOffer.discountPercent,
-        discountedPrice: activeOffer.discountedRate,
-        originalPrice: activeOffer.baseRate,
-        reason: offerTitle(activeOffer),
-        validTo: activeOffer.validTo,
-      }
-    : approvedDiscount
+  // The server quote wins when present: it already resolved live offer vs
+  // approved holiday vs full rate for this exact stay, in the same math
+  // create_booking charges. Without one the client-side fallbacks apply.
+  const showDiscount = quote
+    ? quote.discount
+      ? {
+          discountPercent: quote.discount.percent,
+          discountedPrice: quote.rate,
+          originalPrice: quote.base_rate,
+          reason: quote.discount.name || "Limited-time offer",
+          validTo: quote.discount.validTo ?? undefined,
+        }
+      : null
+    : activeOffer
+      ? {
+          discountPercent: activeOffer.discountPercent,
+          discountedPrice: activeOffer.discountedRate,
+          originalPrice: activeOffer.baseRate,
+          reason: offerTitle(activeOffer),
+          validTo: activeOffer.validTo,
+        }
+      : approvedDiscount
   const showDiscountReason = showDiscount ? reasonWithUntil(showDiscount.reason, showDiscount.validTo) : null
-  const effectivePrice = showDiscount ? showDiscount.discountedPrice : room.price
+  const effectivePrice = quote
+    ? quote.rate
+    : showDiscount
+      ? showDiscount.discountedPrice
+      : room.price
   const dayUseDiscounted = stayType === "day" ? dayUseRate(room, dayDuration, effectivePrice) : 0
   const overnightDiscounted = stayType === "overnight" ? effectivePrice * nights : 0
   const discountedSubtotal = stayType === "day" ? dayUseDiscounted : overnightDiscounted
-  const displaySubtotal = showDiscount ? discountedSubtotal : subtotal
-  const totalPrice = displaySubtotal + Math.round(displaySubtotal * 0.12)
+  const displaySubtotal = quote
+    ? quote.subtotal
+    : showDiscount
+      ? discountedSubtotal
+      : subtotal
+  const totalPrice = quote
+    ? quote.total
+    : displaySubtotal + Math.round(displaySubtotal * 0.12)
 
   // Prefer the live review aggregate; fall back to the value shipped with the room
   const avgRating = reviewSummary && reviewSummary.count > 0 ? reviewSummary.average : room.rating
@@ -1238,7 +1281,7 @@ export default function RoomDetail() {
                         >
                           <span className="block leading-tight">{d}h</span>
                           <span className="block text-[11px] font-medium tabular-nums opacity-80">
-                            ₱{dayUseRate(room, d).toLocaleString()}
+                            ₱{dayUseRate(room, d, effectivePrice).toLocaleString()}
                           </span>
                         </button>
                       ))}

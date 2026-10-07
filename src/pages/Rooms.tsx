@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from "react"
 import { useSearchParams } from "react-router"
 import { motion } from "motion/react"
 import { RotateCcw, SlidersHorizontal, Sparkles } from "lucide-react"
-import { publicRoomsApi, type PublicRoomData } from "@/services/api"
+import { publicRoomsApi, type PublicRoomData, type RoomQuote } from "@/services/api"
 import { type Room } from "@/data/rooms"
 import { setCache, getCached } from "@/lib/cache"
 import { formatDate as toISODate, parseDateParam } from "@/lib/dates"
@@ -18,6 +18,8 @@ import {
   type RoomFilterState,
 } from "@/lib/roomFilters"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
+import { Skeleton, SkeletonLine, SkeletonRegion } from "@/components/ui/skeleton"
+import { useMinSkeleton } from "@/hooks/useMinSkeleton"
 import type { DiscountRoom } from "@/lib/discountEngine"
 import { getRoomDiscount } from "@/lib/discountEngine"
 import { useDiscountApproval } from "@/hooks/useDiscountApproval"
@@ -71,16 +73,16 @@ function mapApiRoom(r: PublicRoomData): Room {
 
 function RoomCardSkeleton() {
   return (
-    <div className="bg-canvas rounded-lg overflow-hidden flex flex-col h-full animate-pulse">
-      <div className="aspect-[16/9] bg-gray-200" />
+    <div className="bg-canvas rounded-lg overflow-hidden flex flex-col h-full">
+      <Skeleton className="aspect-[16/9] w-full rounded-none" />
       <div className="p-3 flex flex-col gap-2 flex-1">
-        <div className="h-4 bg-gray-200 rounded w-3/4" />
-        <div className="h-3 bg-gray-200 rounded w-1/4" />
+        <SkeletonLine className="h-4 w-3/4" />
+        <SkeletonLine className="h-3 w-1/4" />
         <div className="flex gap-1 mt-auto">
-          <div className="h-5 bg-gray-200 rounded-full w-16" />
-          <div className="h-5 bg-gray-200 rounded-full w-20" />
+          <Skeleton className="h-5 w-16 rounded-full" />
+          <Skeleton className="h-5 w-20 rounded-full" />
         </div>
-        <div className="h-4 bg-gray-200 rounded w-1/3" />
+        <SkeletonLine className="h-4 w-1/3" />
       </div>
     </div>
   )
@@ -110,6 +112,20 @@ export default function Rooms() {
     filters.stayType === "overnight" ? filters.checkOut : filters.startTime
   )
 
+  const [loadError, setLoadError] = useState(false)
+  const [reloadToken, setReloadToken] = useState(0)
+
+  // Skeletons show at least 500ms — including the availability re-check that
+  // runs when the guest picks dates.
+  const showSkeleton = useMinSkeleton(
+    Boolean(loading || (hasDateFilter && checkingAvailability)),
+  )
+
+  const retryRooms = () => {
+    setLoadError(false)
+    setReloadToken((t) => t + 1)
+  }
+
   useEffect(() => {
     const cached = getCached<PublicRoomData[]>("public_rooms")
     if (cached) {
@@ -121,12 +137,16 @@ export default function Rooms() {
       .then((data) => {
         setRoomsData(data.map(mapApiRoom))
         setCache("public_rooms", data)
+        setLoadError(false)
       })
       .catch(() => {
-        if (!cached) setRoomsData([])
+        if (!cached) {
+          setRoomsData([])
+          setLoadError(true)
+        }
       })
       .finally(() => setLoading(false))
-  }, [])
+  }, [reloadToken])
 
   // Scheduled offers the admin switched on - they must show on guest rooms,
   // otherwise "Activate" in the admin table does nothing visible.
@@ -138,6 +158,30 @@ export default function Rooms() {
       .catch(() => {})
     return () => { cancelled = true }
   }, [])
+
+  // Server-computed prices for the current search dates (same math
+  // create_booking charges). Without dates the backend prices from today, so
+  // browsing shows live promos too. Quote wins over every client-side path.
+  const [quoteMap, setQuoteMap] = useState<Record<string, RoomQuote>>({})
+  useEffect(() => {
+    if (roomsData.length === 0) return
+    let cancelled = false
+    setQuoteMap({})
+    publicRoomsApi.quote({
+      check_in: filters.checkIn ? toISODate(parseDateParam(filters.checkIn)) : undefined,
+      check_out:
+        filters.stayType === "overnight" && filters.checkOut
+          ? toISODate(parseDateParam(filters.checkOut))
+          : undefined,
+      stay_type: filters.stayType === "day" ? "day" : "overnight",
+    })
+      .then((list) => {
+        if (cancelled) return
+        setQuoteMap(Object.fromEntries(list.map((q) => [q.room_id, q])))
+      })
+      .catch(() => undefined)
+    return () => { cancelled = true }
+  }, [roomsData, filters.checkIn, filters.checkOut, filters.stayType])
 
   // Check availability for all rooms when date filters are present.
   // checkingAvailability stays true until every room answered, so the grid
@@ -221,6 +265,7 @@ export default function Rooms() {
   const filterableRooms: FilterableRoom[] = useMemo(
     () =>
       roomsData.map((r) => {
+        const quote = quoteMap[r.id]
         const deal = getRoomDiscount(discountRooms, r.id)
         // Scheduled offers the admin switched on count as a promo too -
         // otherwise the "active promo" filter hides every discounted room.
@@ -228,15 +273,21 @@ export default function Rooms() {
         return {
           id: r.id,
           type: r.type,
-          price: offer ? offer.price : deal ? deal.discountedPrice : r.price,
+          price: quote
+            ? quote.rate
+            : offer
+              ? offer.price
+              : deal
+                ? deal.discountedPrice
+                : r.price,
           rating: r.rating ?? null,
           amenities: r.amenities ?? [],
           allows_children: r.allows_children === true,
           petFriendly: (r.amenities ?? []).some((a) => a.includes("Pet")),
-          hasDeal: Boolean(deal) || Boolean(offer),
+          hasDeal: quote ? Boolean(quote.discount) : Boolean(deal) || Boolean(offer),
         }
       }),
-    [roomsData, discountRooms, offerFor],
+    [roomsData, discountRooms, offerFor, quoteMap],
   )
 
   const matchingFilterIds = useMemo(() => {
@@ -269,22 +320,30 @@ export default function Rooms() {
     return result
   }, [roomsData, matchingFilterIds, availabilityMap, filters.budgetMax, hasDateFilter])
 
-  // Sort: discounted rooms first, then by effective price (cheapest first)
+  // Sort: discounted rooms first, then by effective price (cheapest first).
+  // The server quote wins whenever we have one, so sorting matches display.
   const sortedRooms = useMemo(() => {
+    const effectivePrice = (r: Room) => {
+      const quote = quoteMap[r.id]
+      if (quote) return quote.rate
+      const offer = offerFor(r)
+      if (offer) return offer.price
+      const d = getRoomDiscount(discountRooms, r.id)
+      return d ? d.discountedPrice : r.price
+    }
+    const hasPromo = (r: Room) => {
+      const quote = quoteMap[r.id]
+      if (quote) return Boolean(quote.discount)
+      return Boolean(offerFor(r)) || Boolean(getRoomDiscount(discountRooms, r.id))
+    }
     return [...smartFilteredRooms].sort((a, b) => {
-      const dA = getRoomDiscount(discountRooms, a.id)
-      const dB = getRoomDiscount(discountRooms, b.id)
-      const priceA = dA ? dA.discountedPrice : a.price
-      const priceB = dB ? dB.discountedPrice : b.price
-
       // Discounted rooms come first
-      if (dA && !dB) return -1
-      if (!dA && dB) return 1
-
+      if (hasPromo(a) && !hasPromo(b)) return -1
+      if (!hasPromo(a) && hasPromo(b)) return 1
       // Then by effective price (cheapest first)
-      return priceA - priceB
+      return effectivePrice(a) - effectivePrice(b)
     })
-  }, [smartFilteredRooms, discountRooms])
+  }, [smartFilteredRooms, discountRooms, offerFor, quoteMap])
 
   // AI ranking: the 3 best matches for this search, the rest follow below
   const guests = (filters.adults ?? 0) + (filters.children ?? 0)
@@ -390,11 +449,27 @@ export default function Rooms() {
 
         <div className="border-b border-hairline/50 mb-xl" />
 
-        {loading || (hasDateFilter && checkingAvailability) ? (
+        <SkeletonRegion loading={showSkeleton}>
+        {showSkeleton ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-lg">
             {Array.from({ length: 8 }).map((_, i) => (
               <RoomCardSkeleton key={i} />
             ))}
+          </div>
+        ) : loadError ? (
+          <div className="text-center py-xl">
+            <p className="typo-body-lg text-ink font-medium">Couldn't load rooms</p>
+            <p className="typo-body-sm text-muted mt-sm">
+              Something went wrong while fetching our rooms. Please try again.
+            </p>
+            <button
+              type="button"
+              onClick={retryRooms}
+              className="mt-md inline-flex items-center gap-1.5 rounded-full border border-hairline bg-white px-base py-2 text-sm font-semibold text-ink hover:border-primary hover:text-primary"
+            >
+              <RotateCcw className="h-4 w-4" />
+              Try again
+            </button>
           </div>
         ) : sortedRooms.length > 0 ? (
           <div>
@@ -423,7 +498,7 @@ export default function Rooms() {
                 >
                   {aiPicks.map((room, index) => (
                     <motion.div key={room.id} variants={cardItem} custom={index}>
-                      <RoomCard room={room} filters={filters} discountRooms={discountRooms} isApproved={isApproved} offerDiscount={offerFor(room)} />
+                      <RoomCard room={room} filters={filters} discountRooms={discountRooms} isApproved={isApproved} offerDiscount={offerFor(room)} quote={quoteMap[room.id] ?? null} />
                     </motion.div>
                   ))}
                 </motion.div>
@@ -451,7 +526,7 @@ export default function Rooms() {
                 >
                   {belowRooms.map((room, index) => (
                     <motion.div key={room.id} variants={cardItem} custom={index}>
-                      <RoomCard room={room} filters={filters} discountRooms={discountRooms} isApproved={isApproved} offerDiscount={offerFor(room)} />
+                      <RoomCard room={room} filters={filters} discountRooms={discountRooms} isApproved={isApproved} offerDiscount={offerFor(room)} quote={quoteMap[room.id] ?? null} />
                     </motion.div>
                   ))}
                 </motion.div>
@@ -497,13 +572,14 @@ export default function Rooms() {
               >
                 {suggestedRooms.map((room, index) => (
                   <motion.div key={room.id} variants={cardItem} custom={index}>
-                    <RoomCard room={room} filters={filters} discountRooms={discountRooms} isApproved={isApproved} offerDiscount={offerFor(room)} />
+                    <RoomCard room={room} filters={filters} discountRooms={discountRooms} isApproved={isApproved} offerDiscount={offerFor(room)} quote={quoteMap[room.id] ?? null} />
                   </motion.div>
                 ))}
               </motion.div>
             )}
           </div>
         )}
+        </SkeletonRegion>
           </div>
         </div>
       </div>

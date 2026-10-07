@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react"
 import { useSearchParams } from "react-router"
-import { TrendingUp, Brain, BarChart3, Calendar, Star, AlertTriangle } from "lucide-react"
+import { TrendingUp, Calendar, Star, AlertTriangle } from "lucide-react"
 import { cn } from "@/lib/utils"
 import DemandForecastChart from "@/components/admin/DemandForecastChart"
 import RevenueForecast from "@/components/admin/RevenueForecast"
@@ -9,7 +9,6 @@ import SeasonalChart from "@/components/admin/SeasonalChart"
 import RoomPerformance from "@/components/admin/RoomPerformance"
 import InsightCard from "@/components/admin/InsightCard"
 import AIInsightCards from "@/components/admin/AIInsightCards"
-import AiAbout from "@/components/admin/AiAbout"
 import {
   getSeasonalData,
   getRoomPerformance,
@@ -18,6 +17,7 @@ import {
   getRevenueForecast,
   getDiscountOffers,
   getAIRecommendations,
+  getForecastAccuracy,
   getRooms,
   type SeasonalData,
   type RoomPerformanceData,
@@ -25,31 +25,31 @@ import {
   type ForecastPoint,
   type DiscountOfferData,
   type RecommendationsData,
+  type ForecastAccuracyData,
 } from "@/services/adminService"
 import type { AdminRoom } from "@/data/admin"
 import type { DiscountRoom } from "@/lib/discountEngine"
+import { Skeleton, SkeletonRegion } from "@/components/ui/skeleton"
+import { useMinSkeleton } from "@/hooks/useMinSkeleton"
 
 type TabId = "forecast" | "discounts" | "stats"
 
 const TAB_IDS: TabId[] = ["forecast", "discounts", "stats"]
 
-const tabs: { id: TabId; label: string; icon: React.ReactNode; desc: string }[] = [
+const tabs: { id: TabId; label: string; desc: string }[] = [
   {
     id: "forecast",
     label: "Smart Forecast",
-    icon: <TrendingUp className="h-4 w-4" />,
     desc: "See how full the hotel will be and expected revenue for the coming months.",
   },
   {
     id: "discounts",
     label: "Discounts",
-    icon: <Brain className="h-4 w-4" />,
-    desc: "Holiday promos and scheduled price cuts — approve, activate, or dismiss here.",
+    desc: "Holiday promos and scheduled price cuts. Approve, activate, or dismiss here.",
   },
   {
     id: "stats",
     label: "Hotel Stats",
-    icon: <BarChart3 className="h-4 w-4" />,
     desc: "Seasonal trends, room performance, and key takeaways from your bookings.",
   },
 ]
@@ -60,10 +60,6 @@ const insightIcons = [
   <TrendingUp key="trend" className="w-4 h-4" />,
   <AlertTriangle key="warn" className="w-4 h-4" />,
 ]
-
-function Skeleton({ className }: { className?: string }) {
-  return <div className={cn("bg-white rounded-[6px] border border-[#e2e4e8] animate-pulse", className)} />
-}
 
 function ErrorBox({ onRetry }: { onRetry: () => void }) {
   return (
@@ -95,6 +91,7 @@ export default function AIAssistant() {
   const [occForecast, setOccForecast] = useState<ForecastPoint[]>([])
   const [revForecast, setRevForecast] = useState<ForecastPoint[]>([])
   const [recommendations, setRecommendations] = useState<RecommendationsData | null>(null)
+  const [accuracy, setAccuracy] = useState<ForecastAccuracyData | null>(null)
 
   const [discLoading, setDiscLoading] = useState(false)
   const [discError, setDiscError] = useState(false)
@@ -121,11 +118,12 @@ export default function AIAssistant() {
     if (tab === "forecast" && !loaded.has("forecast")) {
       setFcLoading(true)
       setFcError(false)
-      void Promise.all([getOccupancyForecast(), getRevenueForecast(), getAIRecommendations()])
-        .then(([o, rv, reco]) => {
+      void Promise.all([getOccupancyForecast(), getRevenueForecast(), getAIRecommendations(), getForecastAccuracy()])
+        .then(([o, rv, reco, acc]) => {
           setOccForecast(o)
           setRevForecast(rv)
           setRecommendations(reco)
+          setAccuracy(acc)
         })
         .catch(() => setFcError(true))
         .finally(() => setFcLoading(false))
@@ -176,18 +174,18 @@ export default function AIAssistant() {
   const retryDiscounts = () => { setLoaded((p) => { const n = new Set(p); n.delete("discounts"); return n }); loadTab("discounts") }
   const retryStats = () => { setLoaded((p) => { const n = new Set(p); n.delete("stats"); return n }); loadTab("stats") }
 
+  // Skeletons stay at least 500ms; the section then fades in as one view.
+  const showFc = useMinSkeleton(fcLoading)
+  const showDisc = useMinSkeleton(discLoading)
+  const showStats = useMinSkeleton(perfLoading || insLoading)
+  const showIns = useMinSkeleton(insLoading)
+
   return (
     <div className="space-y-5">
       {/* Header */}
       <div>
-        <div className="flex items-center gap-2">
-          <h1 className="font-display text-2xl font-bold text-foreground">AI Assistant</h1>
-          <AiAbout
-            size="lg"
-            text="Your AI operations hub. Forecasts use historical booking data and fixed seasonal factors; demand-based discount suggestions and hotel stats are shown alongside the method and its limitations."
-          />
-        </div>
-        <p className="text-muted text-sm mt-1">Forecasts, price ideas, and hotel stats — in one place</p>
+        <h1 className="font-display text-2xl font-bold text-foreground">AI Assistant</h1>
+        <p className="text-muted text-sm mt-1">Forecasts, price ideas, and hotel stats in one place</p>
       </div>
 
       {/* Tabs */}
@@ -201,7 +199,6 @@ export default function AIAssistant() {
               activeTab === tab.id ? "text-[#82285f]" : "text-[#7A7A70] hover:text-[#1a1d26]"
             )}
           >
-            {tab.icon}
             {tab.label}
             {activeTab === tab.id && (
               <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#82285f]" />
@@ -215,54 +212,54 @@ export default function AIAssistant() {
 
       {/* ── Tab: Smart Forecast ─────────────────────────────── */}
       {activeTab === "forecast" && (
-        <div className="space-y-5">
+        <SkeletonRegion loading={showFc} className="space-y-5">
           {/* Summary strip — same shared panel as the Dashboard */}
           {fcError ? (
             <ErrorBox onRetry={retryForecast} />
           ) : (
             <AIInsightCards
               recommendations={recommendations}
-              loading={fcLoading}
+              loading={showFc}
               linkBase="/admin/ai"
             />
           )}
 
           {/* Charts */}
-          {fcLoading ? (
+          {showFc && !fcError ? (
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
               <Skeleton className="h-72" />
               <Skeleton className="h-72" />
             </div>
           ) : !fcError ? (
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-              <DemandForecastChart data={occForecast} loading={false} />
-              <RevenueForecast data={revForecast} loading={false} />
-            </div>
+<div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+               <DemandForecastChart data={occForecast} loading={false} accuracy={accuracy} />
+               <RevenueForecast data={revForecast} loading={false} accuracy={accuracy} />
+             </div>
           ) : null}
-        </div>
+        </SkeletonRegion>
       )}
 
       {/* ── Tab: Discounts ──────────────────────────────────── */}
       {activeTab === "discounts" && (
-        <div className="space-y-5">
+        <SkeletonRegion loading={showDisc} className="space-y-5">
           {discError ? (
             <ErrorBox onRetry={retryDiscounts} />
           ) : (
-            <DiscountOffers offers={discountOffers} rooms={discountRooms} loading={discLoading} />
+            <DiscountOffers offers={discountOffers} rooms={discountRooms} loading={showDisc} />
           )}
-        </div>
+        </SkeletonRegion>
       )}
 
       {/* ── Tab: Hotel Stats ────────────────────────────────── */}
       {activeTab === "stats" && (
-        <div className="space-y-6">
-          {(perfLoading || insLoading) ? (
+        <SkeletonRegion loading={showStats} className="space-y-6">
+          {perfError ? (
+            <ErrorBox onRetry={retryStats} />
+          ) : showStats ? (
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
               <Skeleton className="h-72" />
               <Skeleton className="h-72" />
             </div>
-          ) : perfError ? (
-            <ErrorBox onRetry={retryStats} />
           ) : (
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
               <SeasonalChart data={seasonalData} loading={false} />
@@ -272,7 +269,7 @@ export default function AIAssistant() {
 
           {insError ? (
             <ErrorBox onRetry={retryStats} />
-          ) : insLoading ? (
+          ) : showIns ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
               {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-24" />)}
             </div>
@@ -290,10 +287,10 @@ export default function AIAssistant() {
             </div>
           ) : (
             <div className="bg-white rounded-[6px] border border-[#e2e4e8] p-6 text-center">
-              <p className="text-sm text-muted">No key insights yet — needs more booking data.</p>
+              <p className="text-sm text-muted">No key insights yet. Needs more booking data.</p>
             </div>
           )}
-        </div>
+        </SkeletonRegion>
       )}
     </div>
   )

@@ -19,9 +19,9 @@ interface SeasonalChartProps {
 export default function SeasonalChart({ data, loading }: SeasonalChartProps) {
   if (loading) {
     return (
-      <div className="bg-white rounded-[6px] border border-[#e2e4e8] p-6 animate-pulse">
-        <div className="h-5 w-36 bg-[#f0f1f3] rounded mb-4" />
-        <div className="h-[320px] bg-[#f0f1f3] rounded" />
+      <div className="bg-white rounded-[6px] border border-[#e2e4e8] p-6">
+        <div className="h-5 w-36 skeleton rounded mb-4" />
+        <div className="h-[320px] skeleton rounded" />
       </div>
     )
   }

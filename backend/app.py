@@ -13,6 +13,7 @@ import ipaddress
 import jwt as pyjwt
 import uuid
 import time
+import threading
 import secrets
 import requests as http_requests
 from urllib.parse import quote
@@ -198,9 +199,11 @@ def balance_due(amount_paid, total_price):
 # ── Check-in / "In-house" state ────────────────────────────────────────────────
 # The front desk stamps checked_in_at after scanning the guest's QR. Whether the
 # stay is actually RUNNING is derived from the clock against the booking's start
-# moment — this server has no scheduler (auto_complete_bookings is a POST that
-# only runs when someone opens a page), so everything below is evaluated on read
-# and the state flips by itself when the booked time arrives.
+# moment — this server has no scheduler, so everything below is evaluated on read
+# and the state flips by itself when the booked time arrives. Status writes come
+# from _maybe_auto_complete(), which every API request runs (throttled, via
+# before_request) so a stay past its checkout time completes even when nobody
+# has the app open.
 
 HOTEL_TZ = ZoneInfo("Asia/Manila")
 
@@ -262,9 +265,10 @@ def check_in_moment(b):
 
 
 def stay_end_moment(b):
-    """(date, minutes-past-midnight) the stay ends. Mirrors auto_complete's rule:
-    overnight ends at midnight of the day AFTER check_out, a day-use stay ends
-    when its duration runs out. (None, 0) = nothing to end on."""
+    """(date, minutes-past-midnight) the arrival-state grace window closes.
+    Overnight runs to midnight of the day AFTER check_out, a day-use stay ends
+    when its duration runs out. (None, 0) = nothing to end on. Auto-complete
+    uses scheduled_checkout_moment (the due-out time) instead."""
     if stay_type_of(b) == "day":
         if not b.get("start_time") or not b.get("duration"):
             return None, 0
@@ -281,16 +285,22 @@ def scheduled_checkout_moment(b):
     """(date, minutes) the guest is DUE to leave, in hotel time.
 
     Day-use stays end when their duration runs out; overnight stays end at
-    noon on the checkout date (DEFAULT_CHECK_OUT_TIME). Departures/overdue on
-    the dashboard use this clock — stay_end_moment is the auto-complete clock
-    (midnight after checkout) and must not drift with it.
+    noon on the checkout date (DEFAULT_CHECK_OUT_TIME) plus any paid
+    late-checkout hours stored in extended_hours (mirrors checkoutMomentLabel
+    in arrival.ts). Departures/overdue on the dashboard and the auto-complete
+    sweep use this clock — stay_end_moment is only the arrival-state grace
+    window (midnight after checkout) and must not drift with it.
     """
     if stay_type_of(b) == "day":
         return stay_end_moment(b)
     out = _as_date(b.get("check_out"))
     if out is None:
         return None, 0
-    return out, parse_clock(DEFAULT_CHECK_OUT_TIME, 12 * 60) or (12 * 60)
+    due = (parse_clock(DEFAULT_CHECK_OUT_TIME, 12 * 60) or (12 * 60)) \
+        + max(0, _as_minutes(b.get("extended_hours"))) * 60
+    if due >= 24 * 60:  # a long extension can push past midnight
+        return out + timedelta(days=1), due - 24 * 60
+    return out, due
 
 
 def arrival_state(b, now=None):
@@ -3296,9 +3306,14 @@ def _parse_extend_marker(payment_method):
 
 def apply_extension_fields(b, hours):
     """Field updates for a paid extension. check_out is never touched —
-    extension hours live in duration (day: total hours, overnight: extra hours)."""
+    extension hours live in duration (day: total hours, overnight: extra hours).
+    extended_hours/extended_at are the visible "was extended" record."""
     new_duration = int(b.get("duration") or 0) + hours
-    fields = {"duration": new_duration}
+    fields = {
+        "duration": new_duration,
+        "extended_hours": int(b.get("extended_hours") or 0) + hours,
+        "extended_at": hotel_now().isoformat(),
+    }
     if (b.get("stay_type") or "overnight") == "day":
         fields["stays"] = f"{new_duration} Hours"
     return fields
@@ -3507,9 +3522,9 @@ def _approved_discount_keys() -> set:
     return keys
 
 
-def _engine_discount_percent(room: dict, now=None) -> int | None:
-    """Approved holiday-engine discount for today, or None. Same event table,
-    date window, hash and approval gate the frontend engine uses."""
+def _engine_discount(room: dict, now=None):
+    """(percent, event) for today's approved holiday discount, or (None, None).
+    Same event table, date window, hash and approval gate the frontend engine uses."""
     now = now or hotel_now()
     month, day = now.month, now.day
     date_val = month * 100 + day
@@ -3525,16 +3540,37 @@ def _engine_discount_percent(room: dict, now=None) -> int | None:
         if f'{ev["name"]}-{category}' not in approved:
             continue
         lo, hi = ev["discountRange"]
-        return lo + _js_hash(f'{ev["name"]}-{room["id"]}-{month}') % (hi - lo + 1)
-    return None
+        return lo + _js_hash(f'{ev["name"]}-{room["id"]}-{month}') % (hi - lo + 1), ev
+    return None, None
 
 
-def _active_offer_rate(room: dict, check_in: str):
-    """Discounted nightly rate from a scheduled AI offer the admin switched on
-    (status=active, room type match, check-in inside the validity window)."""
+def _engine_discount_percent(room: dict, now=None) -> int | None:
+    """Approved holiday-engine discount for today, or None."""
+    pct, _ = _engine_discount(room, now)
+    return pct
+
+
+def _event_window(ev: dict, today: date | None = None) -> tuple[date, date]:
+    """ISO start/end of an event's next occurrence: this year, or next year when
+    this year's window already ended (mirrors getUpcomingDiscounts + rolls over)."""
+    today = today or hotel_now().date()
+    year = today.year
+    start = date(year, ev["startMonth"], ev["startDay"])
+    end = date(year, ev["endMonth"], ev["endDay"])
+    if end < today:
+        year += 1
+        start = date(year, ev["startMonth"], ev["startDay"])
+        end = date(year, ev["endMonth"], ev["endDay"])
+    return start, end
+
+
+def _effective_rate(room, check_in):
+    """The one pricing decision — (rate, discount). Live admin offer > approved
+    holiday discount > full rate; discount carries what the UI needs to label it."""
+    full = int(room.get("price") or 0)
     try:
         for o in _build_discount_offers():
-            if o.get("status") != "active":
+            if o.get("status") != "live":
                 continue
             if o.get("roomType") != room.get("type"):
                 continue
@@ -3544,46 +3580,129 @@ def _active_offer_rate(room: dict, check_in: str):
                 continue
             rate = o.get("discountedRate")
             if rate:
-                return int(rate)
+                return int(rate), {
+                    "source": "offer",
+                    "name": o.get("name") or "AI offer",
+                    "percent": o.get("discountPercent"),
+                    "validFrom": o.get("validFrom"),
+                    "validTo": o.get("validTo"),
+                }
     except Exception as e:
         print(f"active offer pricing skipped: {e}")
-    return None
+    pct, ev = _engine_discount(room)
+    if pct:
+        eff = int(full * (1 - pct / 100) + 0.5)  # JS Math.round
+        today = hotel_now().date()
+        start, end = _event_window(ev, today)
+        return eff, {
+            "source": "holiday",
+            "name": ev["name"],
+            "percent": pct,
+            "validFrom": start.isoformat(),
+            "validTo": end.isoformat(),
+        }
+    return full, None
 
 
-def _compute_booking_total(room, stay_type, duration, check_in, check_out) -> int:
-    """Server-authoritative booking total: [active offer] > [approved holiday
-    discount] > full rate; day-use prorates per 24h, overnight = rate × nights;
-    +12% tax — exactly the math Booking.tsx / RoomDetail.tsx display."""
-    eff = int(room.get("price") or 0)
-    offer_rate = _active_offer_rate(room, check_in)
-    if offer_rate is not None:
-        eff = offer_rate
-    else:
-        pct = _engine_discount_percent(room)
-        if pct:
-            eff = int(eff * (1 - pct / 100) + 0.5)  # JS Math.round
-
+def _stay_subtotal(room, stay_type, duration, check_in, check_out, eff: int) -> int:
+    """Pre-tax price for the stay/package at the effective rate. Promos apply to
+    day-use too: an admin day rate carries the same discount ratio (eff ÷ full
+    price) the overnight rate carries; without one it prorates per 24h."""
     if stay_type == "day":
         hours = int(duration or 0)
         day_base = room.get(f"day_use_{hours}h")
         if day_base not in (None, ""):
-            # Admin-set day rate; offers/holiday discounts apply at the same
-            # ratio the overnight rate carries (eff ÷ full price).
             base = int(day_base)
             price_full = int(room.get("price") or 0)
             if price_full > 0 and eff != price_full:
                 base = int(base * (eff / price_full) + 0.5)  # JS Math.round
-            subtotal = max(1, base)
-        else:
-            subtotal = max(1, int(eff * (hours / 24) + 0.5))  # JS Math.round(price * (hours/24))
-    else:
-        try:
-            nights = (datetime.strptime(check_out, "%Y-%m-%d")
-                      - datetime.strptime(check_in, "%Y-%m-%d")).days
-        except Exception:
-            nights = 1
-        subtotal = eff * max(1, nights)
+            return max(1, base)
+        return max(1, int(eff * (hours / 24) + 0.5))  # JS Math.round(price * (hours/24))
+    try:
+        nights = (datetime.strptime(check_out, "%Y-%m-%d")
+                  - datetime.strptime(check_in, "%Y-%m-%d")).days
+    except Exception:
+        nights = 1
+    return eff * max(1, nights)
+
+
+def _compute_booking_total(room, stay_type, duration, check_in, check_out) -> int:
+    """Server-authoritative booking total: [live offer] > [approved holiday
+    discount] > full rate; day-use prorates per 24h, overnight = rate × nights;
+    +12% tax — exactly the math Booking.tsx / RoomDetail.tsx display. Existing
+    bookings keep the total stored at creation; this only prices new ones."""
+    eff, _ = _effective_rate(room, check_in)
+    subtotal = _stay_subtotal(room, stay_type, duration, check_in, check_out, eff)
     return subtotal + int(subtotal * 0.12 + 0.5)  # JS Math.round(subtotal * 0.12)
+
+
+@app.route("/api/rooms/quotes", methods=["POST"])
+def quote_rooms():
+    """Backend-computed prices for the Rooms grid, room details and checkout —
+    the same math create_booking charges, so guest displays can never drift
+    from the server. Promos apply to day-use at the same ratio (day_rates shows
+    every configured package). Public: guests browse before signing in."""
+    data = request.get_json() or {}
+    stay_type = "day" if str(data.get("stay_type") or "").lower() == "day" else "overnight"
+    duration = data.get("duration")
+    check_in = str(data.get("check_in") or "")[:10] or today_str()
+    check_out = str(data.get("check_out") or "")[:10] or None
+    room_ids = data.get("room_ids")
+
+    try:
+        rooms = supabase.table("rooms").select("*").execute().data or []
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    if isinstance(room_ids, list) and room_ids:
+        wanted = {str(r) for r in room_ids}
+        rooms = [r for r in rooms if str(r.get("id")) in wanted]
+    if stay_type != "day" and not check_out:
+        check_out = (datetime.strptime(check_in, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+
+    out = []
+    for room in rooms:
+        rate, discount = _effective_rate(room, check_in)
+        subtotal = _stay_subtotal(room, stay_type, duration, check_in, check_out, rate)
+        tax = int(subtotal * 0.12 + 0.5)
+        item = {
+            "room_id": room.get("id"),
+            "room_type": room.get("type"),
+            "stay_type": stay_type,
+            "check_in": check_in,
+            "base_rate": int(room.get("price") or 0),
+            "rate": rate,
+            "discount": discount,
+            "subtotal": subtotal,
+            "tax": tax,
+            "total": subtotal + tax,
+        }
+        if stay_type == "day":
+            item["check_out"] = None
+            item["hours"] = int(duration or 0) or None
+            item["nights"] = None
+            price_full = int(room.get("price") or 0)
+            day_rates = {}
+            for key, val in room.items():
+                if not key.startswith("day_use_") or val in (None, ""):
+                    continue
+                try:
+                    amount = int(float(val))
+                except (TypeError, ValueError):
+                    continue
+                if price_full > 0 and rate != price_full:
+                    amount = int(amount * (rate / price_full) + 0.5)
+                day_rates[key] = amount
+            item["day_rates"] = day_rates
+        else:
+            item["check_out"] = check_out
+            try:
+                item["nights"] = max(1, days_between(check_in, check_out))
+            except Exception:
+                item["nights"] = 1
+            item["hours"] = None
+            item["day_rates"] = None
+        out.append(item)
+    return jsonify(out), 200
 
 
 @app.route("/api/bookings", methods=["POST"])
@@ -3891,6 +4010,8 @@ def get_my_bookings():
                 "duration": b.get("duration"),
                 "start_time": b.get("start_time"),
                 "end_time": end_time,
+                "extended_hours": b.get("extended_hours", 0),
+                "extended_at": b.get("extended_at"),
                 "reviewed": b["id"] in review_by_booking,
                 "rating": (review_by_booking.get(b["id"]) or {}).get("rating"),
             }
@@ -3993,6 +4114,8 @@ def get_booking(booking_id):
             "payment_intent": payment_intent,
             "payment_status": payment_status,
             "qr_data": qr_data,
+            "extended_hours": b.get("extended_hours", 0),
+            "extended_at": b.get("extended_at"),
         }), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -4003,8 +4126,9 @@ def verify_booking(booking_code):
     """Public, front-desk endpoint: resolve a guest's QR code to a booking.
 
     The QR encodes the full booking UUID; the short #ABC12345 code printed on
-    receipts also works (matched by prefix). Returns only what staff need to
-    match the person in front of them — no contact details, no money.
+    receipts also works (matched by prefix). Returns what the desk needs to
+    match the person in front of them — resolved guest name, stay window,
+    guest breakdown, and payment state.
     """
     code = (booking_code or "").strip().lower().lstrip("#")
     if not code:
@@ -4042,16 +4166,38 @@ def verify_booking(booking_code):
             return jsonify({"error": "Booking not found"}), 404
 
         b = rows[0]
-        room_res = supabase_admin.table("rooms").select("name, type") \
+        room_res = supabase_admin.table("rooms").select("name, type, images") \
             .eq("id", b.get("room_id") or "").execute()
         room = room_res.data[0] if room_res.data else {}
+
+        # Who is standing at the desk: booking name first, then the account's.
+        # No account → "Former Guest"; an account without a name → its email.
+        uid = b.get("user_id")
+        user = {}
+        if uid:
+            try:
+                ures = supabase_admin.table("users").select("name, email") \
+                    .eq("id", uid).limit(1).execute()
+                user = (ures.data or [{}])[0] or {}
+            except Exception:
+                user = {}
+        email = b.get("email") or user.get("email") or ""
+        guest_name = b.get("full_name") or user.get("name") \
+            or ("Former Guest" if not uid else (email or "Guest"))
 
         return jsonify({
             "id": b["id"],
             "reference": (b["id"] or "")[:8].upper(),
             "status": b.get("status") or "",
+            "guest_name": guest_name,
+            "email": email,
+            "phone": b.get("phone") or "",
+            "adults": b.get("adults"),
+            "children": b.get("children"),
+            "pets": b.get("pets"),
             "room_name": room.get("name", "Unknown"),
             "room_type": room.get("type", ""),
+            "room_image": (room.get("images") or [""])[0] or "",
             "check_in": b.get("check_in"),
             "check_out": b.get("check_out"),
             "stay_type": b.get("stay_type") or "overnight",
@@ -4144,11 +4290,7 @@ def cancel_booking(booking_id):
         invalidate_cache("bookings")
 
         if refund_ok:
-            msg = (
-                f"Your booking has been cancelled. A refund of "
-                f"₱{refund_amount:,.0f} has been initiated to your original "
-                f"payment method and should arrive within 7–14 banking days."
-            )
+            msg = "Your booking has been cancelled successfully."
         elif refund_amount > 0:
             msg = (
                 "Your booking has been cancelled. Because this was within 24 "
@@ -4167,6 +4309,22 @@ def cancel_booking(booking_id):
             msg = "Your booking has been cancelled successfully."
 
         create_notification(user_id, "booking", "Booking Cancelled", msg, booking_id=booking_id)
+        # The refund gets its own notification with the money + ETA spelled out,
+        # so it doesn't hide inside the cancellation text — and the desk hears
+        # about every paid cancellation either way.
+        if refund_ok:
+            create_notification(user_id, "booking", "Refund Processed",
+                f"A refund of ₱{refund_amount:,.0f} for booking #{booking_id[:8]} "
+                f"has been initiated to your original payment method and should "
+                f"arrive within 7–14 banking days.",
+                booking_id=booking_id)
+            notify_admins("booking", "Booking Cancelled",
+                f"Guest cancelled booking #{booking_id[:8]} — refund of "
+                f"₱{refund_amount:,.0f} initiated.", booking_id=booking_id)
+        elif refund_amount > 0:
+            notify_admins("booking", "Booking Cancelled",
+                f"Guest cancelled booking #{booking_id[:8]} within 24 hours of "
+                f"check-in — no refund issued.", booking_id=booking_id)
         return jsonify({
             "status": "cancelled",
             "refunded": refund_ok,
@@ -4242,6 +4400,8 @@ def extend_booking(booking_id):
             return jsonify({"error": "Forbidden"}), 403
         if b["status"] != "confirmed":
             return jsonify({"error": "Only confirmed bookings can be extended"}), 400
+        if int(b.get("extended_hours") or 0) > 0:
+            return jsonify({"error": "This stay has already been extended — each booking can only be extended once."}), 400
 
         start, end = _stay_window(b)
         if _now_naive() >= end:
@@ -4344,6 +4504,9 @@ def confirm_booking_extension(booking_id):
         create_notification(user_id, "booking", "Stay Extended",
             f"Your stay at {room_name} has been extended by {hours} hour{'s' if hours > 1 else ''}.",
             booking_id=booking_id)
+        notify_admins("booking", "Stay Extended",
+            f"{room_name} extended by {hours} hour{'s' if hours > 1 else ''} "
+            f"for booking #{booking_id[:8]}.", booking_id=booking_id)
 
         updated_end = end + timedelta(hours=hours)
         return jsonify({
@@ -4424,6 +4587,9 @@ def settle_booking_balance(booking_id):
                 create_notification(b["user_id"], "booking", "Booking Confirmed",
                     f"Payment received at the front desk — your booking for {room_name} on {b.get('check_in', '')} is confirmed!",
                     booking_id=booking_id)
+        notify_admins("booking", "Balance Settled",
+            f"Balance settled for {room_name} on {b.get('check_in', '')} — "
+            f"booking #{booking_id[:8]} is fully paid.", booking_id=booking_id)
 
         # NOTE: do NOT touch rooms.available here. That flag is the maintenance
         # toggle — clearing it hides the room from /api/rooms/public and shows
@@ -4519,6 +4685,10 @@ def check_in_booking(booking_id):
                 create_notification(b["user_id"], "booking", "You're Checked In",
                     f"Welcome! Your stay at {room_name} is now in progress. Enjoy your visit.",
                     booking_id=booking_id)
+        if created:
+            notify_admins("booking", "Guest Checked In",
+                f"{room_name} — arrival recorded ({state}) for booking "
+                f"#{booking_id[:8]}.", booking_id=booking_id)
 
         return jsonify({
             "booking_id": booking_id,
@@ -4598,6 +4768,8 @@ def get_bookings():
                 "checked_in_at": b.get("checked_in_at"), "refunded_at": b.get("refunded_at"),
                 "arrival_state": arrival_state(b),
                 "cancellation_reason": b.get("cancellation_reason"),
+                "extended_hours": b.get("extended_hours", 0),
+                "extended_at": b.get("extended_at"),
             })
 
         return jsonify(result), 200
@@ -4605,90 +4777,340 @@ def get_bookings():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/bookings/auto-complete", methods=["POST"])
-def auto_complete_bookings():
-    """Auto-complete NO-SHOW confirmed bookings past their end, and auto-cancel
-    unpaid bookings past their date. Checked-in guests are skipped — they are
-    closed only by an explicit checkout (PUT /api/bookings/<id>/status).
+def _run_auto_complete():
+    """Auto-complete confirmed bookings past their scheduled checkout time (no-shows
+    AND checked-in guests — a stay that is due out flips to completed on its own),
+    and auto-cancel unpaid bookings past their date.
 
     The clock is Asia/Manila: start/end times are stored as the guest's local
     wall-clock ("10:00 AM", "2:00 PM"), so judging them against UTC would close
     day-use stays 8 hours early and roll overnight stays over at 8 AM.
     """
-    try:
-        now = hotel_now()
-        today = now.date()
-        today_s = today.isoformat()
+    now = hotel_now()
+    today = now.date()
+    today_s = today.isoformat()
 
-        # Fetch both candidate sets + rooms in 3 calls instead of N+1 per row.
-        # Service-role: this cron has no user JWT — RLS would block under anon.
-        confirmed_res = supabase_admin.table("bookings").select("*").eq("status", "confirmed").execute()
-        confirmed = confirmed_res.data or []
-        pending_res = supabase_admin.table("bookings").select("*").eq("status", "pending").execute()
-        pending = pending_res.data or []
-        rooms_res = supabase_admin.table("rooms").select("id, name").execute()
-        rooms_by_id = {r["id"]: r["name"] for r in (rooms_res.data or [])}
+    # Fetch both candidate sets + rooms in 3 calls instead of N+1 per row.
+    # Service-role: this cron has no user JWT — RLS would block under anon.
+    confirmed_res = supabase_admin.table("bookings").select("*").eq("status", "confirmed").execute()
+    confirmed = confirmed_res.data or []
+    pending_res = supabase_admin.table("bookings").select("*").eq("status", "pending").execute()
+    pending = pending_res.data or []
+    rooms_res = supabase_admin.table("rooms").select("id, name").execute()
+    rooms_by_id = {r["id"]: r["name"] for r in (rooms_res.data or [])}
 
-        def room_name(b):
-            rid = b.get("room_id")
-            return rooms_by_id.get(rid, "your room") if rid else "your room"
+    def room_name(b):
+        rid = b.get("room_id")
+        return rooms_by_id.get(rid, "your room") if rid else "your room"
 
-        def stay_has_ended(b):
-            end_day, end_minutes = stay_end_moment(b)
-            if end_day is None:
-                return False
-            if today > end_day:
-                return True
-            return today == end_day and now.hour * 60 + now.minute >= end_minutes
+    def stay_has_ended(b):
+        # Scheduled checkout time (noon / day-use end + late hours) — the same
+        # clock the UI shows as "you have to be out by", so a booking the guest
+        # already saw as past-due completes instead of sitting on Confirmed.
+        end_day, end_minutes = scheduled_checkout_moment(b)
+        if end_day is None:
+            return False
+        if today > end_day:
+            return True
+        return today == end_day and now.hour * 60 + now.minute >= end_minutes
 
-        completed_ids = []
-        for b in confirmed:
-            # A guest who actually checked in is NEVER auto-closed — the stay
-            # stays confirmed (in-house / overdue on the dashboard) until an
-            # explicit checkout via PUT /status (which sends the review request).
+    completed_ids = []
+    for b in confirmed:
+        if not stay_has_ended(b):
+            continue
+
+        result = supabase_admin.table("bookings").update({"status": "completed"}).eq("id", b["id"]).eq("status", "confirmed").execute()
+        # Only notify if the status actually changed (prevents duplicates on repeated calls)
+        if result.data:
+            completed_ids.append(b["id"])
+            create_notification(b["user_id"], "booking", "Stay Completed",
+                f"Your stay at {room_name(b)} has been marked as completed. We hope to see you again!",
+                booking_id=b["id"])
+            # Ask for a review right after the stay wraps up — but only for
+            # stays the guest actually checked in to (a no-show can't rate it)
             if b.get("checked_in_at"):
-                continue
-            if not stay_has_ended(b):
-                continue
-
-            result = supabase_admin.table("bookings").update({"status": "completed"}).eq("id", b["id"]).eq("status", "confirmed").execute()
-            # Only notify if the status actually changed (prevents duplicates on repeated calls)
-            if result.data:
-                completed_ids.append(b["id"])
-                create_notification(b["user_id"], "booking", "Stay Completed",
-                    f"Your stay at {room_name(b)} has been marked as completed. We hope to see you again!",
+                create_notification(b["user_id"], "review", "How was your stay?",
+                    f"Rate {room_name(b)} and share your experience with other guests.",
                     booking_id=b["id"])
-                # Ask for a review right after the stay wraps up — but only for
-                # stays the guest actually checked in to (a no-show can't rate it)
-                if b.get("checked_in_at"):
-                    create_notification(b["user_id"], "review", "How was your stay?",
-                        f"Rate {room_name(b)} and share your experience with other guests.",
-                        booking_id=b["id"])
 
-        cancelled_ids = []
-        for b in pending:
-            check_in = b.get("check_in", "")
-            if check_in and check_in < today_s:
-                result = _update_booking_fields(
-                    lambda f: supabase_admin.table("bookings").update(f).eq("id", b["id"]).eq("status", "pending"),
-                    {"status": "cancelled",
-                     "cancellation_reason": "Auto-cancelled — payment not received"})
-                if result.data:
-                    cancelled_ids.append(b["id"])
-                    create_notification(b["user_id"], "booking", "Booking Expired",
-                        f"Your unpaid booking for {room_name(b)} has been automatically cancelled.",
-                        booking_id=b["id"])
+    cancelled_ids = []
+    for b in pending:
+        check_in = b.get("check_in", "")
+        if check_in and check_in < today_s:
+            result = _update_booking_fields(
+                lambda f: supabase_admin.table("bookings").update(f).eq("id", b["id"]).eq("status", "pending"),
+                {"status": "cancelled",
+                 "cancellation_reason": "Auto-cancelled — payment not received"})
+            if result.data:
+                cancelled_ids.append(b["id"])
+                create_notification(b["user_id"], "booking", "Booking Expired",
+                    f"Your unpaid booking for {room_name(b)} has been automatically cancelled.",
+                    booking_id=b["id"])
 
-        if completed_ids or cancelled_ids:
+    if completed_ids or cancelled_ids:
+        invalidate_cache("dash-")
+        invalidate_cache("analytics-")
+        invalidate_cache("ai-reco")
+        invalidate_cache("bookings")
+
+    return {"completed": len(completed_ids), "cancelled": len(cancelled_ids)}
+
+
+# ── Lazy cron ──────────────────────────────────────────────────────────────────
+# No scheduler in this server, so EVERY API request runs the sweep (throttled):
+# stays complete, unpaid bookings expire, extensions apply and reminders fire
+# without an admin opening anything. DB-only work runs inline (so the very list
+# you open is already fresh); PayMongo checks run in a background thread so no
+# request ever waits on the network.
+_AUTO_COMPLETE_LAST = 0.0
+_AUTO_COMPLETE_TTL = 15  # seconds
+_PAY_SWEEP_LAST = 0.0
+_PAY_SWEEP_TTL = 60  # seconds — each row costs a PayMongo API call
+
+
+def _reminder_sent(user_id, booking_id, title) -> bool:
+    """True when this booking already got this reminder (fail closed: a lookup
+    error must never turn into a duplicate notification). booking_id=None
+    dedupes account-level reminders (they carry no booking)."""
+    try:
+        q = supabase_admin.table("notifications").select("id") \
+            .eq("user_id", user_id).eq("title", title)
+        q = q.eq("booking_id", booking_id) if booking_id else q.is_("booking_id", "null")
+        res = q.limit(1).execute()
+        return bool(res.data)
+    except Exception:
+        return True
+
+
+def _send_due_reminders():
+    """One-time nudges the guest and the desk shouldn't have to remember by
+    hand: check-in is tomorrow, check-in is within two hours, a balance is
+    still open before arrival, a stay is due out today, an unpaid booking is
+    about to expire, and an account is scheduled for deletion. Every title is
+    deduped per booking by _reminder_sent, so a repeated sweep never doubles."""
+    now = hotel_now()
+    today = now.date()
+    today_s = today.isoformat()
+    tomorrow_s = (today + timedelta(days=1)).isoformat()
+    horizon_s = (today + timedelta(days=7)).isoformat()
+    now_min = now.hour * 60 + now.minute
+
+    rows = supabase_admin.table("bookings").select(
+        "id, user_id, room_id, check_in, check_out, stay_type, start_time, "
+        "duration, extended_hours, status, checked_in_at, total_price, amount_paid"
+    ).eq("status", "confirmed").gte("check_in", today_s) \
+        .lte("check_in", horizon_s).execute().data or []
+    # In-house stays can have started long ago — pull them by check-in date too
+    # so the "checkout today" reminder still reaches a week-long guest.
+    in_house = supabase_admin.table("bookings").select(
+        "id, user_id, room_id, check_in, check_out, stay_type, start_time, "
+        "duration, extended_hours, status, checked_in_at"
+    ).eq("status", "confirmed").lte("check_in", today_s) \
+        .filter("checked_in_at", "not.is", "null").limit(100).execute().data or []
+    pending = supabase_admin.table("bookings").select(
+        "id, user_id, room_id, check_in, status"
+    ).eq("status", "pending").gte("check_in", today_s) \
+        .lte("check_in", tomorrow_s).execute().data or []
+    deleting = supabase_admin.table("users").select("id, scheduled_deletion_at") \
+        .filter("scheduled_deletion_at", "not.is", "null") \
+        .lte("scheduled_deletion_at", (now + timedelta(days=3)).isoformat()) \
+        .limit(50).execute().data or []
+
+    room_ids = list({r["room_id"] for r in rows + in_house + pending if r.get("room_id")})
+    rooms = supabase_admin.table("rooms").select("id, name").in_("id", room_ids).execute().data or [] \
+        if room_ids else []
+    room_names = {r["id"]: r["name"] for r in rooms}
+
+    def room_of(r):
+        return room_names.get(r.get("room_id"), "your room")
+
+    for r in rows:
+        room = room_of(r)
+        if not r.get("checked_in_at"):
+            # T-1: the day before, any hour — "your stay starts tomorrow".
+            if r.get("check_in") == tomorrow_s:
+                title = "Check-in tomorrow"
+                _, minutes = check_in_moment(r)
+                if not _reminder_sent(r["user_id"], r["id"], title):
+                    create_notification(r["user_id"], "booking", title,
+                        f"Your stay at {room} starts tomorrow at "
+                        f"{parse_clock_label(minutes) or '2:00 PM'}.",
+                        booking_id=r["id"])
+            # T-2h: within two hours of the start time (and up to two hours
+            # late for a guest running in) — this replaces the old blanket
+            # "stay starts today" so nobody gets two same-day nudges.
+            elif r.get("check_in") == today_s:
+                title = "Check-in soon"
+                day, minutes = check_in_moment(r)
+                delta = (day - today).days * 24 * 60 + (minutes - now_min)
+                if -120 < delta <= 120 and not _reminder_sent(r["user_id"], r["id"], title):
+                    create_notification(r["user_id"], "booking", title,
+                        f"Check-in for {room} is at "
+                        f"{parse_clock_label(minutes) or '2:00 PM'} today — "
+                        f"we can't wait to welcome you!",
+                        booking_id=r["id"])
+        # Balance reminder — a downpayment still short before check-in.
+        due = float(r.get("total_price") or 0) - float(r.get("amount_paid") or 0)
+        if due > 0:
+            title = "Balance due before check-in"
+            if not _reminder_sent(r["user_id"], r["id"], title):
+                try:
+                    due_s = f"{due:,.0f}"
+                except (TypeError, ValueError):
+                    due_s = str(due)
+                create_notification(r["user_id"], "booking", title,
+                    f"Your remaining balance of ₱{due_s} for {room} is due before "
+                    f"check-in on {r.get('check_in', '')}.",
+                    booking_id=r["id"])
+
+    for r in in_house:
+        # Due out today: one morning-of heads-up with the exact hour (noon, or
+        # later with paid late-checkout hours).
+        due_day, due_min = scheduled_checkout_moment(r)
+        if due_day is None or due_day != today or due_min <= 0:
+            continue
+        if now_min <= due_min - 240 or now_min > due_min:
+            continue
+        title = "Checkout today"
+        if not _reminder_sent(r["user_id"], r["id"], title):
+            create_notification(r["user_id"], "booking", title,
+                f"Your stay at {room_of(r)} ends today at "
+                f"{parse_clock_label(due_min) or '12:00 PM'}. "
+                f"Please settle any balances and check out by then.",
+                booking_id=r["id"])
+
+    for r in pending:
+        # Nudge before the auto-cancel sweep takes the unpaid booking.
+        title = "Payment pending"
+        if not _reminder_sent(r["user_id"], r["id"], title):
+            create_notification(r["user_id"], "booking", title,
+                f"Your booking for {room_of(r)} on {r.get('check_in', '')} is "
+                f"not yet paid. Complete payment to keep it — unpaid bookings "
+                f"are cancelled automatically.",
+                booking_id=r["id"])
+
+    for u in deleting:
+        title = "Account deletion scheduled"
+        if _reminder_sent(u["id"], None, title):
+            continue
+        raw = str(u.get("scheduled_deletion_at") or "")[:10]
+        try:
+            when = datetime.fromisoformat(raw.replace("Z", "+00:00")).strftime("%b %d, %Y")
+        except ValueError:
+            when = raw
+        create_notification(u["id"], "system", title,
+            f"Your account is scheduled for deletion on {when}. Sign in and "
+            f"cancel it from Account settings, or contact the front desk, if "
+            f"that wasn't you.")
+
+
+def _heal_payment_markers():
+    """Stuck payment markers PayMongo already knows the answer to — runs in the
+    background at most once a minute, one API call per stuck row.
+
+    - 'extend:<session>:<hours>:<orig>' — guest paid but the browser never came
+      back from the redirect, so the hours were never applied. Apply them now.
+    - 'awaiting:<session>' — the read-back after checkout was missed; swap the
+      real method in (was healed only when the guest themselves opened My
+      Bookings; now any reader triggers it)."""
+    # ── paid extensions ──
+    try:
+        ext_rows = supabase_admin.table("bookings").select("*") \
+            .like("payment_method", "extend:%").limit(25).execute().data or []
+    except Exception as e:
+        print(f"extend sweep query error: {e}")
+        ext_rows = []
+    for b in ext_rows:
+        marker = _parse_extend_marker(b.get("payment_method"))
+        if not marker:
+            continue
+        session_id, hours, orig_pm = marker
+        try:
+            if b.get("status") != "confirmed":
+                # Stay closed while the marker was pending — put the original
+                # method back so receipts/labels stop reading 'extend:...'
+                supabase_admin.table("bookings") \
+                    .update({"payment_method": orig_pm or "paymongo"}).eq("id", b["id"]).execute()
+                continue
+            attrs = fetch_paymongo_session(session_id)
+            paid, method = session_payment_info(attrs)
+            if not paid:
+                if attrs and attrs.get("status") in ("failed", "expired", "cancelled"):
+                    supabase_admin.table("bookings") \
+                        .update({"payment_method": orig_pm or "paymongo"}).eq("id", b["id"]).execute()
+                continue  # still awaiting payment — check again next minute
+            start, end = _stay_window(b)
+            if find_room_conflict(b["room_id"], start, end + timedelta(hours=hours), exclude_id=b["id"]):
+                continue  # paid but the gap is now too small — leave it for the desk
+            fields = apply_extension_fields(b, hours)
+            fields["payment_method"] = method or orig_pm or "paymongo"
+            supabase_admin.table("bookings").update(fields).eq("id", b["id"]).execute()
+            invalidate_cache("bookings")
             invalidate_cache("dash-")
             invalidate_cache("analytics-")
-            invalidate_cache("ai-reco")
-            invalidate_cache("bookings")
+            room_res = supabase_admin.table("rooms").select("name").eq("id", b["room_id"]).execute()
+            room_name = room_res.data[0]["name"] if room_res.data else "your room"
+            create_notification(b["user_id"], "booking", "Stay Extended",
+                f"Your stay at {room_name} has been extended by {hours} hour{'s' if hours != 1 else ''}.",
+                booking_id=b["id"])
+            notify_admins("booking", "Stay Extended",
+                f"{room_name} extended by {hours} hour{'s' if hours != 1 else ''} "
+                f"(auto-applied) for booking #{b['id'][:8]}.", booking_id=b["id"])
+            print(f"[extend sweep] applied {hours}h to booking {str(b.get('id'))[:8]}")
+        except Exception as e:
+            print(f"extend sweep error ({b.get('id')}): {e}")
 
-        return jsonify({
-            "completed": len(completed_ids),
-            "cancelled": len(cancelled_ids),
-        }), 200
+    # ── missed payment read-backs ──
+    try:
+        aw_rows = supabase_admin.table("bookings").select("id, payment_method") \
+            .eq("status", "confirmed").like("payment_method", "awaiting:%") \
+            .limit(25).execute().data or []
+    except Exception as e:
+        print(f"awaiting sweep query error: {e}")
+        aw_rows = []
+    for r in aw_rows:
+        try:
+            if resolve_pending_payment_method(r["id"], r["payment_method"]):
+                print(f"[awaiting sweep] resolved booking {str(r['id'])[:8]}")
+        except Exception as e:
+            print(f"awaiting sweep error ({r.get('id')}): {e}")
+
+
+def _maybe_auto_complete():
+    global _AUTO_COMPLETE_LAST, _PAY_SWEEP_LAST
+    now_t = time.time()
+    if now_t - _AUTO_COMPLETE_LAST >= _AUTO_COMPLETE_TTL:
+        _AUTO_COMPLETE_LAST = now_t  # stamp first so parallel requests don't stampede
+        try:
+            _run_auto_complete()
+        except Exception as e:
+            print(f"auto-complete sweep error: {e}")
+        try:
+            _send_due_reminders()
+        except Exception as e:
+            print(f"reminder sweep error: {e}")
+    if now_t - _PAY_SWEEP_LAST >= _PAY_SWEEP_TTL:
+        _PAY_SWEEP_LAST = now_t
+        try:
+            threading.Thread(target=_heal_payment_markers, daemon=True).start()
+        except Exception as e:
+            print(f"payment sweep spawn error: {e}")
+
+
+@app.before_request
+def _lazy_cron():
+    """The scheduler this server doesn't have: every request ticks the sweep."""
+    try:
+        _maybe_auto_complete()
+    except Exception:
+        pass
+
+
+@app.route("/api/bookings/auto-complete", methods=["POST"])
+def auto_complete_bookings():
+    """Manual trigger (the pages fire it on mount) — same sweep the reads run."""
+    try:
+        return jsonify(_run_auto_complete()), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -4710,12 +5132,15 @@ def update_booking_status(booking_id):
 
     try:
         # Verify booking exists and get user_id for notification
-        booking_res = supabase.table("bookings").select("id, room_id, check_in, user_id").eq("id", booking_id).execute()
+        booking_res = supabase.table("bookings").select("id, room_id, check_in, user_id, status").eq("id", booking_id).execute()
         if not booking_res.data:
             return jsonify({"error": "Booking not found"}), 404
 
         b = booking_res.data[0]
         booking_user_id = b.get("user_id")
+        # Re-sending the same status must not re-notify (a double-clicked
+        # "Confirm" or a repeated "Complete" used to stack duplicates).
+        status_changed = (b.get("status") or "") != new_status
 
         # Get room name for notification message
         room_name = "your room"
@@ -4739,8 +5164,8 @@ def update_booking_status(booking_id):
         invalidate_cache("ai-reco")
         invalidate_cache("bookings")
 
-        # Send notification to the booking's user
-        if booking_user_id:
+        # Send notification to the booking's user — only on a real transition.
+        if booking_user_id and status_changed:
             status_messages = {
                 "confirmed": ("Booking Confirmed", f"Your booking for {room_name} on {b.get('check_in', '')} is confirmed!"),
                 "cancelled": ("Booking Cancelled",
@@ -5238,23 +5663,20 @@ def update_review(review_id):
 
 @app.route("/api/reviews/<review_id>", methods=["DELETE"])
 def delete_review(review_id):
-    """Admin moderation, or the guest removing their own review."""
+    """Only the review's own author may delete it — admins cannot remove reviews."""
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
-
-    if not require_admin(token):
-        # Not an admin — allow the review's own author to delete it.
-        set_auth(token)
-        user_id = get_user_from_token(token)
-        if not user_id:
-            return jsonify({"error": "Unauthorized"}), 401
-        try:
-            owner = supabase_admin.table("reviews").select("user_id").eq("id", review_id).execute()
-        except Exception as e:
-            return jsonify({"error": str(e)}), 500
-        if not owner.data:
-            return jsonify({"error": "Review not found"}), 404
-        if owner.data[0].get("user_id") != user_id:
-            return jsonify({"error": "Admin access required"}), 403
+    set_auth(token)
+    user_id = get_user_from_token(token)
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+    try:
+        owner = supabase_admin.table("reviews").select("user_id").eq("id", review_id).execute()
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    if not owner.data:
+        return jsonify({"error": "Review not found"}), 404
+    if owner.data[0].get("user_id") != user_id:
+        return jsonify({"error": "You can only delete your own review."}), 403
 
     try:
         try:
@@ -5843,41 +6265,46 @@ def get_occupancy_forecast():
         return jsonify({"error": str(e)}), 500
 
 
+def _fetch_bookings_all(columns: str, exclude_cancelled: bool = True, client=None) -> list[dict]:
+    """Supabase silently caps un-paginated selects at 1000 rows — page through
+    so forecast/accuracy actually see the full history (table is past 1200).
+    Pass `client=supabase_admin` for system computations: bookings RLS returns
+    0 rows to anon and only the caller's rows to a guest session, which would
+    silently starve discount generation and pricing of history."""
+    client = client or supabase
+    q = client.table("bookings").select(columns)
+    if exclude_cancelled:
+        q = q.neq("status", "cancelled")
+    rows: list[dict] = []
+    offset = 0
+    while True:
+        chunk = q.range(offset, offset + 999).execute().data or []
+        rows.extend(chunk)
+        if len(chunk) < 1000:
+            return rows
+        offset += 1000
+
+
 def _build_occupancy_forecast():
-    bookings = supabase.table("bookings").select("check_in, check_out, status").execute().data or []
-    months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    # Cancelled bookings must not count as occupancy; history panel uses the
+    # standard room-nights formula (see forecast_model.build_history).
+    bookings = _fetch_bookings_all("check_in, check_out, status, total_price")
+    rooms = supabase.table("rooms").select("id").execute().data or []
+    from forecast_model import MONTH_NAMES, build_history, predict_year
+
+    history = build_history(bookings, rooms)
     now = datetime.now()
-    current_month = now.month - 1
     current_year = now.year
+    current_month = now.month - 1  # 0-indexed
 
-    occupancy = []
-    for i in range(12):
-        month_bookings = [b for b in bookings if datetime.strptime(b["check_in"][:10], "%Y-%m-%d").year == current_year and datetime.strptime(b["check_in"][:10], "%Y-%m-%d").month == i]
-        days_in_month = (datetime(current_year, i + 2, 1) - datetime(current_year, i + 1, 1)).days if i < 11 else 31
-        occupied_days = set()
-        for b in month_bookings:
-            start = max(datetime.strptime(b["check_in"][:10], "%Y-%m-%d"), datetime(current_year, i + 1, 1))
-            end = min(datetime.strptime(b["check_out"][:10], "%Y-%m-%d"), datetime(current_year, i + 1, days_in_month))
-            d = start
-            while d < end:
-                occupied_days.add(d.strftime("%Y-%m-%d"))
-                try:
-                    d = d.replace(day=d.day + 1)
-                except ValueError:
-                    break
-        rate = round((len(occupied_days) / days_in_month) * 100)
-        occupancy.append({"month": months[i], "rate": rate})
+    predicted = predict_year(history, current_year)["occupancy"]
+    actuals = {h["month"]: h["occupancy"] for h in history if h["year"] == current_year}
 
-    recent = [o["rate"] for o in occupancy[:current_month + 1] if o["rate"] > 0]
-    avg_rate = round(sum(recent) / len(recent)) if recent else 70
-
-    seasonal = [0.85, 0.9, 1.0, 0.95, 1.1, 0.9, 1.05, 1.0, 0.8, 0.75, 0.85, 1.1]
     result = []
-    for i, m in enumerate(months):
-        real = occupancy[i] if i < len(occupancy) else None
-        actual = real["rate"] if i <= current_month else None
-        predicted = round(avg_rate * seasonal[i])
-        result.append({"month": m, "actual": actual, "predicted": predicted})
+    for i, m in enumerate(MONTH_NAMES):
+        value = actuals.get(i + 1)
+        actual = round(value) if (i <= current_month and value is not None) else None
+        result.append({"month": m, "actual": actual, "predicted": round(predicted[i])})
     return result
 
 
@@ -5895,29 +6322,152 @@ def get_revenue_forecast():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-
 def _build_revenue_forecast():
-    bookings = supabase.table("bookings").select("total_price, check_in").execute().data or []
-    months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-    current_month = datetime.now().month - 1
+    # Year-filtered via the history panel — the old bucket summed check-ins
+    # from every year into one month slot (Oct 2025 + Oct 2026, etc.).
+    bookings = _fetch_bookings_all("check_in, check_out, status, total_price")
+    rooms = supabase.table("rooms").select("id").execute().data or []
+    from forecast_model import MONTH_NAMES, build_history, predict_year
 
-    revenue_map = {}
-    for b in bookings:
-        d = datetime.strptime(b["check_in"][:10], "%Y-%m-%d")
-        m = months[d.month - 1]
-        revenue_map[m] = revenue_map.get(m, 0) + b["total_price"]
+    history = build_history(bookings, rooms)
+    now = datetime.now()
+    current_year = now.year
+    current_month = now.month - 1  # 0-indexed
 
-    revenue = [revenue_map.get(m, 0) for m in months]
-    recent = [r for r in revenue[:current_month + 1] if r > 0]
-    avg = round(sum(recent) / len(recent)) if recent else 300000
+    predicted = predict_year(history, current_year)["revenue"]
+    actuals = {h["month"]: h["revenue"] for h in history if h["year"] == current_year}
 
-    seasonal = [0.85, 0.9, 1.0, 0.95, 1.1, 0.9, 1.05, 1.0, 0.8, 0.75, 0.85, 1.1]
     result = []
-    for i, m in enumerate(months):
-        actual = revenue[i] if i <= current_month else None
-        predicted = round(avg * seasonal[i])
-        result.append({"month": m, "actual": actual, "predicted": predicted})
+    for i, m in enumerate(MONTH_NAMES):
+        value = actuals.get(i + 1)
+        actual = round(value) if (i <= current_month and value is not None) else None
+        result.append({"month": m, "actual": actual, "predicted": round(predicted[i])})
     return result
+
+
+# ── Forecast accuracy (ISO/IEC 25059) ──────────────────────────────────────
+# Rolling-origin backtest of the scikit-learn pipeline that serves the live
+# forecast: for each month with enough prior history, retrain using only
+# earlier months, predict the held-out month, compare against actual.
+# MAPE excludes zero-actual months (undefined there); SMAPE and the headline
+# accuracyPct = 100 − SMAPE stay honest about them.
+
+@app.route("/api/analytics/forecast/accuracy", methods=["GET"])
+def get_forecast_accuracy():
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    set_auth(token)
+    user_id = get_user_from_token(token)
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    try:
+        payload = cached_json("analytics-forecast-accuracy", _build_forecast_accuracy, ttl=300)
+        return jsonify(payload), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+def _backtest(points: list[dict]) -> dict | None:
+    """MAE, RMSE, MAPE (non-zero actuals only), SMAPE, R², Bias, accuracyPct."""
+    if not points:
+        return None
+    n = len(points)
+    errors = [p["predicted"] - p["actual"] for p in points]
+    abs_errors = [abs(e) for e in errors]
+
+    mae = sum(abs_errors) / n
+    rmse = (sum(e * e for e in errors) / n) ** 0.5
+    bias = sum(errors) / n
+
+    # MAPE is undefined for actual == 0 (Apr/May gap months) — averaging
+    # them in with a denominator of 1 produced nonsense like 5,420,940%.
+    nonzero = [(e, p) for e, p in zip(errors, points) if p["actual"] != 0]
+    mape = None
+    if nonzero:
+        mape = sum(abs(e) / abs(p["actual"]) for e, p in nonzero) / len(nonzero) * 100
+
+    smape_sum = 0.0
+    smape_count = 0
+    for p in points:
+        denom = abs(p["actual"]) + abs(p["predicted"])
+        if denom > 0:
+            smape_sum += abs(p["actual"] - p["predicted"]) / denom * 100
+            smape_count += 1
+    smape = (smape_sum / smape_count) if smape_count > 0 else None
+
+    mean_a = sum(p["actual"] for p in points) / n
+    ss_res = sum((p["actual"] - p["predicted"]) ** 2 for p in points)
+    ss_tot = sum((a - mean_a) ** 2 for a in (p["actual"] for p in points))
+    r2 = 1 - (ss_res / ss_tot) if ss_tot > 0 else None
+
+    coverage = len(nonzero) / n * 100
+
+    return {
+        "mae": round(mae, 2),
+        "rmse": round(rmse, 2),
+        "mape": round(mape, 2) if mape is not None else None,
+        "smape": round(smape, 2) if smape is not None else None,
+        "accuracyPct": round(100 - smape, 1) if smape is not None else None,
+        "r2": round(r2, 4) if r2 is not None else None,
+        "bias": round(bias, 2),
+        "sampleSize": n,
+        "coveragePct": round(coverage, 1),
+        "points": [
+            {
+                "month": p["month"],
+                "predicted": p["predicted"],
+                "actual": p["actual"],
+                "error": round(p["predicted"] - p["actual"], 2),
+                "absError": round(abs(p["predicted"] - p["actual"]), 2),
+            }
+            for p in points
+        ],
+    }
+
+
+def _build_forecast_accuracy():
+    bookings = _fetch_bookings_all("check_in, check_out, status, total_price")
+    rooms = supabase.table("rooms").select("id").execute().data or []
+    from forecast_model import MIN_TRAIN_ROWS, backtest, build_history
+
+    now = datetime.now()
+    history = build_history(bookings, rooms)
+
+    # Rolling-origin: same scikit-learn pipeline as the live forecast,
+    # retrained per origin on months earlier than the held-out one.
+    occ_metrics = _backtest(backtest(history, "occupancy"))
+    rev_metrics = _backtest(backtest(history, "revenue"))
+
+    last_booking = None
+    if bookings:
+        try:
+            last_booking = max(
+                datetime.strptime(b["check_in"][:10], "%Y-%m-%d")
+                for b in bookings
+                if b.get("check_in")
+            ).isoformat()
+        except (ValueError, TypeError):
+            pass
+
+    return {
+        "occupancy": occ_metrics,
+        "revenue": rev_metrics,
+        "generatedAt": now.isoformat(),
+        "method": "scikit-learn GradientBoostingRegressor — rolling-origin backtest (same pipeline as the live forecast)",
+        "dataFreshness": {
+            "lastBookingCheckIn": last_booking,
+            "totalRooms": len(rooms),
+            "totalBookings": len(bookings),
+        },
+        "iso25059": {
+            "accuracy": "MAE, RMSE, MAPE (non-zero months), SMAPE, R², Bias; accuracyPct = 100 − SMAPE",
+            "completeness": "sampleSize, coveragePct; zero-actual months excluded from MAPE",
+            "precision": "MAE, RMSE, SMAPE",
+            "credibility": f"rolling-origin backtest of the live scikit-learn pipeline (min {MIN_TRAIN_ROWS} months training history)",
+            "currentness": "lastBookingCheckIn, generatedAt",
+            "gradeScale": "accuracyPct ≥90 Excellent, ≥80 Good, ≥70 Fair, <70 Needs review",
+        },
+    }
 
 
 # ── AI status persistence (demand insights + discount offers) ────────────────
@@ -5955,6 +6505,149 @@ def _save_json_file(path: str, data) -> bool:
             continue
     print(f"_save_json_file failed for {path} (read-only FS)")
     return False
+
+
+# ── Discount offer rules (date-gated status, caps, overlap, audit) ─────────────
+# Status is DERIVED, never stored — expired (window ended) > off (flag off) >
+# scheduled (starts in the future) > live (today inside the window, Asia/Manila).
+# Stored state is only the enabled flag; legacy "active" (on) / "scheduled" (off)
+# values map onto it. Env names are new defaults — .env is never touched.
+DISCOUNT_MAX_PERCENT = max(1, int(os.getenv("DISCOUNT_MAX_PERCENT", "50") or 50))
+DISCOUNT_MIN_PRICE = max(0, int(os.getenv("DISCOUNT_MIN_PRICE", "500") or 500))
+_OFFERS_KEY = "__offers__"            # created offers (full records) in the status file
+_SUGGESTIONS_KEY = "__suggestions__"  # per-event suggestion state: approved | dismissed
+_audit_file = os.path.join(os.path.dirname(__file__), ".discount_audit.json")
+_supabase_audit_table_ok: bool | None = None
+
+
+def _offer_store() -> dict:
+    saved = _load_json_file(_offer_status_file, {})
+    return saved if isinstance(saved, dict) else {}
+
+
+def _parse_day(value):
+    try:
+        return datetime.strptime(str(value)[:10], "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        return None
+
+
+def _derive_offer_status(enabled: bool, valid_from, valid_to) -> str:
+    today = hotel_now().date()
+    start, end = _parse_day(valid_from), _parse_day(valid_to)
+    if end and today > end:
+        return "expired"
+    if not enabled:
+        return "off"
+    if start and today < start:
+        return "scheduled"
+    return "live"
+
+
+def _enabled_flag(state) -> bool:
+    """Legacy store semantics: 'active' = on, 'scheduled'/absent/other = off."""
+    if isinstance(state, dict):
+        state = state.get("status", state.get("enabled"))
+    if isinstance(state, bool):
+        return state
+    return state == "active"
+
+
+def _promo_name(valid_from) -> str:
+    d = _parse_day(valid_from)
+    return f"{d.strftime('%B')} promo" if d else "AI promo"
+
+
+def _find_conflict(room_type, valid_from, valid_to, self_id, batch_ids, offers):
+    """First offer blocking activation: same room type, window intersects, and
+    it is (or is about to become) enabled and not expired."""
+    for o in offers:
+        if o.get("id") == self_id or not o.get("validFrom") or not o.get("validTo"):
+            continue
+        will_be_on = o.get("status") in ("live", "scheduled") or o.get("id") in batch_ids
+        if not will_be_on:
+            continue
+        if o.get("roomType") != room_type:
+            continue
+        if valid_from <= o["validTo"] and o["validFrom"] <= valid_to:
+            return o
+    return None
+
+
+def _require_admin_actor(token):
+    """(user_id, email) for an admin token, else (None, None)."""
+    user_id = require_admin(token)
+    if not user_id:
+        return None, None
+    email = None
+    try:
+        row = supabase.table("users").select("email").eq("id", user_id).single().execute()
+        email = (row.data or {}).get("email")
+    except Exception:
+        pass
+    if not email:
+        try:
+            email = pyjwt.decode(
+                token, options={"verify_signature": False, "verify_exp": True}
+            ).get("email")
+        except Exception:
+            pass
+    return user_id, email
+
+
+def _admin_gate(token):
+    """Shared auth for discount admin routes: 401 = no session, 403 = not admin.
+    Returns (actor_id, actor_email, error_response)."""
+    set_auth(token)
+    actor_id, actor_email = _require_admin_actor(token)
+    if not get_user_from_token(token):
+        return None, None, (jsonify({"error": "Unauthorized"}), 401)
+    if not actor_id:
+        return None, None, (jsonify({"error": "Admin only"}), 403)
+    return actor_id, actor_email, None
+
+
+def _discount_audit_table_exists() -> bool:
+    global _supabase_audit_table_ok
+    if _supabase_audit_table_ok is not None:
+        return _supabase_audit_table_ok
+    try:
+        supabase.table("discount_audit_log").select("id").limit(1).execute()
+        _supabase_audit_table_ok = True
+        print("[discounts] Supabase discount_audit_log table OK — using DB audit")
+    except Exception:
+        _supabase_audit_table_ok = False
+        print("[discounts] discount_audit_log table not found — using file audit")
+    return _supabase_audit_table_ok
+
+
+def _audit_discount(action, actor_id, actor_email, offer, details=None):
+    """Who/when for create | activate | deactivate. Supabase when the migration
+    has run, file fallback otherwise (migration is shown, not run)."""
+    entry = {
+        "action": action,
+        "offer_id": offer.get("id"),
+        "promo": offer.get("name"),
+        "room_type": offer.get("roomType"),
+        "discount_percent": offer.get("discountPercent"),
+        "valid_from": offer.get("validFrom"),
+        "valid_to": offer.get("validTo"),
+        "actor_id": actor_id,
+        "actor_email": actor_email,
+        "details": details or {},
+        "created_at": hotel_now().isoformat(),
+    }
+    if _discount_audit_table_exists():
+        try:
+            supabase.table("discount_audit_log").insert(entry).execute()
+            return
+        except Exception as e:
+            print(f"discount_audit_log insert failed, writing file: {e}")
+    log = _load_json_file(_audit_file, [])
+    if not isinstance(log, list):
+        log = []
+    log.append(entry)
+    _save_json_file(_audit_file, log)
 
 
 @app.route("/api/analytics/demand-insights/status", methods=["POST"])
@@ -5997,35 +6690,115 @@ def set_demand_insight_status():
 
 @app.route("/api/analytics/discount-offers/status", methods=["POST"])
 def set_discount_offer_status():
+    """Activate/deactivate offers (single id or a promo-wide ids batch).
+
+    Admin-only. Activation is validated against the spec: the window must not
+    have ended, percent <= DISCOUNT_MAX_PERCENT, the discounted rate stays at
+    or above DISCOUNT_MIN_PRICE, and it may not overlap another enabled offer
+    for the same room type. Every target is checked before anything is written,
+    and each state change lands in the audit log."""
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    set_auth(token)
-    user_id = get_user_from_token(token)
-    if not user_id:
-        return jsonify({"error": "Unauthorized"}), 401
+    actor_id, actor_email, err = _admin_gate(token)
+    if err:
+        return err
 
     data = request.get_json() or {}
-    offer_id = data.get("id")
+    ids = data.get("ids")
+    if not isinstance(ids, list) or not ids:
+        ids = [data.get("id")] if data.get("id") else []
+    if not ids:
+        return jsonify({"error": "id (or ids) required"}), 400
+
     status_val = data.get("status")
-    if not offer_id or status_val not in ("active", "scheduled", "dismissed"):
-        return jsonify({"error": "id and status (active|scheduled|dismissed) required"}), 400
+    enabled = data.get("enabled")
+    store = _offer_store()
+    if enabled is None and status_val is not None:
+        if status_val == "dismissed":
+            for oid in ids:
+                prev = store.get(oid, {})
+                prev = prev.copy() if isinstance(prev, dict) else {}
+                prev["status"] = "dismissed"
+                store[oid] = prev
+            if not _save_json_file(_offer_status_file, store):
+                return jsonify({"error": "Could not save status"}), 500
+            invalidate_cache("analytics-discounts")
+            return jsonify({"ok": True}), 200
+        if status_val not in ("active", "scheduled", "off", "inactive"):
+            return jsonify({"error": "status must be active|off|scheduled|dismissed"}), 400
+        enabled = status_val == "active"
+    if enabled is None:
+        return jsonify({"error": "enabled (or status) required"}), 400
+    enabled = bool(enabled)
 
-    discount_percent = data.get("discountPercent")
-    if discount_percent is not None:
-        if isinstance(discount_percent, bool) or not isinstance(discount_percent, (int, float)) or not 1 <= discount_percent <= 80:
-            return jsonify({"error": "discountPercent must be a number from 1 to 80"}), 400
-        discount_percent = int(discount_percent)
+    percent = data.get("discountPercent")
+    if percent is not None:
+        if isinstance(percent, bool) or not isinstance(percent, (int, float)) or not 1 <= percent <= DISCOUNT_MAX_PERCENT:
+            return jsonify({"error": f"discountPercent must be a number from 1 to {DISCOUNT_MAX_PERCENT}"}), 400
+        percent = int(percent)
 
-    status = _load_json_file(_offer_status_file, {})
-    previous = status.get(offer_id, {})
-    offer_state = previous.copy() if isinstance(previous, dict) else {}
-    offer_state["status"] = status_val
-    if discount_percent is not None:
-        offer_state["discountPercent"] = discount_percent
-    status[offer_id] = offer_state
-    if not _save_json_file(_offer_status_file, status):
+    offers = _build_discount_offers()
+    by_id = {o.get("id"): o for o in offers}
+    targets = []
+    for oid in ids:
+        o = by_id.get(oid)
+        if not o:
+            return jsonify({"error": f"unknown offer: {oid}"}), 404
+        targets.append(o)
+
+    created = store.get(_OFFERS_KEY) or {}
+    was_map = {o.get("id"): bool(o.get("enabled")) for o in targets}
+    batch = {o.get("id") for o in targets}
+    if enabled:
+        for o in targets:
+            activating = not was_map.get(o.get("id"))
+            pct = percent if percent is not None else int(o.get("discountPercent") or 0)
+            base = int(o.get("baseRate") or 0)
+            if percent is not None or activating:
+                if pct > DISCOUNT_MAX_PERCENT:
+                    return jsonify({"error": f'{o.get("name")} is {pct}% off — above the {DISCOUNT_MAX_PERCENT}% cap'}), 400
+                if base and round(base * (1 - pct / 100)) < DISCOUNT_MIN_PRICE:
+                    return jsonify({"error": f'{o.get("name")} drops {o.get("roomType")} below the ₱{DISCOUNT_MIN_PRICE} minimum rate'}), 400
+            if not activating:
+                continue
+            if o.get("status") == "expired":
+                return jsonify({"error": f'{o.get("name")} ended on {o.get("validTo")}'}), 400
+            conflict = _find_conflict(o.get("roomType"), o.get("validFrom") or "",
+                                      o.get("validTo") or "", o.get("id"), batch, offers)
+            if conflict:
+                return jsonify({"error": f'{o.get("name")} overlaps {conflict.get("name")} for {o.get("roomType")} ({conflict.get("validFrom")} to {conflict.get("validTo")})'}), 409
+
+    # Persist: created records store `enabled`, generated offers keep the
+    # legacy {status: active|off} override entry.
+    transitions = []
+    for o in targets:
+        oid = o.get("id")
+        was = was_map.get(oid, False)
+        if oid in created and isinstance(created.get(oid), dict):
+            rec = created[oid]
+            rec["enabled"] = enabled
+            if percent is not None:
+                rec["discountPercent"] = percent
+                rec["discountedRate"] = round(rec["baseRate"] * (1 - percent / 100))
+            rec["updatedAt"] = hotel_now().isoformat()
+        else:
+            prev = store.get(oid, {})
+            prev = prev.copy() if isinstance(prev, dict) else ({"status": prev} if prev else {})
+            prev["status"] = "active" if enabled else "off"
+            if percent is not None:
+                prev["discountPercent"] = percent
+            store[oid] = prev
+        if was != enabled:
+            transitions.append((o, "activate" if enabled else "deactivate"))
+    if not _save_json_file(_offer_status_file, store):
         return jsonify({"error": "Could not save status"}), 500
+
+    for o, action in transitions:
+        _audit_discount(action, actor_id, actor_email, o,
+                        {"discountPercent": percent if percent is not None else o.get("discountPercent")})
     invalidate_cache("analytics-discounts")
-    return jsonify({"ok": True}), 200
+    refreshed = _build_discount_offers()
+    statuses = {o.get("id"): o.get("status") for o in refreshed if o.get("id") in batch}
+    return jsonify({"ok": True, "statuses": statuses}), 200
 
 
 @app.route("/api/analytics/demand-insights", methods=["GET"])
@@ -6092,32 +6865,42 @@ def get_discount_offers():
 
 
 def _build_discount_offers():
-        # Same sklearn pipeline as demand insights / dashboard cards.
+        # Same sklearn pipeline as demand insights / dashboard cards. Paged
+        # bookings fetch — the un-paginated select silently capped at 1000 rows
+        # and skewed which months looked "low demand".
         from predictive_analytics import generate_discount_offers
 
         rooms = supabase.table("rooms").select("id, type, price").execute().data or []
-        bookings = supabase.table("bookings").select("room_id, check_in, check_out, status").neq("status", "cancelled").execute().data or []
+        bookings = _fetch_bookings_all("room_id, check_in, check_out, status", client=supabase_admin)
 
         offers = generate_discount_offers(bookings, rooms, shared=True)
 
-        saved = _load_json_file(_offer_status_file, {})
+        saved = _offer_store()
         out = []
         for o in offers:
             st = saved.get(o["id"], "")
-            saved_status = st.get("status", "") if isinstance(st, dict) else st
-            if saved_status == "dismissed":
+            if (isinstance(st, dict) and st.get("status") == "dismissed") or st == "dismissed":
                 continue
             if isinstance(st, dict):
-                if saved_status:
-                    o["status"] = saved_status
                 saved_percent = st.get("discountPercent")
                 if isinstance(saved_percent, (int, float)) and not isinstance(saved_percent, bool) and 1 <= saved_percent <= 80:
                     o["discountPercent"] = int(saved_percent)
                     o["discountedRate"] = round(o["baseRate"] * (1 - int(saved_percent) / 100))
                     o["projectedRevenue"] = o["projectedBookings"] * o["discountedRate"]
-            elif st:
-                o["status"] = st
+            enabled = _enabled_flag(st)
+            o["name"] = _promo_name(o.get("validFrom"))
+            o["source"] = "ai"
+            o["enabled"] = enabled
+            o["status"] = _derive_offer_status(enabled, o.get("validFrom"), o.get("validTo"))
             out.append(o)
+
+        # Created offers (Approve / POST) — full admin-owned records.
+        for rec in (saved.get(_OFFERS_KEY) or {}).values():
+            if isinstance(rec, dict) and rec.get("id"):
+                rec = dict(rec)
+                rec["status"] = _derive_offer_status(
+                    bool(rec.get("enabled")), rec.get("validFrom"), rec.get("validTo"))
+                out.append(rec)
         return out
 
 
@@ -6158,6 +6941,9 @@ def paymongo_webhook():
                                 room_name = rr.data[0]["name"]
                         create_notification(b["user_id"], "booking", "Booking Failed",
                             f"Your booking for {room_name} on {b.get('check_in', '')} has been cancelled due to a failed payment.",
+                            booking_id=booking_id)
+                        notify_admins("booking", "Payment Failed",
+                            f"Payment failed for {room_name} on {b.get('check_in', '')} — booking #{booking_id[:8]} was auto-cancelled.",
                             booking_id=booking_id)
                 print(f"Booking {booking_id} payment failed via webhook")
 
@@ -6360,6 +7146,9 @@ def report_payment_failed(booking_id):
         create_notification(b["user_id"], "booking", "Booking Failed",
             f"Your booking for {room_name} on {b.get('check_in', '')} has been cancelled due to a failed payment.",
             booking_id=booking_id)
+        notify_admins("booking", "Payment Failed",
+            f"Payment failed for {room_name} on {b.get('check_in', '')} — booking #{booking_id[:8]} was auto-cancelled.",
+            booking_id=booking_id)
 
         return jsonify({"booking_id": booking_id, "status": "cancelled"}), 200
     except Exception as e:
@@ -6480,8 +7269,8 @@ def _build_ai_recommendations():
     else:
         growth = 100 if up_revenue else 0
 
-    # Discount ideas: live (scheduled/active, non-dismissed) sklearn offers.
-    live_offers = [o for o in offers if o.get("status") in ("active", "scheduled")]
+    # Discount ideas: non-expired offers (live now or scheduled to start).
+    live_offers = [o for o in offers if o.get("status") in ("live", "scheduled")]
     best_period = None
     # Only real low-demand segments (not the "stable demand" fallback insight).
     if insights and insights[0].get("method") == "kmeans+gradient_boosting" and (insights[0].get("discountPercent") or 0) > 0:
@@ -6590,14 +7379,12 @@ def get_approved_discounts():
 
 @app.route("/api/discounts/active", methods=["GET"])
 def get_active_discount_offers():
-    """Scheduled offers the admin switched on.
-
-    Public on purpose: the guest Rooms page badges these. Activating an offer
-    in the admin table and the badge a guest sees were two separate systems
-    before, so switching an offer on never showed up for guests.
-    """
+    """Offers guests can actually use right now: status live = admin flag on AND
+    today (Asia/Manila) inside the validity window, so a November promo can
+    never badge on the Rooms page in October. Public on purpose — the guest
+    Rooms page badges these."""
     try:
-        return jsonify([o for o in _build_discount_offers() if o.get("status") == "active"]), 200
+        return jsonify([o for o in _build_discount_offers() if o.get("status") == "live"]), 200
     except Exception as e:
         print(f"active discount offers error: {e}")
         return jsonify([]), 200
@@ -6671,6 +7458,386 @@ def dismiss_discount():
     if not file_ok and not supa_ok:
         return jsonify({"error": "Could not remove approval"}), 500
     return jsonify({"ok": True}), 200
+
+
+# ── Discount suggestions, creation, rules, audit ───────────────────────────────
+
+@app.route("/api/discounts/rules", methods=["GET"])
+def get_discount_rules():
+    """Caps the admin UI validates against (env-overridable defaults — .env is
+    never touched here)."""
+    return jsonify({"maxPercent": DISCOUNT_MAX_PERCENT, "minPrice": DISCOUNT_MIN_PRICE}), 200
+
+
+def _suggestion_room_types(ev, rooms, hash_month):
+    """{room_type: {percent, baseRate}} — one entry per concrete room type at
+    the highest hash percent among that type's rooms (same hash the engine and
+    the client-side suggestions use, so a promo never changes number when it
+    is approved)."""
+    lo, hi = ev["discountRange"]
+    best = {}
+    for r in rooms:
+        if _engine_room_category(r.get("type", "")) not in ev["affectedTypes"]:
+            continue
+        pct = lo + _js_hash(f'{ev["name"]}-{r["id"]}-{hash_month}') % (hi - lo + 1)
+        price = int(r.get("price") or 0)
+        cur = best.get(r["type"])
+        if not cur or pct > cur["percent"] or (pct == cur["percent"] and price < cur["baseRate"]):
+            best[r["type"]] = {"percent": pct, "baseRate": price}
+    return best
+
+
+def _occupancy_context(today):
+    """(forecast[12], avg_by_month) occupancy percentages — best-effort; the
+    suggestion list still works without it."""
+    try:
+        from forecast_model import build_history, predict_year
+        bookings = _fetch_bookings_all("room_id, check_in, check_out, status", client=supabase_admin)
+        rooms = supabase.table("rooms").select("id, type").execute().data or []
+        panel = build_history(bookings, rooms)
+        if not panel:
+            return None, None
+        forecast = predict_year(panel, today.year)["occupancy"]
+        sums, counts = {}, {}
+        for row in panel:
+            if row["year"] == today.year:
+                continue  # current year is partial — average the completed years
+            m = row["month"]
+            sums[m] = sums.get(m, 0) + row["occupancy"]
+            counts[m] = counts.get(m, 0) + 1
+        avg = {m: sums[m] / counts[m] for m in sums}
+        return forecast, avg
+    except Exception as e:
+        print(f"suggestions occupancy context skipped: {e}")
+        return None, None
+
+
+def _build_discount_suggestions():
+    """Holiday promos grouped by event: window, phase, per-room-type percents,
+    one-line reasoning against the forecast, an optional estimate, and saved
+    state (pending | approved | dismissed). Expired windows never appear."""
+    today = hotel_now().date()
+    saved = _offer_store()
+    states = saved.get(_SUGGESTIONS_KEY) or {}
+    rooms = supabase.table("rooms").select("id, type, price").execute().data or []
+    if not rooms:
+        return []
+    forecast, avg_by_month = _occupancy_context(today)
+    avg_by_month = avg_by_month or {}  # context is best-effort — degrade to seasonal reasoning
+    out = []
+    for ev in _HOLIDAY_EVENTS:
+        state = states.get(ev["name"], "pending")
+        if state == "dismissed":
+            continue
+        start, end = _event_window(ev, today)
+        if end < today:
+            continue
+        phase = "live" if start <= today <= end else "upcoming"
+        # Upcoming only counts when it is near-term (120 days) — rolling a
+        # September promo to next September is true but useless in a feed.
+        if phase == "upcoming" and (start - today).days > 120:
+            continue
+        hash_month = today.month if phase == "live" else ev["startMonth"]
+        types = _suggestion_room_types(ev, rooms, hash_month)
+        if not types:
+            continue
+
+        fc = forecast[start.month - 1] if forecast else None
+        avg = avg_by_month.get(start.month)
+        month_name = start.strftime("%B")
+        if fc is not None and avg is not None:
+            reasoning = f"Forecast occupancy {fc:.0f}% vs {avg:.0f}% average for {month_name}"
+        elif fc is not None:
+            reasoning = f"Forecast occupancy {fc:.0f}% for {month_name}"
+        else:
+            reasoning = f"Seasonal low-demand window in {month_name}"
+
+        estimated = None
+        if fc is not None and avg is not None and avg > fc:
+            nights = max(1, (end - start).days)
+            avg_rate = sum(v["baseRate"] for v in types.values()) / len(types)
+            avg_pct = sum(v["percent"] for v in types.values()) / len(types)
+            extra = (avg - fc) / 100 * len(rooms) * nights
+            est = int(round(extra * avg_rate * (1 - avg_pct / 100) / 100)) * 100
+            estimated = f"≈ ₱{est:,} if occupancy reaches the {avg:.0f}% average"
+
+        room_types = [
+            {"roomType": t, "percent": v["percent"], "baseRate": v["baseRate"],
+             "discountedRate": round(v["baseRate"] * (1 - v["percent"] / 100))}
+            for t, v in sorted(types.items())
+        ]
+        pcts = [v["percent"] for v in types.values()]
+        out.append({
+            "event": ev["name"],
+            "validFrom": start.isoformat(),
+            "validTo": end.isoformat(),
+            "phase": phase,
+            "daysUntilStart": (start - today).days if phase == "upcoming" else 0,
+            "reasoning": reasoning,
+            "estimatedImpact": estimated,
+            "roomTypes": room_types,
+            "percentRange": [min(pcts), max(pcts)],
+            "state": state,
+        })
+    out.sort(key=lambda s: (0 if s["phase"] == "live" else 1, s["daysUntilStart"], s["validFrom"]))
+    return out
+
+
+@app.route("/api/discounts/suggestions", methods=["GET"])
+def get_discount_suggestions():
+    """Non-expired holiday promo suggestions with reasoning + estimate.
+    Login required (same contract as the offers list); forecast reads go through
+    the service role so a guest session can never starve them via RLS."""
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    set_auth(token)
+    if not get_user_from_token(token):
+        return jsonify({"error": "Unauthorized"}), 401
+    try:
+        payload = cached_json("discount-suggestions", _build_discount_suggestions, ttl=300)
+        return jsonify(payload), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/discounts/suggestions", methods=["POST"])
+def apply_discount_suggestion():
+    """Approve creates one offer per concrete room type (enabled, so its status
+    is Scheduled for a future window or Live for a current one) after the same
+    cap/overlap checks as manual activation; Dismiss hides the suggestion and
+    drops any legacy engine approval for that promo. The admin stays in control
+    either way — created offers can be switched off, and every change is audited."""
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    actor_id, actor_email, err = _admin_gate(token)
+    if err:
+        return err
+
+    data = request.get_json() or {}
+    event_name = str(data.get("event") or "").strip()
+    action = data.get("action")
+    if not event_name or action not in ("approve", "dismiss"):
+        return jsonify({"error": "event and action (approve|dismiss) required"}), 400
+    ev = next((e for e in _HOLIDAY_EVENTS if e["name"] == event_name), None)
+    if not ev:
+        return jsonify({"error": f"unknown event: {event_name}"}), 404
+
+    saved = _offer_store()
+    states = saved.get(_SUGGESTIONS_KEY) or {}
+
+    if action == "dismiss":
+        states[event_name] = "dismissed"
+        saved[_SUGGESTIONS_KEY] = states
+        if not _save_json_file(_offer_status_file, saved):
+            return jsonify({"error": "Could not save"}), 500
+        # Best-effort cleanup of the legacy engine approval for this promo.
+        try:
+            stale = {k for k in _approved_discount_keys() if k.startswith(event_name + "-")}
+            if stale:
+                _save_approved_cache(_load_approved_cache() - stale)
+                if _discounts_table_exists():
+                    for k in stale:
+                        try:
+                            supabase.table("approved_discounts").delete().eq("event_room_type_key", k).execute()
+                        except Exception:
+                            pass
+        except Exception as e:
+            print(f"suggest dismiss key cleanup skipped: {e}")
+        invalidate_cache("discount-suggestions")
+        invalidate_cache("analytics-discounts")
+        return jsonify({"ok": True, "state": "dismissed"}), 200
+
+    # approve — validate every room type first, then write once.
+    today = hotel_now().date()
+    start, end = _event_window(ev, today)
+    if end < today:
+        return jsonify({"error": f"{event_name} has already ended"}), 400
+    rooms = supabase.table("rooms").select("id, type, price").execute().data or []
+    hash_month = today.month if start <= today <= end else ev["startMonth"]
+    types = _suggestion_room_types(ev, rooms, hash_month)
+    if not types:
+        return jsonify({"error": f"{event_name} affects no room types"}), 400
+
+    offers_now = _build_discount_offers()
+    created = saved.get(_OFFERS_KEY) or {}
+    existing = {(o.get("roomType"), o.get("validFrom"), o.get("validTo")): o for o in offers_now}
+    valid_from, valid_to = start.isoformat(), end.isoformat()
+    batch: set = set()
+    kept: list = []
+    new_records: list[dict] = []
+    for room_type, info in sorted(types.items()):
+        pct = info["percent"]
+        if pct > DISCOUNT_MAX_PERCENT:
+            return jsonify({"error": f"{event_name} suggests {pct}% on {room_type} — above the {DISCOUNT_MAX_PERCENT}% cap"}), 400
+        discounted = round(info["baseRate"] * (1 - pct / 100))
+        if info["baseRate"] and discounted < DISCOUNT_MIN_PRICE:
+            return jsonify({"error": f"{event_name} drops {room_type} below the ₱{DISCOUNT_MIN_PRICE} minimum rate"}), 400
+        key = (room_type, valid_from, valid_to)
+        if key in existing:
+            o = existing[key]
+            if o.get("status") in ("live", "scheduled"):
+                kept.append(o.get("id"))  # already on
+                continue
+            conflict = _find_conflict(room_type, valid_from, valid_to, o.get("id"), batch, offers_now)
+            if conflict:
+                return jsonify({"error": f"{event_name} overlaps {conflict.get('name')} for {room_type} ({conflict.get('validFrom')} to {conflict.get('validTo')})"}), 409
+            batch.add(o.get("id"))
+            continue
+        conflict = _find_conflict(room_type, valid_from, valid_to, None, batch, offers_now)
+        if conflict:
+            return jsonify({"error": f"{event_name} overlaps {conflict.get('name')} for {room_type} ({conflict.get('validFrom')} to {conflict.get('validTo')})"}), 409
+        new_records.append({
+            "id": f"OF-{uuid.uuid4().hex[:8].upper()}",
+            "name": event_name,
+            "roomType": room_type,
+            "discountPercent": pct,
+            "validFrom": valid_from,
+            "validTo": valid_to,
+            "baseRate": info["baseRate"],
+            "discountedRate": discounted,
+            "projectedBookings": None,
+            "projectedRevenue": None,
+            "enabled": True,
+            "source": "holiday",
+            "method": "admin_approved",
+            "createdAt": hotel_now().isoformat(),
+            "createdBy": actor_id,
+            "createdByEmail": actor_email,
+        })
+
+    for rec in new_records:
+        created[rec["id"]] = rec
+    for oid in batch:
+        rec = created.get(oid)
+        if isinstance(rec, dict):
+            rec["enabled"] = True
+            rec["updatedAt"] = hotel_now().isoformat()
+        else:
+            prev = saved.get(oid, {})
+            prev = prev.copy() if isinstance(prev, dict) else ({"status": prev} if prev else {})
+            prev["status"] = "active"
+            saved[oid] = prev
+    saved[_OFFERS_KEY] = created
+    states[event_name] = "approved"
+    saved[_SUGGESTIONS_KEY] = states
+    if not _save_json_file(_offer_status_file, saved):
+        return jsonify({"error": "Could not save offers"}), 500
+
+    for rec in new_records:
+        _audit_discount("create", actor_id, actor_email, rec,
+                        {"event": event_name, "via": "suggestion approve"})
+    for oid in batch:
+        o = next((x for x in offers_now if x.get("id") == oid), None)
+        if o:
+            _audit_discount("activate", actor_id, actor_email, o,
+                            {"event": event_name, "via": "suggestion approve"})
+    invalidate_cache("analytics-discounts")
+    invalidate_cache("discount-suggestions")
+    refreshed = _build_discount_offers()
+    wanted = {r["id"] for r in new_records} | batch | set(kept)
+    return jsonify({
+        "ok": True,
+        "state": "approved",
+        "offers": [o for o in refreshed if o.get("id") in wanted],
+    }), 200
+
+
+@app.route("/api/analytics/discount-offers", methods=["POST"])
+def create_discount_offer():
+    """Manual offer creation from the Scheduled Offers table. Same cap, minimum
+    and overlap rules as activation; idempotent on (roomType, window)."""
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    actor_id, actor_email, err = _admin_gate(token)
+    if err:
+        return err
+
+    data = request.get_json() or {}
+    room_type = str(data.get("roomType") or "").strip()
+    valid_from = str(data.get("validFrom") or "")[:10]
+    valid_to = str(data.get("validTo") or "")[:10]
+    name = str(data.get("name") or "").strip()
+    percent = data.get("discountPercent")
+    if not room_type or not valid_from or not valid_to:
+        return jsonify({"error": "roomType, validFrom and validTo required"}), 400
+    start_d, end_d = _parse_day(valid_from), _parse_day(valid_to)
+    if not start_d or not end_d:
+        return jsonify({"error": "validFrom/validTo must be YYYY-MM-DD"}), 400
+    if start_d > end_d:
+        return jsonify({"error": "validFrom must be on or before validTo"}), 400
+    if end_d < hotel_now().date():
+        return jsonify({"error": "validTo is in the past"}), 400
+    if isinstance(percent, bool) or not isinstance(percent, (int, float)) or not 1 <= percent <= DISCOUNT_MAX_PERCENT:
+        return jsonify({"error": f"discountPercent must be a number from 1 to {DISCOUNT_MAX_PERCENT}"}), 400
+    percent = int(percent)
+
+    rooms = supabase.table("rooms").select("id, type, price").execute().data or []
+    type_rooms = [r for r in rooms if r.get("type") == room_type]
+    if not type_rooms:
+        return jsonify({"error": f"unknown room type: {room_type}"}), 400
+    base_rate = min(int(r.get("price") or 0) for r in type_rooms)
+    discounted = round(base_rate * (1 - percent / 100))
+    if base_rate and discounted < DISCOUNT_MIN_PRICE:
+        return jsonify({"error": f"discounted rate ₱{discounted} is below the ₱{DISCOUNT_MIN_PRICE} minimum rate"}), 400
+
+    offers_now = _build_discount_offers()
+    existing = next((o for o in offers_now
+                     if o.get("roomType") == room_type
+                     and o.get("validFrom") == valid_from
+                     and o.get("validTo") == valid_to), None)
+    if existing:
+        return jsonify(existing), 200  # idempotent — same window already exists
+    conflict = _find_conflict(room_type, valid_from, valid_to, None, set(), offers_now)
+    if conflict:
+        return jsonify({"error": f"overlaps {conflict.get('name')} ({conflict.get('validFrom')} to {conflict.get('validTo')})"}), 409
+
+    saved = _offer_store()
+    created = saved.get(_OFFERS_KEY) or {}
+    rec = {
+        "id": f"OF-{uuid.uuid4().hex[:8].upper()}",
+        "name": name or _promo_name(valid_from),
+        "roomType": room_type,
+        "discountPercent": percent,
+        "validFrom": valid_from,
+        "validTo": valid_to,
+        "baseRate": base_rate,
+        "discountedRate": discounted,
+        "projectedBookings": None,
+        "projectedRevenue": None,
+        "enabled": True,
+        "source": "admin",
+        "method": "manual",
+        "createdAt": hotel_now().isoformat(),
+        "createdBy": actor_id,
+        "createdByEmail": actor_email,
+    }
+    created[rec["id"]] = rec
+    saved[_OFFERS_KEY] = created
+    if not _save_json_file(_offer_status_file, saved):
+        return jsonify({"error": "Could not save offer"}), 500
+    _audit_discount("create", actor_id, actor_email, rec, {"via": "manual"})
+    invalidate_cache("analytics-discounts")
+    out = dict(rec)
+    out["status"] = _derive_offer_status(True, valid_from, valid_to)
+    return jsonify(out), 201
+
+
+@app.route("/api/discounts/audit", methods=["GET"])
+def get_discount_audit():
+    """Recent create/activate/deactivate entries — who, when, what. Supabase
+    once the migration has run, file fallback otherwise."""
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    _, _, err = _admin_gate(token)
+    if err:
+        return err
+    if _discount_audit_table_exists():
+        try:
+            rows = supabase.table("discount_audit_log").select("*") \
+                .order("created_at", desc=True).limit(100).execute()
+            return jsonify(rows.data or []), 200
+        except Exception as e:
+            print(f"audit table read failed, using file: {e}")
+    log = _load_json_file(_audit_file, [])
+    if not isinstance(log, list):
+        log = []
+    return jsonify(list(reversed(log))[:100]), 200
 
 
 if __name__ == "__main__":

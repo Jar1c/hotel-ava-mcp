@@ -94,9 +94,9 @@ export default function Rooms() {
       </div>
 
       {loading ? (
-        <div className="rounded-[6px] bg-white border border-[#e2e4e8] animate-pulse p-5 space-y-3">
+        <div className="rounded-[6px] bg-white border border-[#e2e4e8] p-5 space-y-3">
           {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="h-10 bg-[#f0f1f3] rounded" />
+            <div key={i} className="h-10 skeleton rounded" />
           ))}
         </div>
       ) : error ? (

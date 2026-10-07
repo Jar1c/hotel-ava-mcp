@@ -9,9 +9,9 @@ interface OccupancyChartProps {
 export default function OccupancyChart({ data, loading }: OccupancyChartProps) {
   if (loading) {
     return (
-      <div className="rounded-[6px] bg-white p-5 border border-[#e2e4e8] animate-pulse">
-        <div className="h-4 w-32 bg-[#f0f1f3] rounded mb-4" />
-        <div className="h-64 bg-[#f0f1f3] rounded" />
+      <div className="rounded-[6px] bg-white p-5 border border-[#e2e4e8]">
+        <div className="h-4 w-32 skeleton rounded mb-4" />
+        <div className="h-64 skeleton rounded" />
       </div>
     )
   }

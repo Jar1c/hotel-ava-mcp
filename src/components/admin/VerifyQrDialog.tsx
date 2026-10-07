@@ -10,9 +10,9 @@ import {
   arrivalTimeLabel,
   minutesUntilStart,
   canCheckIn,
-  type ArrivalState,
+  stayRangeLabel,
 } from "@/lib/arrival"
-import { QrCode, Camera, CheckCircle, XCircle, Upload } from "lucide-react"
+import { QrCode, Camera, CheckCircle, XCircle, Upload, ArrowLeft, Clock, Copy, Check } from "lucide-react"
 import jsQR from "jsqr"
 
 type Result =
@@ -30,28 +30,76 @@ type BarcodeCtor = new (opts: { formats: string[] }) => Detector
 
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
 
-/** Per-state look for the arrival panel. */
-const ARRIVAL_TONE: Record<ArrivalState, { box: string; pill: string; hint: string }> = {
-  none: {
-    box: "border-[#e2e4e8] border-l-[#9ca3af]",
-    pill: "bg-[#2A2A28] text-white",
-    hint: "text-muted",
-  },
-  early: {
-    box: "border-amber-300 border-l-amber-500",
-    pill: "bg-amber-500 text-white",
-    hint: "text-amber-800",
-  },
-  in_house: {
-    box: "border-emerald-300 border-l-[#3D6B4F]",
-    pill: "bg-[#3D6B4F] text-white",
-    hint: "text-[#2d5a3e]",
-  },
-  ended: {
-    box: "border-gray-200 border-l-gray-400",
-    pill: "bg-gray-400 text-white",
-    hint: "text-muted",
-  },
+/** "Maria Santos" — booking name first, then the account's; no account → say so. */
+function guestLabel(d: VerifyBookingData): string {
+  const name = (d.guest_name || "").trim()
+  if (name) return name
+  if (!d.user_id) return "Former Guest"
+  return (d.email || "").trim() || "Guest"
+}
+
+/** "2 adults, 1 child, 1 pet" — falls back to the total for pre-migration bookings. */
+function guestsLabel(d: VerifyBookingData): string {
+  const parts: string[] = []
+  if (d.adults != null) parts.push(`${d.adults} adult${d.adults === 1 ? "" : "s"}`)
+  if (d.children) parts.push(`${d.children} ${d.children === 1 ? "child" : "children"}`)
+  if (d.pets) parts.push(`${d.pets} pet${d.pets === 1 ? "" : "s"}`)
+  if (parts.length > 0) return parts.join(", ")
+  const n = Number(d.guests ?? 1)
+  return `${n} ${n === 1 ? "guest" : "guests"}`
+}
+
+type StatusLine = { text: string; cls: string; Icon: typeof CheckCircle }
+
+/**
+ * The one line that says whether check-in may happen right now — it replaces
+ * the old "Booking found" heading, the status pill, and the arrival badge.
+ */
+function statusLine(d: VerifyBookingData, now: Date): StatusLine {
+  const state = deriveArrival(d, now)
+  const startLabel = startMomentLabel(d)
+  const arrivedAt = arrivalTimeLabel(d.checked_in_at)
+
+  if (state === "ended") {
+    if (d.status === "cancelled") return { text: "Cancelled", cls: "text-rose-700", Icon: XCircle }
+    if (d.status === "checked-out") return { text: "Checked out — stay is over", cls: "text-muted", Icon: XCircle }
+    return { text: "Stay is over", cls: "text-muted", Icon: XCircle }
+  }
+  if (state === "in_house") {
+    return {
+      text: `In house${arrivedAt ? ` · checked in ${arrivedAt}` : ""}`,
+      cls: "text-[#2d5a3e]",
+      Icon: CheckCircle,
+    }
+  }
+  if (state === "early") {
+    return {
+      text: `Checked in early${startLabel ? ` · stay starts ${startLabel}` : ""}`,
+      cls: "text-amber-700",
+      Icon: Clock,
+    }
+  }
+  if (d.status !== "confirmed") {
+    return {
+      text: "Not yet. Check-in opens once the booking is confirmed",
+      cls: "text-amber-700",
+      Icon: Clock,
+    }
+  }
+  const until = minutesUntilStart(d, now)
+  if (until !== null && until > 0) {
+    return {
+      text: `Not yet. Check-in opens ${startLabel || "on the check-in date"}`,
+      cls: "text-amber-700",
+      Icon: Clock,
+    }
+  }
+  if (canCheckIn(d, now)) return { text: "Ready to check in", cls: "text-[#2d5a3e]", Icon: CheckCircle }
+  return {
+    text: startLabel ? `Not yet. Check-in opens ${startLabel}` : "Check-in unavailable",
+    cls: "text-amber-700",
+    Icon: Clock,
+  }
 }
 
 /** QR payload → booking id: full UUID, /verify/<id> link, or #ABC12345 code. */
@@ -185,6 +233,7 @@ export default function VerifyQrDialog({ open, onOpenChange }: Props) {
   // when the booked time arrives, with nobody refetching anything.
   const [now, setNow] = useState(() => new Date())
   const [receiptOpen, setReceiptOpen] = useState(false)
+  const [copied, setCopied] = useState(false)
   const [cam, setCam] = useState<CameraState>("off")
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -197,6 +246,23 @@ export default function VerifyQrDialog({ open, onOpenChange }: Props) {
     streamRef.current = null
     if (videoRef.current) videoRef.current.srcObject = null
     setCam((prev) => (prev === "on" ? "off" : prev))
+  }, [])
+
+  // After a scan the camera block is replaced by the result card — this puts
+  // the scanner back (the code stays so Verify can be pressed again).
+  const backToScanner = useCallback(() => {
+    setResult({ kind: "idle" })
+    setActionError(null)
+  }, [])
+
+  const copyReference = useCallback(async (ref: string) => {
+    try {
+      await navigator.clipboard.writeText(`#${ref}`)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1600)
+    } catch {
+      /* clipboard unavailable — the ID stays selectable */
+    }
   }, [])
 
   const verifyCode = useCallback(async (raw: string) => {
@@ -346,11 +412,6 @@ export default function VerifyQrDialog({ open, onOpenChange }: Props) {
     }
   }, [cam, stopCamera, verifyCode])
 
-  const stayLabel = (d: VerifyBookingData) =>
-    d.stay_type === "day"
-      ? `${formatDate(d.check_in)}${d.start_time ? ` · ${d.start_time}` : ""}`
-      : `${formatDate(d.check_in)} → ${formatDate(d.check_out)}`
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="!rounded-[16px] !max-w-[440px] !p-0 overflow-hidden">
@@ -362,6 +423,10 @@ export default function VerifyQrDialog({ open, onOpenChange }: Props) {
         </DialogHeader>
 
         <div className="px-6 py-5 space-y-4">
+          {/* Scanner — dropped entirely once a code has been verified, so the
+              dialog stays short; the button below brings it back. */}
+          {result.kind === "idle" ? (
+            <>
           {/* Camera */}
           <div className="relative flex aspect-video items-center justify-center overflow-hidden rounded-[10px] bg-[#0f1115]">
             {cam === "on" ? (
@@ -433,195 +498,151 @@ export default function VerifyQrDialog({ open, onOpenChange }: Props) {
               {busy ? "…" : "Verify"}
             </Button>
           </form>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={backToScanner}
+              className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-[8px] border border-[#e2e4e8] bg-white px-3 py-2.5 text-xs font-semibold text-muted transition-colors hover:border-[#82285f] hover:text-[#82285f]"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" />
+              Back to camera
+            </button>
+          )}
 
           {/* Result */}
-          {result.kind === "found" && (
-            <div className="rounded-[10px] border border-emerald-200 bg-emerald-50 p-4">
+          {result.kind === "found" && (() => {
+            const d = result.data
+            const status = statusLine(d, now)
+            const state = deriveArrival(d, now)
+            const ready = canCheckIn(d, now) && (minutesUntilStart(d, now) ?? 0) <= 0
+
+            // One line of payment truth: paid in full, or what's still due.
+            const total = Number(d.total_price) || 0
+            const down = d.payment_mode === "downpayment"
+            const paid = down || d.status === "pending" ? Math.max(0, d.amount_paid ?? 0) : total
+            const balance = Math.max(0, total - paid)
+            const pay = {
+              balance,
+              showSettle: d.status !== "cancelled" && balance > 0,
+              text:
+                d.status === "cancelled"
+                  ? "Cancelled"
+                  : balance > 0
+                    ? `Balance ₱${balance.toLocaleString()} due`
+                    : total > 0
+                      ? `Paid in full, ₱${total.toLocaleString()}`
+                      : "No payment due",
+            }
+
+            return (
+            <div className="overflow-hidden rounded-[10px] border border-[#e2e4e8] bg-white">
+              {d.room_image && (
+                <img src={d.room_image} alt={d.room_name} className="h-[140px] w-full object-cover" />
+              )}
+              <div className="p-4">
+              {/* The single status line — ready, or exactly why not */}
               <div className="flex items-center gap-2">
-                <CheckCircle className="h-5 w-5 text-emerald-600" />
-                <p className="text-sm font-bold text-emerald-800">Booking found</p>
-                {(() => {
-                  const state = deriveArrival(result.data, now)
-                  const label =
-                    state === "in_house" ? "In-house" : state === "early" ? "Arrived" : result.data.status
-                  const accent =
-                    state === "in_house"
-                      ? "border-[#3D6B4F] text-[#3D6B4F]"
-                      : state === "early"
-                        ? "border-amber-300 text-amber-700"
-                        : "border-emerald-200 text-emerald-700"
-                  return (
-                    <span
-                      className={`ml-auto rounded-full border bg-white px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${accent}`}
-                    >
-                      {label}
-                    </span>
-                  )
-                })()}
+                <status.Icon className={`h-4 w-4 shrink-0 ${status.cls}`} />
+                <p className={`text-[13px] font-semibold ${status.cls}`}>{status.text}</p>
               </div>
 
-              {/* Arrival — has the guest shown up, and is the stay running yet? */}
-              {(() => {
-                const d = result.data
-                const state = deriveArrival(d, now)
-                const tone = ARRIVAL_TONE[state]
-                const startLabel = startMomentLabel(d)
-                const arrivedAt = arrivalTimeLabel(d.checked_in_at)
-                const until = state === "early" ? minutesUntilStart(d, now) : null
-                const countdown =
-                  until && until > 0
-                    ? until >= 60
-                      ? `Starts in ${Math.floor(until / 60)}h ${until % 60}m`
-                      : `Starts in ${until} min`
-                    : null
-                const hint =
-                  state === "none"
-                    ? `Not checked in yet${startLabel ? ` · Stay starts ${startLabel}` : ""}`
-                    : state === "early"
-                      ? `Checked in ${arrivedAt}${startLabel ? ` · Stay starts ${startLabel}` : ""}`
-                      : state === "in_house"
-                        ? `Checked in ${arrivedAt}${startLabel ? ` · Running since ${startLabel}` : ""}`
-                        : arrivedAt
-                          ? `Checked in ${arrivedAt}`
-                          : "Never checked in"
-                return (
-                  <div className={`mt-3 rounded-[8px] border border-l-4 bg-white p-3 ${tone.box}`}>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${tone.pill}`}>
-                        {state === "none"
-                          ? "Awaiting arrival"
-                          : state === "early"
-                            ? "Arrived early"
-                            : state === "in_house"
-                              ? "In-house"
-                              : "Stay ended"}
-                      </span>
-                      {countdown && (
-                        <span className="text-[11px] font-bold uppercase tracking-wide text-amber-700">
-                          {countdown}
-                        </span>
-                      )}
-                    </div>
-                    <p className={`mt-1.5 text-[13px] ${tone.hint}`}>{hint}</p>
-
-                    {actionError && (
-                      <p className="mt-2 rounded-[6px] border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-[12px] font-semibold text-rose-700">
-                        {actionError}
-                      </p>
-                    )}
-
-                    {canCheckIn(d, now) && (
-                      <Button
-                        type="button"
-                        onClick={() => void checkInGuest()}
-                        disabled={checkingIn}
-                        className="mt-3 w-full !rounded-[8px] gap-2 bg-[#3D6B4F] text-white hover:bg-[#2d5a3e]"
-                      >
-                        {checkingIn ? "Checking in…" : "Check in guest"}
-                      </Button>
-                    )}
-                    {state === "none" && d.status === "pending" && (
-                      <p className="mt-2 text-[12px] font-semibold text-[#b45309]">
-                        Collect the balance first — this booking must be confirmed before check-in.
-                      </p>
-                    )}
-                  </div>
-                )
-              })()}
+              {/* Who showed up and where they stay — the loudest line */}
+              <p className="mt-3 text-[16px] font-semibold leading-snug text-ink">
+                {guestLabel(d)}, {d.room_name}
+              </p>
+              {d.email && d.email !== guestLabel(d) && (
+                <p className="mt-0.5 text-[13px] text-muted">{d.email}</p>
+              )}
 
               <dl className="mt-3 space-y-1.5 text-[13px]">
                 <div className="flex justify-between gap-3">
-                  <dt className="text-emerald-700">Guest</dt>
-                  <dd className="text-right font-semibold text-emerald-950">{result.data.guest_name || "—"}</dd>
+                  <dt className="text-muted">Stay</dt>
+                  <dd className="text-right font-semibold text-ink">{stayRangeLabel(d)}</dd>
                 </div>
                 <div className="flex justify-between gap-3">
-                  <dt className="text-emerald-700">Room</dt>
-                  <dd className="text-right font-semibold text-emerald-950">{result.data.room_name}</dd>
+                  <dt className="text-muted">Guests</dt>
+                  <dd className="text-right font-semibold text-ink">{guestsLabel(d)}</dd>
                 </div>
                 <div className="flex justify-between gap-3">
-                  <dt className="text-emerald-700">Guests</dt>
-                  <dd className="text-right font-semibold text-emerald-950">
-                    {result.data.guests ?? 1} {Number(result.data.guests ?? 1) === 1 ? "guest" : "guests"}
-                  </dd>
-                </div>
-                <div className="flex justify-between gap-3">
-                  <dt className="text-emerald-700">Stay</dt>
-                  <dd className="text-right font-semibold text-emerald-950">{stayLabel(result.data)}</dd>
-                </div>
-                <div className="flex justify-between gap-3">
-                  <dt className="text-emerald-700">Reference</dt>
-                  <dd className="font-mono font-semibold text-emerald-950">#{result.data.reference}</dd>
-                </div>
-              </dl>
-
-              {/* Payment terms — flagged the moment the QR is scanned */}
-              {(() => {
-                const d = result.data
-                const down = d.payment_mode === "downpayment"
-                const total = Number(d.total_price) || 0
-                const paid = down ? Math.max(0, d.amount_paid ?? 0) : total
-                const balance = Math.max(0, total - paid)
-                const cancelled = d.status === "cancelled"
-                const showSettle = !cancelled && balance > 0
-                return (
-                  <div className="mt-3 rounded-[8px] border border-emerald-200 bg-white p-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="rounded-full bg-[#82285f] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white">
-                        {down ? "Downpayment" : "Full payment"}
-                      </span>
-                      <span
-                        className={
-                          balance > 0
-                            ? "text-[11px] font-bold uppercase tracking-wide text-[#b45309]"
-                            : "text-[11px] font-bold uppercase tracking-wide text-emerald-700"
-                        }
-                      >
-                        {cancelled ? "Cancelled" : balance > 0 ? `Balance ₱${balance.toLocaleString()}` : "Fully paid"}
-                      </span>
-                    </div>
-                    <dl className="mt-2 space-y-1 text-[13px]">
-                      <div className="flex justify-between gap-3">
-                        <dt className="text-emerald-700">Total</dt>
-                        <dd className="font-semibold text-emerald-950">₱{total.toLocaleString()}</dd>
-                      </div>
-                      <div className="flex justify-between gap-3">
-                        <dt className="text-emerald-700">Paid online</dt>
-                        <dd className="font-semibold text-emerald-950">₱{paid.toLocaleString()}</dd>
-                      </div>
-                      {balance > 0 && (
-                        <div className="flex justify-between gap-3 border-t border-emerald-100 pt-1">
-                          <dt className="font-semibold text-[#b45309]">Balance due at hotel</dt>
-                          <dd className="font-bold text-[#b45309]">₱{balance.toLocaleString()}</dd>
-                        </div>
-                      )}
-                    </dl>
-                    {showSettle && (
-                      <Button
+                  <dt className="text-muted">Payment</dt>
+                  <dd className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1 text-right font-semibold">
+                    <span
+                      className={
+                        d.status !== "cancelled" && pay.balance > 0 ? "text-[#b45309]" : "text-ink"
+                      }
+                    >
+                      {pay.text}
+                    </span>
+                    {pay.showSettle && (
+                      <button
                         type="button"
                         onClick={() => void settleBalance()}
                         disabled={settling}
-                        className="mt-3 w-full !rounded-[8px] gap-2 bg-[#3D6B4F] text-white hover:bg-[#2d5a3e]"
+                        className="cursor-pointer text-xs font-semibold text-[#82285f] hover:underline disabled:opacity-60"
                       >
                         {settling
                           ? "Saving…"
                           : d.status === "pending"
-                            ? `Collect ₱${balance.toLocaleString()} & confirm`
-                            : `Collect ₱${balance.toLocaleString()} — mark as paid`}
-                      </Button>
+                            ? `Collect ₱${pay.balance.toLocaleString()} & confirm`
+                            : `Collect ₱${pay.balance.toLocaleString()}`}
+                      </button>
                     )}
-                  </div>
-                )
-              })()}
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setReceiptOpen(true)}
-                className="mt-3 w-full !rounded-[8px] gap-2"
-              >
-                View Receipt
-              </Button>
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt className="text-muted">Booking ID</dt>
+                  <dd className="flex items-center gap-1.5">
+                    <span className="font-mono text-xs font-semibold text-ink select-all">
+                      #{d.reference}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => void copyReference(d.reference)}
+                      aria-label={copied ? "Booking ID copied" : "Copy booking ID"}
+                      title={copied ? "Copied" : "Copy booking ID"}
+                      className="cursor-pointer text-muted transition-colors hover:text-primary"
+                    >
+                      {copied ? (
+                        <Check className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" />
+                      ) : (
+                        <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+                      )}
+                    </button>
+                  </dd>
+                </div>
+              </dl>
+
+              {actionError && (
+                <p className="mt-3 rounded-[6px] border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-[12px] font-semibold text-rose-700">
+                  {actionError}
+                </p>
+              )}
+
+              {/* Actions — check in is gated by the clock; receipt is a link */}
+              <div className="mt-4 flex items-center gap-4">
+                {state === "none" && (
+                  <Button
+                    type="button"
+                    onClick={() => void checkInGuest()}
+                    disabled={!ready || checkingIn}
+                    className="flex-1 !rounded-[8px] gap-2 bg-[#3D6B4F] text-white hover:bg-[#2d5a3e] disabled:bg-[#d6d9de] disabled:text-[#9aa0a6]"
+                  >
+                    {checkingIn ? "Checking in…" : "Check in"}
+                  </Button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setReceiptOpen(true)}
+                  className="cursor-pointer text-xs font-semibold text-[#82285f] hover:underline"
+                >
+                  View receipt
+                </button>
+              </div>
+              </div>
             </div>
-          )}
+            )
+          })()}
 
           {result.kind === "invalid" && (
             <div className="flex items-start gap-2 rounded-[10px] border border-rose-200 bg-rose-50 p-4">

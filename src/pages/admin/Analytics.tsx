@@ -192,7 +192,7 @@ export default function Analytics() {
             {loading ? (
               <div className="space-y-3">
                 {Array.from({ length: 2 }).map((_, i) => (
-                  <div key={i} className="h-40 bg-white rounded-[6px] border border-[#e2e4e8] animate-pulse" />
+                  <div key={i} className="h-40 skeleton rounded-[6px]" />
                 ))}
               </div>
             ) : demandInsights.length === 0 ? (
@@ -228,7 +228,7 @@ export default function Analytics() {
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
           {loading ? (
             Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="h-24 bg-white rounded-[6px] border border-[#e2e4e8] animate-pulse" />
+              <div key={i} className="h-24 skeleton rounded-[6px]" />
             ))
           ) : (
             insights.map((insight, i) => (

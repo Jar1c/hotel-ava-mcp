@@ -30,6 +30,9 @@ export interface Booking {
   checked_in_at?: string | null
   /** Why the booking was cancelled — shown in the admin detail modal. */
   cancellation_reason?: string | null
+  /** Paid stay extensions — 0/absent = never extended. */
+  extended_hours?: number
+  extended_at?: string | null
 }
 
 export interface MonthlyRevenue {

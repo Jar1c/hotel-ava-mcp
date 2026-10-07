@@ -1,6 +1,8 @@
 import { useNavigate } from "react-router"
 import { Brain, TrendingUp, Calendar, ArrowRight } from "lucide-react"
 import AiAbout from "@/components/admin/AiAbout"
+import { SkeletonBlock } from "@/components/ui/skeleton"
+import { cn } from "@/lib/utils"
 import type { RecommendationsData } from "@/services/adminService"
 
 type Props = {
@@ -41,10 +43,10 @@ export default function AIInsightCards({ recommendations, loading, linkBase, sho
         )}
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className={cn("grid grid-cols-1 sm:grid-cols-3 gap-4", !loading && "content-fade")}>
         {loading ? (
           Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="h-28 bg-white/50 rounded-[8px] animate-pulse" />
+            <SkeletonBlock key={i} className="h-28" />
           ))
         ) : (
           <>

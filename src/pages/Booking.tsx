@@ -3,7 +3,7 @@ import { useParams, useNavigate, useSearchParams, Link } from "react-router"
 import { ArrowLeft, Calendar, Check, CreditCard, AlertCircle, Clock, Mail, Wallet, Landmark, X, QrCode } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
-import { publicRoomsApi, userBookingsApi, type PublicRoomData } from "@/services/api"
+import { publicRoomsApi, userBookingsApi, type PublicRoomData, type RoomQuote } from "@/services/api"
 import ConfirmDialog from "@/components/ui/confirm-dialog"
 import { rooms as fallbackRooms, type Room } from "@/data/rooms"
 import { getCached, setCache } from "@/lib/cache"
@@ -126,6 +126,29 @@ export default function Booking() {
   const overnightLabel = overnightWindow(checkIn, checkOut)
   const dayLabel = dayUseWindow(checkIn, startTime, endTime)
 
+  // Server-computed price for this exact stay (same math create_booking
+  // charges). Null until loaded or when the fetch fails, so the client-side
+  // fallbacks keep working. Deps are ISO day strings: checkIn/checkOut are
+  // rebuilt every render, which would refetch on every keystroke.
+  const quoteCheckIn = checkIn ? toISODate(checkIn) : undefined
+  const quoteCheckOut = checkIn && checkOut && stayType === "overnight" ? toISODate(checkOut) : undefined
+  const [quote, setQuote] = useState<RoomQuote | null>(null)
+  useEffect(() => {
+    if (!id) return
+    let cancelled = false
+    setQuote(null)
+    publicRoomsApi.quote({
+      room_ids: [id],
+      check_in: quoteCheckIn,
+      check_out: quoteCheckOut,
+      stay_type: stayType,
+      duration: stayType === "day" ? dayDuration : undefined,
+    })
+      .then((list) => { if (!cancelled) setQuote(list[0] ?? null) })
+      .catch(() => { if (!cancelled) setQuote(null) })
+    return () => { cancelled = true }
+  }, [id, quoteCheckIn, quoteCheckOut, stayType, dayDuration])
+
   useEffect(() => {
     if (!id) return
     const cached = getCached<PublicRoomData>(`room_${id}`)
@@ -173,29 +196,44 @@ export default function Booking() {
   // Overnight bookings are always exactly 1 night (24 hours)
   const nights = isOvernight && hasDates ? Math.min(1, Math.ceil((checkOut!.getTime() - checkIn!.getTime()) / (1000 * 60 * 60 * 24))) : 0
   const validNights = isOvernight ? nights > 0 : true
-  // Discount-aware pricing — same precedence the Rooms grid and RoomDetail use:
-  // active offer > approved holiday engine > full rate. The backend recomputes
-  // this same total server-side; we never send a price it has to trust.
+  // Discount-aware pricing — same precedence the Rooms grid and RoomDetail use.
+  // The server quote wins when it covers a real stay (same math create_booking
+  // charges); without dates an overnight quote would price today, so the
+  // client-side fallbacks stay in charge until the guest picks dates.
+  const activeQuote: RoomQuote | null =
+    quote && (!isOvernight || validNights) ? quote : null
   const bookingOffer = room
     ? activeOffers.find((o) => o.roomType === room.type && (!checkIn || offerCoversDate(o, checkIn)))
     : undefined
   const engineDiscount = room ? getRoomDiscount(discountRooms, room.id) : undefined
-  const bookingDiscount = bookingOffer
-    ? { percent: bookingOffer.discountPercent, price: bookingOffer.discountedRate, reason: offerTitle(bookingOffer), validTo: bookingOffer.validTo }
-    : engineDiscount && isApproved(engineDiscount.eventRoomTypeKey)
-      ? { percent: engineDiscount.discountPercent, price: engineDiscount.discountedPrice, reason: engineDiscount.reason, validTo: engineDiscount.validTo }
+  const bookingDiscount = activeQuote
+    ? activeQuote.discount
+      ? { percent: activeQuote.discount.percent, price: activeQuote.rate, reason: activeQuote.discount.name || "Limited-time offer", validTo: activeQuote.discount.validTo ?? undefined }
       : null
+    : bookingOffer
+      ? { percent: bookingOffer.discountPercent, price: bookingOffer.discountedRate, reason: offerTitle(bookingOffer), validTo: bookingOffer.validTo }
+      : engineDiscount && isApproved(engineDiscount.eventRoomTypeKey)
+        ? { percent: engineDiscount.discountPercent, price: engineDiscount.discountedPrice, reason: engineDiscount.reason, validTo: engineDiscount.validTo }
+        : null
   const bookingDiscountReason = bookingDiscount ? reasonWithUntil(bookingDiscount.reason, bookingDiscount.validTo) : null
-  const nightlyRate = bookingDiscount ? bookingDiscount.price : room ? room.price : 0
+  const nightlyRate = activeQuote
+    ? activeQuote.rate
+    : bookingDiscount
+      ? bookingDiscount.price
+      : room
+        ? room.price
+        : 0
   const originalSubtotal = isOvernight
     ? (validNights && room ? room.price * nights : 0)
     : (room ? dayUseRate(room, dayDuration) : 0)
-  const subtotal = isOvernight
-    ? (validNights && room ? nightlyRate * nights : 0)
-    : (room ? dayUseRate(room, dayDuration, nightlyRate) : 0)
+  const subtotal = activeQuote
+    ? activeQuote.subtotal
+    : isOvernight
+      ? (validNights && room ? nightlyRate * nights : 0)
+      : (room ? dayUseRate(room, dayDuration, nightlyRate) : 0)
   const savedAmount = originalSubtotal - subtotal
-  const taxes = Math.round(subtotal * 0.12)
-  const total = subtotal + taxes
+  const taxes = activeQuote ? activeQuote.tax : Math.round(subtotal * 0.12)
+  const total = activeQuote ? activeQuote.total : subtotal + taxes
   const amountDue = paymentMode === "downpayment" ? Math.round(total / 2) : total
   const balanceDue = total - amountDue
 

@@ -94,14 +94,14 @@ export default function GuestsTable({ guests, loading }: GuestsTableProps) {
 
   if (loading) {
     return (
-      <div className="rounded-[6px] bg-white border border-[#e2e4e8] animate-pulse">
+      <div className="rounded-[6px] bg-white border border-[#e2e4e8]">
         <div className="flex items-center justify-between gap-3 border-b border-[#e2e4e8] px-5 py-2.5">
-          <div className="h-7 w-64 bg-[#f0f1f3] rounded-[5px]" />
-          <div className="h-7 w-40 bg-[#f0f1f3] rounded-[5px]" />
+          <div className="h-7 w-64 skeleton rounded-[5px]" />
+          <div className="h-7 w-40 skeleton rounded-[5px]" />
         </div>
         <div className="p-5 space-y-3">
           {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="h-10 bg-[#f0f1f3] rounded" />
+            <div key={i} className="h-10 skeleton rounded" />
           ))}
         </div>
       </div>

@@ -15,8 +15,14 @@ import {
   type RoomPerformanceData,
   type Insight,
   type ForecastPoint,
+  type ForecastAccuracyData,
+  type ForecastAccuracyMetrics,
   type DemandInsightData,
   type DiscountOfferData,
+  type DiscountOfferStatus,
+  type DiscountSuggestion,
+  type DiscountRules,
+  type DiscountAuditEntry,
   type RecommendationsData,
   type AIRecommendation,
 } from "./api"
@@ -224,6 +230,8 @@ async function fetchBookings(): Promise<Booking[]> {
     refunded_at: b.refunded_at ?? null,
     checked_in_at: b.checked_in_at ?? null,
     cancellation_reason: b.cancellation_reason ?? null,
+    extended_hours: b.extended_hours ?? 0,
+    extended_at: b.extended_at ?? null,
   }))
   setCache("bookings", result)
   return result
@@ -260,10 +268,12 @@ async function fetchRecentBookings(limit: number): Promise<Booking[]> {
       payment_method: b.payment_method || "",
       payment_mode: b.payment_mode || "full",
       amount_paid: b.amount_paid ?? 0,
-      checked_in_at: b.checked_in_at ?? null,
-      cancellation_reason: b.cancellation_reason ?? null,
-    }))
-    setCache(`bookings-recent-${limit}`, result)
+    checked_in_at: b.checked_in_at ?? null,
+    cancellation_reason: b.cancellation_reason ?? null,
+    extended_hours: b.extended_hours ?? 0,
+    extended_at: b.extended_at ?? null,
+  }))
+  setCache(`bookings-recent-${limit}`, result)
     return result
   } catch {
     return []
@@ -449,7 +459,7 @@ async function fetchInsights(): Promise<Insight[]> {
 
 // â”€â”€ Analytics: Forecast Data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-export type { ForecastPoint }
+export type { ForecastPoint, ForecastAccuracyData, ForecastAccuracyMetrics }
 
 export async function getOccupancyForecast(): Promise<ForecastPoint[]> {
   const rv = revalidate<ForecastPoint[]>("analytics-occ-forecast", fetchOccForecast)
@@ -483,6 +493,16 @@ async function fetchRevForecast(): Promise<ForecastPoint[]> {
   }
 }
 
+export async function getForecastAccuracy(): Promise<ForecastAccuracyData | null> {
+  try {
+    const data = await analyticsApi.getForecastAccuracy()
+    setCache("analytics-forecast-accuracy", data)
+    return data
+  } catch {
+    return null
+  }
+}
+
 // â”€â”€ AI: Demand Insight Recommendations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export type { DemandInsightData }
@@ -510,7 +530,7 @@ export async function setDemandInsightStatus(id: string, action: "accept" | "dis
 
 // â”€â”€ AI: Discount Offers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-export type { DiscountOfferData }
+export type { DiscountOfferData, DiscountOfferStatus, DiscountSuggestion, DiscountRules, DiscountAuditEntry }
 
 export async function getDiscountOffers(): Promise<DiscountOfferData[]> {
   const rv = revalidate<DiscountOfferData[]>("analytics-discounts", fetchDiscountOffers)
@@ -528,9 +548,85 @@ async function fetchDiscountOffers(): Promise<DiscountOfferData[]> {
   }
 }
 
-export async function setDiscountOfferStatus(id: string, status: "active" | "scheduled" | "dismissed", discountPercent?: number): Promise<void> {
-  await analyticsApi.setDiscountOfferStatus(id, status, discountPercent)
+/** Post-mutation refresh: always the network, never the SWR window (a stale
+ *  hit here would hide a just-approved promo). One retry, then last known. */
+export async function getDiscountOffersFresh(): Promise<DiscountOfferData[]> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const data = await analyticsApi.getDiscountOffers()
+      setCache("analytics-discounts", data)
+      return data
+    } catch {
+      // retry once after a short pause
+      await new Promise((r) => setTimeout(r, 300))
+    }
+  }
+  return getStale<DiscountOfferData[]>("analytics-discounts") ?? []
+}
+
+/** Activate/deactivate one offer or a promo-wide ids batch; optional percent
+ *  edit rides along (validated server-side against cap + minimum rate). */
+export async function setDiscountOfferStatus(payload: {
+  id?: string
+  ids?: string[]
+  enabled?: boolean
+  discountPercent?: number
+}): Promise<{ ok: boolean; statuses?: Record<string, DiscountOfferStatus> }> {
+  const res = await analyticsApi.setDiscountOfferStatus(payload)
   clearCache("analytics-discounts")
+  return res
+}
+
+/** Cap + minimum rate the admin UI validates against. Falls back to the
+ *  server defaults if the rules endpoint is unreachable. */
+export async function getDiscountRules(): Promise<DiscountRules> {
+  try {
+    return await analyticsApi.getDiscountRules()
+  } catch {
+    return { maxPercent: 50, minPrice: 500 }
+  }
+}
+
+/** AI holiday promo suggestions with reasoning + estimate. Not cached: the
+ *  list changes on every approve/dismiss. */
+export async function getDiscountSuggestions(): Promise<DiscountSuggestion[]> {
+  try {
+    const data = await analyticsApi.getDiscountSuggestions()
+    return Array.isArray(data) ? data : []
+  } catch {
+    return []
+  }
+}
+
+export async function applyDiscountSuggestion(
+  event: string,
+  action: "approve" | "dismiss",
+): Promise<{ ok: boolean; state: string; offers?: DiscountOfferData[] }> {
+  const res = await analyticsApi.applyDiscountSuggestion(event, action)
+  clearCache("analytics-discounts")
+  return res
+}
+
+export async function createDiscountOffer(payload: {
+  roomType: string
+  validFrom: string
+  validTo: string
+  name?: string
+  discountPercent: number
+}): Promise<DiscountOfferData> {
+  const res = await analyticsApi.createDiscountOffer(payload)
+  clearCache("analytics-discounts")
+  return res
+}
+
+/** Recent create/activate/deactivate audit entries (who, when, what). */
+export async function getDiscountAudit(): Promise<DiscountAuditEntry[]> {
+  try {
+    const data = await analyticsApi.getDiscountAudit()
+    return Array.isArray(data) ? data : []
+  } catch {
+    return []
+  }
 }
 
 // â”€â”€ AI: Recommendations Summary â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

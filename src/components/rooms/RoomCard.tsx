@@ -6,6 +6,7 @@ import { getRoomDiscount, type DiscountRoom } from "@/lib/discountEngine"
 import { reasonWithUntil } from "@/services/discountService"
 import { DAY_USE_DURATIONS, dayUseRate } from "@/lib/roomPricing"
 import { formatRoomCapacity } from "@/lib/capacity"
+import type { RoomQuote } from "@/services/api"
 
 interface RoomFilters {
   stayType?: string
@@ -36,6 +37,9 @@ interface RoomCardProps {
   isApproved?: (eventRoomTypeKey: string) => boolean
   /** Active scheduled offer - shown without the holiday approval gate. */
   offerDiscount?: RoomOfferDiscount | null
+  /** Server-computed price for the current search dates. When present it is
+   *  the single source of truth (offer, approved holiday, or full rate). */
+  quote?: RoomQuote | null
 }
 
 const amenityIcons: Record<string, React.ReactNode> = {
@@ -85,21 +89,34 @@ const amenityIcons: Record<string, React.ReactNode> = {
   "Cable TV": <Tv className="h-3 w-3" />,
 }
 
-export default function RoomCard({ room, filters, discountRooms, isApproved, offerDiscount }: RoomCardProps) {
+export default function RoomCard({ room, filters, discountRooms, isApproved, offerDiscount, quote }: RoomCardProps) {
   const discount = getRoomDiscount(discountRooms || [], room.id)
-  // An activated scheduled offer wins: switching it on in the admin table IS
-  // the approval, so it does not need the holiday-promo approval gate.
-  const showDiscount = offerDiscount
-    ? {
-        discountPercent: offerDiscount.percent,
-        discountedPrice: offerDiscount.price,
-        originalPrice: offerDiscount.original,
-        reason: offerDiscount.reason || "Limited-time offer",
-        validTo: offerDiscount.validTo,
-      }
-    : discount && isApproved && isApproved(discount.eventRoomTypeKey)
-      ? discount
+  // The server quote wins when we have one: it already resolved live offer vs
+  // approved holiday vs full rate for the search dates, in the same math
+  // create_booking charges. Without a quote (still loading, or fetch failed)
+  // fall back to the client-side paths: an activated scheduled offer counts
+  // as the approval, so it does not need the holiday-promo approval gate.
+  const showDiscount = quote
+    ? quote.discount
+      ? {
+          discountPercent: quote.discount.percent,
+          discountedPrice: quote.rate,
+          originalPrice: quote.base_rate,
+          reason: quote.discount.name || "Limited-time offer",
+          validTo: quote.discount.validTo ?? undefined,
+        }
       : null
+    : offerDiscount
+      ? {
+          discountPercent: offerDiscount.percent,
+          discountedPrice: offerDiscount.price,
+          originalPrice: offerDiscount.original,
+          reason: offerDiscount.reason || "Limited-time offer",
+          validTo: offerDiscount.validTo,
+        }
+      : discount && isApproved && isApproved(discount.eventRoomTypeKey)
+        ? discount
+        : null
 
   const detailUrl = (() => {
     const params = new URLSearchParams()

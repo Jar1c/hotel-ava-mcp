@@ -7,6 +7,8 @@ import { API_BASE } from "@/lib/apiBase"
 import { userBookingsApi, type UserBookingData } from "@/services/api"
 import { formatPaymentMethod } from "@/lib/payment"
 import { OVERNIGHT_CHECK_IN, OVERNIGHT_CHECK_OUT } from "@/lib/stayWindow"
+import { Skeleton, SkeletonLine } from "@/components/ui/skeleton"
+import { useMinSkeleton } from "@/hooks/useMinSkeleton"
 
 const PRIMARY = "#82285f"
 const CONFETTI_COLORS = ["#82285f", "#9ca3af", "#d1d5db"]
@@ -97,11 +99,57 @@ function DetailRow({
   )
 }
 
+/** Suggested confirmation layout — white card chrome with gray shapes inside. */
+function ConfirmationSkeleton() {
+  return (
+    <div className="px-base py-6 lg:py-8 flex flex-col items-center justify-center h-full">
+      <div className="max-w-[920px] mx-auto" aria-hidden="true">
+        <div className="text-center">
+          <SkeletonLine className="h-4 w-40 mx-auto mb-sm" />
+          <SkeletonLine className="h-4 w-72 mx-auto mb-sm" />
+          <SkeletonLine className="h-4 w-96 max-w-full mx-auto mb-lg" />
+        </div>
+
+        <div className="grid gap-lg lg:grid-cols-2 items-start">
+          <div className="bg-white border border-hairline rounded-[12px] p-lg">
+            <div className="rounded-[12px] border border-hairline bg-white p-2.5 flex justify-center">
+              <Skeleton className="h-40 w-40" />
+            </div>
+            <SkeletonLine className="h-4 w-24 mx-auto mt-md" />
+            <SkeletonLine className="h-4 w-28 mx-auto mt-sm" />
+          </div>
+
+          <div className="space-y-lg">
+            <div className="bg-white border border-hairline rounded-[12px] p-lg">
+              <SkeletonLine className="h-5 w-40 mb-md" />
+              <div className="space-y-sm">
+                <SkeletonLine className="h-4 w-full" />
+                <SkeletonLine className="h-4 w-full" />
+                <SkeletonLine className="h-4 w-full" />
+                <SkeletonLine className="h-4 w-full" />
+                <SkeletonLine className="h-4 w-full" />
+                <SkeletonLine className="h-4 w-full" />
+                <SkeletonLine className="h-4 w-full" />
+                <SkeletonLine className="h-4 w-1/2 ml-auto" />
+              </div>
+            </div>
+            <div className="flex gap-sm">
+              <Skeleton className="h-10 w-44" />
+              <Skeleton className="h-10 w-36" />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function BookingConfirmation() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [booking, setBooking] = useState<UserBookingData | null>(null)
-  const [loading, setLoading] = useState(true)
+  // The success route has no id to fetch — start with no skeleton there.
+  const [loading, setLoading] = useState(() => Boolean(id && id !== "success"))
   const [error, setError] = useState(false)
   const [confetti, setConfetti] = useState(false)
   const [pollTimedOut, setPollTimedOut] = useState(false)
@@ -211,84 +259,8 @@ export default function BookingConfirmation() {
     setConfetti(true)
   }, [confirmed, id])
 
-  if (loading) {
-    return (
-      <div className="px-base py-6 lg:py-8 flex flex-col items-center justify-center h-full animate-pulse">
-        <div className="max-w-[920px] mx-auto">
-          <div className="text-center">
-            <div className="h-4 bg-gray-200 rounded w-40 mx-auto mb-sm" />
-            <div className="h-4 bg-gray-200 rounded w-72 mx-auto mb-sm" />
-            <div className="h-4 bg-gray-200 rounded w-96 max-w-full mx-auto mb-lg" />
-          </div>
-
-          <div className="grid gap-lg lg:grid-cols-2 items-start">
-            <div className="bg-white border border-hairline rounded-[12px] p-lg">
-              <div className="rounded-[12px] border border-hairline bg-gray-100 p-2.5 flex justify-center">
-                <div className="h-40 w-40 bg-gray-200 rounded-[8px]" />
-              </div>
-              <div className="h-4 bg-gray-200 rounded w-24 mx-auto mt-md" />
-              <div className="h-4 bg-gray-200 rounded w-28 mx-auto mt-sm" />
-            </div>
-
-            <div className="space-y-lg">
-              <div className="bg-white border border-hairline rounded-[12px] p-lg">
-                <div className="h-5 bg-gray-200 rounded w-40 mb-md" />
-                <div className="space-y-sm">
-                  <div className="h-4 bg-gray-100 rounded w-full" />
-                  <div className="h-4 bg-gray-100 rounded w-full" />
-                  <div className="h-4 bg-gray-100 rounded w-full" />
-                  <div className="h-4 bg-gray-100 rounded w-full" />
-                  <div className="h-4 bg-gray-100 rounded w-full" />
-                  <div className="h-4 bg-gray-100 rounded w-full" />
-                  <div className="h-4 bg-gray-100 rounded w-full" />
-                  <div className="h-4 bg-gray-200 rounded w-1/2 ml-auto" />
-                </div>
-              </div>
-              <div className="flex gap-sm">
-                <div className="h-10 bg-gray-200 rounded-[12px] w-44" />
-                <div className="h-10 bg-gray-100 rounded-[12px] w-36" />
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className="px-base py-section">
-        <div className="max-w-[920px] mx-auto text-center">
-          <h1 className="text-base font-semibold text-ink mb-sm">Confirmation Failed</h1>
-          <p className="text-sm text-muted mb-lg">
-            We couldn't confirm your booking. Please contact support or try again.
-          </p>
-          <div className="flex flex-col sm:flex-row gap-sm justify-center">
-            <Button
-              onClick={() => navigate(0)}
-              className="!rounded-[12px] px-lg bg-primary text-primary-foreground hover:bg-primary-active"
-            >
-              Retry
-            </Button>
-            <Button
-              onClick={() => navigate("/")}
-              className="!rounded-[12px] px-lg bg-primary text-primary-foreground hover:bg-primary-active"
-            >
-              Back to Home
-              <ArrowRight className="h-4 w-4 ml-2" />
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => navigate("/my-bookings")}
-              className="!rounded-[12px] px-lg"
-            >
-              View My Bookings
-            </Button>
-          </div>
-        </div>
-      </div>
-    )
-  }
+  // Skeleton shows at least 500ms, then the destination fades in.
+  const showSkeleton = useMinSkeleton(loading)
 
   const isDay = booking?.stay_type === "day"
   const checkInLabel = booking?.check_in
@@ -337,9 +309,45 @@ export default function BookingConfirmation() {
       : 0
 
   return (
-    <div className="px-base py-6 lg:py-8 flex flex-col items-center justify-center h-full cursor-default select-none">
-      {confetti && <ConfettiEffect onDone={() => setConfetti(false)} />}
-      <div className="max-w-[920px] mx-auto">
+    <div className="h-full" aria-busy={showSkeleton}>
+      <div aria-live="polite" className={showSkeleton ? undefined : "content-fade"}>
+        {showSkeleton ? (
+          <ConfirmationSkeleton />
+        ) : error ? (
+          <div className="px-base py-section">
+            <div className="max-w-[920px] mx-auto text-center">
+              <h1 className="text-base font-semibold text-ink mb-sm">Confirmation Failed</h1>
+              <p className="text-sm text-muted mb-lg">
+                We couldn't confirm your booking. Please contact support or try again.
+              </p>
+              <div className="flex flex-col sm:flex-row gap-sm justify-center">
+                <Button
+                  onClick={() => navigate(0)}
+                  className="!rounded-[12px] px-lg bg-primary text-primary-foreground hover:bg-primary-active"
+                >
+                  Retry
+                </Button>
+                <Button
+                  onClick={() => navigate("/")}
+                  className="!rounded-[12px] px-lg bg-primary text-primary-foreground hover:bg-primary-active"
+                >
+                  Back to Home
+                  <ArrowRight className="h-4 w-4 ml-2" />
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => navigate("/my-bookings")}
+                  className="!rounded-[12px] px-lg"
+                >
+                  View My Bookings
+                </Button>
+              </div>
+            </div>
+          </div>
+        ) : (
+        <div className="px-base py-6 lg:py-8 flex flex-col items-center justify-center h-full cursor-default select-none">
+          {confetti && <ConfettiEffect onDone={() => setConfetti(false)} />}
+          <div className="max-w-[920px] mx-auto">
         <div className="text-center">
           <h1 className="text-base font-semibold text-ink mb-sm">Booking confirmed</h1>
           <p className="text-sm text-ink/70 mb-lg">
@@ -440,6 +448,9 @@ export default function BookingConfirmation() {
             </div>
           </div>
         </div>
+      </div>
+        </div>
+        )}
       </div>
     </div>
   )

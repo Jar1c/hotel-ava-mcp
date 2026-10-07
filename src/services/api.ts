@@ -424,6 +424,19 @@ export const publicRoomsApi = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  /** Backend-computed prices (same math create_booking charges) for the Rooms
+   *  grid, room detail and checkout. Omit room_ids to quote every room. */
+  quote: (payload: {
+    room_ids?: string[]
+    check_in?: string
+    check_out?: string
+    stay_type?: "overnight" | "day"
+    duration?: number
+  }) =>
+    apiFetch<RoomQuote[]>("/rooms/quotes", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
 }
 
 // ── Upload ────────────────────────────────────────────────────────────────────
@@ -562,6 +575,9 @@ export interface UserBookingData {
   /** True once the guest has reviewed this stay */
   reviewed?: boolean
   rating?: number | null
+  /** Paid stay extensions — 0/absent = never extended. */
+  extended_hours?: number
+  extended_at?: string | null
 }
 
 export interface ExtendStartResponse {
@@ -626,14 +642,19 @@ export interface VerifyBookingData {
   reference: string
   status: string
   guest_name?: string
+  user_id?: string | null
   room_name: string
   room_type: string
+  room_image?: string
   check_in: string
   check_out: string
   stay_type: string
   start_time?: string | null
   duration?: number | null
   guests: number
+  adults?: number | null
+  children?: number | null
+  pets?: number | null
   email?: string
   phone?: string
   total_price?: number
@@ -682,7 +703,11 @@ export interface BookingData {
   refunded_at?: string | null
   /** Why the booking was cancelled — shown to the guest and the admin. */
   cancellation_reason?: string | null
+  /** Derived from the clock — never stored. See ArrivalState. */
   arrival_state?: ArrivalState
+  /** Paid stay extensions — 0/absent = never extended. */
+  extended_hours?: number
+  extended_at?: string | null
 }
 
 export const bookingsApi = {
@@ -840,6 +865,49 @@ export interface ForecastPoint {
   predicted: number
 }
 
+export interface ForecastAccuracyMetrics {
+  mae: number
+  rmse: number
+  /** null when every backtested month had zero actuals (undefined there) */
+  mape: number | null
+  smape: number | null
+  /** 100 − SMAPE — headline score per the stated grade scale */
+  accuracyPct: number | null
+  r2: number | null
+  bias: number
+  sampleSize: number
+  coveragePct: number
+  points: ForecastAccuracyPoint[]
+}
+
+export interface ForecastAccuracyPoint {
+  month: string
+  predicted: number
+  actual: number
+  error: number
+  absError: number
+}
+
+export interface ForecastAccuracyData {
+  occupancy: ForecastAccuracyMetrics | null
+  revenue: ForecastAccuracyMetrics | null
+  generatedAt: string
+  method: string
+  dataFreshness: {
+    lastBookingCheckIn: string | null
+    totalRooms: number
+    totalBookings: number
+  }
+  iso25059: {
+    accuracy: string
+    completeness: string
+    precision: string
+    credibility: string
+    currentness: string
+    gradeScale?: string
+  }
+}
+
 export interface DemandInsightData {
   id: string
   period: string
@@ -855,6 +923,10 @@ export interface DemandInsightData {
   method?: string
 }
 
+/** Date-gated offer state (Asia/Manila): live today, scheduled in the future,
+ *  off by admin switch, expired once the window ended. */
+export type DiscountOfferStatus = "live" | "scheduled" | "off" | "expired"
+
 export interface DiscountOfferData {
   id: string
   roomType: string
@@ -863,11 +935,82 @@ export interface DiscountOfferData {
   validTo: string
   baseRate: number
   discountedRate: number
-  projectedBookings: number
-  projectedRevenue: number
-  status: "active" | "scheduled" | "expired"
-  method: string
-  confidence: number
+  projectedBookings: number | null
+  projectedRevenue: number | null
+  status: DiscountOfferStatus
+  /** Promo name shared by the offers of one promo, e.g. "November promo". */
+  name?: string
+  /** "ai" generated, "admin" manual, "holiday" approved suggestion. */
+  source?: string
+  enabled?: boolean
+  method?: string
+  confidence?: number
+}
+
+export interface DiscountSuggestionRoomType {
+  roomType: string
+  percent: number
+  baseRate: number
+  discountedRate: number
+}
+
+/** One AI holiday promo proposal: window, forecast-based reasoning, estimate. */
+export interface DiscountSuggestion {
+  event: string
+  validFrom: string
+  validTo: string
+  phase: "live" | "upcoming"
+  daysUntilStart: number
+  reasoning: string
+  estimatedImpact: string | null
+  roomTypes: DiscountSuggestionRoomType[]
+  percentRange: [number, number]
+  state: "pending" | "approved" | "dismissed"
+}
+
+export interface DiscountRules {
+  maxPercent: number
+  minPrice: number
+}
+
+export interface DiscountAuditEntry {
+  action: "create" | "activate" | "deactivate"
+  offer_id: string
+  promo: string
+  room_type: string
+  discount_percent: number
+  valid_from: string
+  valid_to: string
+  actor_id: string | null
+  actor_email: string | null
+  details?: Record<string, unknown>
+  created_at: string
+}
+
+export interface QuoteDiscount {
+  source: "offer" | "holiday"
+  name: string
+  percent: number
+  validFrom?: string | null
+  validTo?: string | null
+}
+
+/** Server-computed price for one room — the same math create_booking charges. */
+export interface RoomQuote {
+  room_id: string
+  room_type: string
+  stay_type: "overnight" | "day"
+  check_in: string
+  check_out: string | null
+  nights: number | null
+  hours: number | null
+  base_rate: number
+  rate: number
+  discount: QuoteDiscount | null
+  subtotal: number
+  tax: number
+  total: number
+  day_rates: Record<string, number> | null
 }
 
 export interface AIRecommendation {
@@ -906,12 +1049,37 @@ export const analyticsApi = {
       body: JSON.stringify({ id, action, ...(discountPercent == null ? {} : { discountPercent }) }),
     }),
   getDiscountOffers: () => apiFetch<DiscountOfferData[]>("/analytics/discount-offers"),
-  setDiscountOfferStatus: (id: string, status: "active" | "scheduled" | "dismissed", discountPercent?: number) =>
-    apiFetch<{ ok: boolean }>("/analytics/discount-offers/status", {
+  setDiscountOfferStatus: (payload: {
+    id?: string
+    ids?: string[]
+    enabled?: boolean
+    discountPercent?: number
+  }) =>
+    apiFetch<{ ok: boolean; statuses?: Record<string, DiscountOfferStatus> }>(
+      "/analytics/discount-offers/status",
+      { method: "POST", body: JSON.stringify(payload) },
+    ),
+  getDiscountRules: () => apiFetch<DiscountRules>("/discounts/rules"),
+  getDiscountSuggestions: () => apiFetch<DiscountSuggestion[]>("/discounts/suggestions"),
+  applyDiscountSuggestion: (event: string, action: "approve" | "dismiss") =>
+    apiFetch<{ ok: boolean; state: string; offers?: DiscountOfferData[] }>("/discounts/suggestions", {
       method: "POST",
-      body: JSON.stringify({ id, status, ...(discountPercent == null ? {} : { discountPercent }) }),
+      body: JSON.stringify({ event, action }),
     }),
+  createDiscountOffer: (payload: {
+    roomType: string
+    validFrom: string
+    validTo: string
+    name?: string
+    discountPercent: number
+  }) =>
+    apiFetch<DiscountOfferData>("/analytics/discount-offers", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  getDiscountAudit: () => apiFetch<DiscountAuditEntry[]>("/discounts/audit"),
   getAIRecommendations: () => apiFetch<RecommendationsData>("/analytics/ai-recommendations"),
+  getForecastAccuracy: () => apiFetch<ForecastAccuracyData>("/analytics/forecast/accuracy"),
 }
 
 // ── Reviews ────────────────────────────────────────────────────────────────────
@@ -1071,7 +1239,7 @@ export const reviewsApi = {
   getAll: (roomId?: string) =>
     apiFetch<AdminReviewsResponse>(`/reviews${roomId ? `?room_id=${encodeURIComponent(roomId)}` : ""}`),
 
-  /** Admin moderation — or the guest removing their own review */
+  /** Guest — removes their own review (admins cannot delete reviews) */
   remove: (id: string) => apiFetch<{ message: string }>(`/reviews/${id}`, { method: "DELETE" }),
 
   /** Admin — public reply/feedback under a review */

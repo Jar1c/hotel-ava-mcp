@@ -1,14 +1,16 @@
 import { useState, useEffect, useMemo, type ReactNode } from "react"
-import { Star, Trash2, MessageSquareText, Inbox, ChevronRight, X } from "lucide-react"
+import { Star, MessageSquareText, Inbox, ChevronRight, X } from "lucide-react"
 import { getStoredAvatar, getGeneratedAvatar, onAvatarError } from "@/lib/avatar"
 import {
   reviewsApi,
   type AdminReviewsResponse,
   type AdminReview,
 } from "@/services/api"
-import ConfirmDialog from "@/components/ui/confirm-dialog"
 import { Pagination } from "@/components/ui/pagination"
+import { SkeletonCard, SkeletonLine, SkeletonRegion } from "@/components/ui/skeleton"
+import { useMinSkeleton } from "@/hooks/useMinSkeleton"
 import { useToast } from "@/contexts/ToastContext"
+import { cn } from "@/lib/utils"
 
 const REVIEW_PAGE_SIZE = 10
 
@@ -48,6 +50,28 @@ const tabs: { id: TabId; label: string; icon: ReactNode }[] = [
   { id: "reviews", label: "All reviews", icon: <MessageSquareText className="h-4 w-4" /> },
 ]
 
+function ReviewError({ onRetry, className }: { onRetry: () => void; className?: string }) {
+  return (
+    <div
+      className={cn(
+        "bg-white rounded-[6px] border border-[#e2e4e8] py-12 text-center",
+        className,
+      )}
+    >
+      <p className="text-sm font-medium text-ink">Couldn't load reviews</p>
+      <p className="text-[12px] text-muted mt-1">
+        Something went wrong while fetching. Please try again.
+      </p>
+      <button
+        onClick={onRetry}
+        className="mt-4 cursor-pointer rounded-[6px] border border-[#82285f] px-4 py-1.5 text-[13px] font-semibold text-[#82285f] transition-colors hover:bg-[#f6f2f7]"
+      >
+        Retry
+      </button>
+    </div>
+  )
+}
+
 export default function Reviews() {
   const [data, setData] = useState<AdminReviewsResponse | null>(null)
   const [loading, setLoading] = useState(true)
@@ -55,20 +79,24 @@ export default function Reviews() {
   const [ratingFilter, setRatingFilter] = useState(0)
   const [activeTab, setActiveTab] = useState<TabId>("rooms")
   const [page, setPage] = useState(1)
-  const [deleteTarget, setDeleteTarget] = useState<AdminReview | null>(null)
-  const [deleting, setDeleting] = useState(false)
   const [replyTarget, setReplyTarget] = useState<AdminReview | null>(null)
   const [replyDraft, setReplyDraft] = useState("")
   const [replySaving, setReplySaving] = useState(false)
+  const [loadError, setLoadError] = useState(false)
   const { toast } = useToast()
 
   const load = (roomId?: string) => {
     setLoading(true)
+    setLoadError(false)
     reviewsApi
       .getAll(roomId)
-      .then(setData)
+      .then((d) => {
+        setData(d)
+        setLoadError(false)
+      })
       .catch(() => {
         setData(null)
+        setLoadError(true)
         toast({
           title: "Couldn't load reviews",
           description: "Make sure migrate-add-reviews.sql has been run in Supabase.",
@@ -77,6 +105,13 @@ export default function Reviews() {
       })
       .finally(() => setLoading(false))
   }
+
+  const retry = () => load(roomFilter || undefined)
+
+  // Skeletons show at least 500ms; on refetch with data already on screen,
+  // the stale content stays put (no skeleton flash).
+  const showSkeleton = useMinSkeleton(loading && !data)
+  const showError = loadError && !data
 
   useEffect(() => {
     load()
@@ -114,23 +149,6 @@ export default function Reviews() {
     (safePage - 1) * REVIEW_PAGE_SIZE,
     safePage * REVIEW_PAGE_SIZE,
   )
-
-  const confirmDelete = async () => {
-    if (!deleteTarget) return
-    setDeleting(true)
-    try {
-      await reviewsApi.remove(deleteTarget.id)
-      setData((prev) =>
-        prev ? { ...prev, reviews: prev.reviews.filter((r) => r.id !== deleteTarget.id) } : prev,
-      )
-      toast({ title: "Review deleted", description: "The review was removed.", variant: "success" })
-    } catch {
-      toast({ title: "Delete failed", description: "Please try again.", variant: "error" })
-    } finally {
-      setDeleting(false)
-      setDeleteTarget(null)
-    }
-  }
 
   const startReply = (review: AdminReview) => {
     setReplyTarget(review)
@@ -210,11 +228,20 @@ export default function Reviews() {
       </div>
 
       {/* Summary */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {loading && !data ? (
+      <SkeletonRegion loading={showSkeleton} className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {showSkeleton ? (
           Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="h-24 bg-white rounded-[6px] border border-[#e2e4e8] animate-pulse" />
+            <div
+              key={i}
+              aria-hidden="true"
+              className="bg-white rounded-[6px] border border-[#e2e4e8] p-5"
+            >
+              <SkeletonLine className="h-3 w-24" />
+              <SkeletonLine className="mt-2 h-7 w-16" />
+            </div>
           ))
+        ) : showError ? (
+          <ReviewError onRetry={retry} className="sm:col-span-3" />
         ) : (
           <>
             <div className="bg-white rounded-[6px] border border-[#e2e4e8] p-5">
@@ -238,7 +265,7 @@ export default function Reviews() {
             </div>
           </>
         )}
-      </div>
+      </SkeletonRegion>
 
       {/* Tabs */}
       <div className="flex items-center gap-0 border-b border-[#e2e4e8]">
@@ -267,7 +294,8 @@ export default function Reviews() {
           <select
             value={roomFilter}
             onChange={(e) => changeRoom(e.target.value)}
-            className="rounded-[5px] border border-[#e2e4e8] bg-white px-3 py-1.5 text-[13px] text-ink focus:outline-none focus:border-[#82285f]"
+            disabled={showSkeleton}
+            className="rounded-[5px] border border-[#e2e4e8] bg-white px-3 py-1.5 text-[13px] text-ink focus:outline-none focus:border-[#82285f] disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <option value="">All rooms</option>
             {stats.map((s) => (
@@ -277,11 +305,23 @@ export default function Reviews() {
             ))}
           </select>
         </div>
-        <div className="divide-y divide-[#e2e4e8]">
-          {loading && !data ? (
+        <SkeletonRegion loading={showSkeleton} className="divide-y divide-[#e2e4e8]">
+          {showSkeleton ? (
             Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="h-14 px-5 animate-pulse bg-[#f0f1f3]" />
+              <div
+                key={i}
+                aria-hidden="true"
+                className="flex items-center justify-between gap-4 px-5 py-3"
+              >
+                <div className="space-y-1.5">
+                  <SkeletonLine className="h-4 w-36" />
+                  <SkeletonLine className="h-3 w-20" />
+                </div>
+                <SkeletonLine className="h-3.5 w-28" />
+              </div>
             ))
+          ) : showError ? (
+            <ReviewError onRetry={retry} className="rounded-none border-0" />
           ) : stats.length === 0 ? (
             <p className="px-5 py-6 text-sm text-muted">No rooms found.</p>
           ) : (
@@ -315,7 +355,7 @@ export default function Reviews() {
                 </button>
               ))
           )}
-        </div>
+        </SkeletonRegion>
       </div>
       )}
 
@@ -365,22 +405,23 @@ export default function Reviews() {
           </div>
         )}
 
-        {loading && !data ? (
-          <div className="space-y-3">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="h-24 bg-white rounded-[6px] border border-[#e2e4e8] animate-pulse" />
-            ))}
-          </div>
-        ) : visibleReviews.length === 0 ? (
-          <div className="bg-white rounded-[6px] border border-[#e2e4e8] py-12 text-center">
-            <Inbox className="h-8 w-8 mx-auto mb-2 text-[#D5DADF]" />
-            <p className="text-sm font-medium text-ink">No reviews here yet</p>
-            <p className="text-[12px] text-muted mt-1">
-              Reviews appear once guests finish a stay and rate it.
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-3">
+        <SkeletonRegion loading={showSkeleton} className="space-y-3">
+          {showSkeleton ? (
+            Array.from({ length: 3 }).map((_, i) => (
+              <SkeletonCard key={i} avatar lines={2} className="rounded-[6px]" />
+            ))
+          ) : showError ? (
+            <ReviewError onRetry={retry} />
+          ) : visibleReviews.length === 0 ? (
+            <div className="bg-white rounded-[6px] border border-[#e2e4e8] py-12 text-center">
+              <Inbox className="h-8 w-8 mx-auto mb-2 text-[#D5DADF]" />
+              <p className="text-sm font-medium text-ink">No reviews here yet</p>
+              <p className="text-[12px] text-muted mt-1">
+                Reviews appear once guests finish a stay and rate it.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
             {pagedReviews.map((r) => (
               <div key={r.id} className="bg-white rounded-[6px] border border-[#e2e4e8] p-5">
                 <div className="flex items-start justify-between gap-3">
@@ -406,13 +447,6 @@ export default function Reviews() {
                       </span>
                     </div>
                   </div>
-                  <button
-                    onClick={() => setDeleteTarget(r)}
-                    className="shrink-0 rounded-[5px] border border-[#e2e4e8] p-1.5 text-[#6b7280] hover:text-[#A4423A] hover:border-[#A4423A]/40 transition-colors cursor-pointer"
-                    title="Delete review"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
                 </div>
                 {r.comment ? (
                   <p className="text-[13px] text-[#4A4A45] leading-relaxed mt-3">{r.comment}</p>
@@ -532,29 +566,20 @@ export default function Reviews() {
                 </div>
               </div>
             ))}
-          </div>
-        )}
+            </div>
+          )}
+        </SkeletonRegion>
 
-        <Pagination
-          page={safePage}
-          pageCount={pageCount}
-          onPageChange={setPage}
-          className="mt-4"
-        />
+        {!showSkeleton && !showError && (
+          <Pagination
+            page={safePage}
+            pageCount={pageCount}
+            onPageChange={setPage}
+            className="mt-4"
+          />
+        )}
       </div>
       )}
-
-      <ConfirmDialog
-        open={deleteTarget !== null}
-        onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}
-        title="Delete Review"
-        description={`Remove ${deleteTarget?.guest_name}'s review of ${deleteTarget?.room_name}? This cannot be undone.`}
-        confirmLabel="Delete"
-        cancelLabel="Keep Review"
-        variant="danger"
-        loading={deleting}
-        onConfirm={confirmDelete}
-      />
     </div>
   )
 }

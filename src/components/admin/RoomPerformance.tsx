@@ -9,11 +9,11 @@ interface RoomPerformanceProps {
 export default function RoomPerformance({ data, loading }: RoomPerformanceProps) {
   if (loading) {
     return (
-      <div className="bg-white rounded-[6px] border border-[#e2e4e8] p-6 animate-pulse">
-        <div className="h-5 w-40 bg-[#f0f1f3] rounded mb-4" />
+      <div className="bg-white rounded-[6px] border border-[#e2e4e8] p-6">
+        <div className="h-5 w-40 skeleton rounded mb-4" />
         <div className="space-y-4">
           {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="h-16 bg-[#f0f1f3] rounded" />
+            <div key={i} className="h-16 skeleton rounded" />
           ))}
         </div>
       </div>

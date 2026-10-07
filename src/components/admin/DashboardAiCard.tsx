@@ -1,5 +1,6 @@
 import { useNavigate } from "react-router"
 import type { RecommendationsData } from "@/services/adminService"
+import { SkeletonLine } from "@/components/ui/skeleton"
 import { formatCurrency } from "@/lib/utils"
 
 type Props = {
@@ -23,10 +24,10 @@ export default function DashboardAiCard({ recommendations, loading }: Props) {
   if (loading || !recommendations) {
     return (
       <div className="rounded-[8px] border border-[#e5e7eb] bg-white p-5">
-        <div className="h-4 w-28 bg-[#f0f1f3] rounded animate-pulse mb-4" />
+        <SkeletonLine className="mb-4 h-4 w-28" />
         <div className="space-y-3">
-          <div className="h-5 w-64 bg-[#f0f1f3] rounded animate-pulse" />
-          <div className="h-5 w-52 bg-[#f0f1f3] rounded animate-pulse" />
+          <SkeletonLine className="h-5 w-64" />
+          <SkeletonLine className="h-5 w-52" />
         </div>
       </div>
     )
@@ -37,7 +38,7 @@ export default function DashboardAiCard({ recommendations, loading }: Props) {
     (recommendations.forecastBookings ?? 0) >= MIN_WINDOW_BOOKINGS
 
   return (
-    <div className="rounded-[8px] border border-[#e5e7eb] bg-white p-5">
+    <div className="content-fade rounded-[8px] border border-[#e5e7eb] bg-white p-5">
       <div className="flex items-center justify-between gap-3 mb-4">
         <h2 className="text-[14px] font-semibold text-[#1a1d26]">AI Insights</h2>
         <button

@@ -78,8 +78,9 @@ function endMoment(b: ArrivalBooking) {
     return { day, minutes: parseClock(b.start_time) + Math.max(0, Number(b.duration) || 0) * 60 }
   }
   const out = toDayNumber(b.check_out)
-  // Overnight stays end at midnight of the day AFTER check-out — same rule the
-  // backend's auto-complete uses.
+  // Overnight stays end at midnight of the day AFTER check-out — the grace
+  // window before the badge stops reading as running (the backend completes
+  // the booking at its due-out time, noon on check-out day).
   return out === null ? null : { day: out + DAY_MS, minutes: 0 }
 }
 
@@ -135,11 +136,11 @@ export function arrivalTimeLabel(checkedInAt?: string | null): string {
  * 'Oct 1, 2026 · 12:00 PM' (overnight) or 'Sep 30, 2026 · 5:00 PM' (day use) —
  * when the guest has to be out of the room.
  *
- * Overnight check-out is a fixed noon (house policy, matches
- * OVERNIGHT_CHECK_OUT in stayWindow.ts) regardless of check-in time.
- * endMoment() is midnight AFTER the check-out date, but that is only the
- * grace window the backend uses to auto-complete the booking — not what
- * the guest is told.
+ * Overnight check-out is noon (house policy, matches OVERNIGHT_CHECK_OUT in
+ * stayWindow.ts) plus any late-checkout extension hours stored in duration —
+ * a stay the guest extended is due out later than plain noon. endMoment() is
+ * midnight AFTER the check-out date, but that is only the grace window the
+ * backend uses to auto-complete the booking — not what the guest is told.
  */
 export function checkoutMomentLabel(b: ArrivalBooking): string {
   const day = (n: number) =>
@@ -158,7 +159,24 @@ export function checkoutMomentLabel(b: ArrivalBooking): string {
 
   const out = toDayNumber(b.check_out)
   if (out === null) return ""
-  return `${day(out)} · ${clockLabel(12 * 60)}`
+  // Late-checkout extension: hours added past noon (see apply_extension_fields).
+  const lateMinutes = Math.max(0, Number(b.duration) || 0) * 60
+  return `${day(out)} · ${clockLabel(12 * 60 + lateMinutes)}`
+}
+
+/**
+ * 'Oct 6, 1:00 PM to Oct 7, 12:00 PM' — start and hard checkout time on one
+ * line (year dropped when both ends share it). The front desk needs the
+ * checkout hour because it drives Departures and Overdue.
+ */
+export function stayRangeLabel(b: ArrivalBooking): string {
+  const start = startMomentLabel(b)
+  const end = checkoutMomentLabel(b)
+    .replace(" · ", ", ")
+    .replace(/, \d{4},/, ",")
+  if (!start) return end
+  if (!end) return start
+  return `${start} to ${end}`
 }
 
 /** Minutes until the stay starts running. 0 once it has; negative if it passed. */

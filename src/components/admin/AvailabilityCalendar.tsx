@@ -165,9 +165,9 @@ export default function AvailabilityCalendar() {
           {calLoading && bookings.length === 0
             ? Array.from({ length: 35 }).map((_, i) => (
                 <div key={`sk-${i}`} className="min-h-[100px] p-1.5 border-b border-r border-[#f0f1f3] last:border-r-0">
-                  <div className="size-6 rounded-[4px] bg-[#f5f6f8] animate-pulse mb-1" />
-                  <div className="h-3 w-12 rounded bg-[#f5f6f8] animate-pulse mb-0.5" />
-                  <div className="h-3 w-10 rounded bg-[#f5f6f8] animate-pulse" />
+                  <div className="size-6 rounded-[4px] skeleton mb-1" />
+                  <div className="h-3 w-12 rounded skeleton mb-0.5" />
+                  <div className="h-3 w-10 rounded skeleton" />
                 </div>
               ))
             : weeks.flat().map((day, i) => {

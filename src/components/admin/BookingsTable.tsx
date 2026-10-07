@@ -6,10 +6,12 @@ import type { Booking } from "@/data/admin"
 import LoadingDots from "@/components/LoadingDots"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import ReceiptDialog, { type ReceiptData } from "@/components/ReceiptDialog"
-import { Mail, Phone, CalendarDays, PhilippinePeso, User, Clock, BedDouble, CreditCard, FileText, Landmark, LogIn, Search, X } from "lucide-react"
+import { Mail, Phone, CalendarDays, PhilippinePeso, User, Clock, BedDouble, CreditCard, FileText, Landmark, LogIn, LogOut, Search, X } from "lucide-react"
 import { getStoredAvatar, getGeneratedAvatar, onAvatarError } from "@/lib/avatar"
 import { formatPaymentMethod } from "@/lib/payment"
-import { deriveArrival, canCheckIn, arrivalTimeLabel, startMomentLabel } from "@/lib/arrival"
+import { deriveArrival, canCheckIn, arrivalTimeLabel, startMomentLabel, checkoutMomentLabel } from "@/lib/arrival"
+import { Skeleton, SkeletonRegion, SkeletonTableRow } from "@/components/ui/skeleton"
+import { useMinSkeleton } from "@/hooks/useMinSkeleton"
 import Pagination from "@/components/admin/Pagination"
 import CancelReasonPicker, { composeCancelReason } from "@/components/CancelReasonPicker"
 
@@ -165,6 +167,55 @@ function formatBookingDate(dateStr: string) {
 
 function formatPaymentLabel(method: string) {
   return formatPaymentMethod(method, "Not set")
+}
+
+/** 'extend:<session>:<hours>:<orig>' -> hours, while a paid extension awaits payment. */
+function pendingExtendHours(paymentMethod?: string): number | null {
+  if (!paymentMethod?.startsWith("extend:")) return null
+  const hours = Number(paymentMethod.split(":")[2])
+  return Number.isFinite(hours) && hours > 0 ? hours : null
+}
+
+/** Extension row value — pending first, then the applied record. */
+function extensionInfo(b: Booking): { value: string; valueClass?: string } | null {
+  if (b.status === "cancelled") return null
+  const pending = pendingExtendHours(b.payment_method)
+  if (pending !== null) {
+    return { value: `+${pending}h · awaiting payment`, valueClass: "font-medium text-[#b45309]" }
+  }
+  const hours = b.extended_hours ?? 0
+  if (hours <= 0) return null
+  const at = b.extended_at
+    ? new Date(b.extended_at).toLocaleString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      })
+    : ""
+  return { value: at ? `+${hours}h · ${at}` : `+${hours}h` }
+}
+
+/** ArrivalBooking-shaped view of an admin row — feeds checkoutMomentLabel. */
+function stayArrival(b: Booking) {
+  return {
+    stay_type: b.stay_type,
+    check_in: b.checkIn,
+    check_out: b.checkOut,
+    start_time: b.start_time,
+    duration: b.duration,
+  }
+}
+
+/** Compact row line under the checkout time: applied vs awaiting payment. */
+function rowExtension(b: Booking): { label: string; cls: string } | null {
+  if (b.status === "cancelled") return null
+  const pending = pendingExtendHours(b.payment_method)
+  if (pending !== null) return { label: `+${pending}h · awaiting payment`, cls: "text-[#b45309]" }
+  const hours = b.extended_hours ?? 0
+  if (hours <= 0) return null
+  return { label: `+${hours}h extended`, cls: "text-[#82285f]" }
 }
 
 function bookingBalance(b: { amount: number; amount_paid?: number }) {
@@ -386,33 +437,52 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
     cancelled: bookings.filter((b) => b.status === "cancelled").length,
   }
 
-  if (loading) {
-    return (
-      <div className="rounded-[6px] bg-white border border-[#e2e4e8] animate-pulse">
-        <div className="flex items-center gap-2 border-b border-[#e2e4e8] px-5 py-3">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="h-6 w-16 bg-[#f0f1f3] rounded-[4px]" />
-          ))}
-        </div>
-        <div className="flex items-center justify-between gap-3 border-b border-[#e2e4e8] px-5 py-2.5">
-          <div className="h-7 w-64 bg-[#f0f1f3] rounded-[5px]" />
-          <div className="flex gap-2">
-            <div className="h-7 w-24 bg-[#f0f1f3] rounded-[5px]" />
-            <div className="h-7 w-36 bg-[#f0f1f3] rounded-[5px]" />
-          </div>
-        </div>
-        <div className="p-5 space-y-3">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="h-10 bg-[#f0f1f3] rounded" />
-          ))}
-        </div>
-      </div>
-    )
-  }
+  // Skeletons stay at least 500ms so a fast refetch can't flash them.
+  const showSkeleton = useMinSkeleton(Boolean(loading))
 
   return (
     <>
-      <div className="rounded-[6px] bg-white border border-[#e2e4e8] flex h-[708px] flex-col">
+      <SkeletonRegion
+        loading={showSkeleton}
+        wrapperClassName="rounded-[6px] bg-white border border-[#e2e4e8] flex h-[708px] flex-col"
+        className="flex min-h-0 flex-1 flex-col"
+      >
+        {showSkeleton ? (
+          <>
+            {showFilters && (
+              <div className="flex items-center gap-2 border-b border-[#e2e4e8] px-5 py-3 shrink-0">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <Skeleton key={i} className="h-6 w-16 rounded-[4px]" />
+                ))}
+              </div>
+            )}
+            {showFilters && (
+              <div className="flex items-center justify-between gap-3 border-b border-[#e2e4e8] px-5 py-2.5 shrink-0">
+                <Skeleton className="h-7 w-64 rounded-[5px]" />
+                <div className="flex gap-2">
+                  <Skeleton className="h-7 w-24 rounded-[5px]" />
+                  <Skeleton className="h-7 w-36 rounded-[5px]" />
+                </div>
+              </div>
+            )}
+            <div className="flex-1 overflow-auto">
+              <table className="w-full text-[13px]">
+                <thead>
+                  <TableHeadRow />
+                </thead>
+                <tbody>
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <SkeletonTableRow key={i} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="border-t border-[#e2e4e8] px-5 py-3">
+              <Skeleton className="h-8 w-56" />
+            </div>
+          </>
+        ) : (
+          <>
         {showFilters && (
           <div className="flex items-center justify-between border-b border-[#e2e4e8] px-5 py-3 shrink-0">
             <div className="flex items-center gap-2">
@@ -506,17 +576,7 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
         <div className="overflow-auto flex-1">
           <table className="w-full text-[13px]">
             <thead>
-              <tr className="border-b border-[#e2e4e8]">
-                <th className="px-5 py-3 text-left text-[10px] font-semibold text-[#9ca3af] uppercase tracking-wider">Guest</th>
-                <th className="px-5 py-3 text-left text-[10px] font-semibold text-[#9ca3af] uppercase tracking-wider">Booking ID</th>
-                <th className="px-5 py-3 text-left text-[10px] font-semibold text-[#9ca3af] uppercase tracking-wider">Booked</th>
-                <th className="px-5 py-3 text-left text-[10px] font-semibold text-[#9ca3af] uppercase tracking-wider">Stay Date</th>
-                <th className="px-5 py-3 text-left text-[10px] font-semibold text-[#9ca3af] uppercase tracking-wider">Room</th>
-                <th className="px-5 py-3 text-left text-[10px] font-semibold text-[#9ca3af] uppercase tracking-wider">Type</th>
-                <th className="px-5 py-3 text-right text-[10px] font-semibold text-[#9ca3af] uppercase tracking-wider">Amount</th>
-                <th className="px-5 py-3 text-left text-[10px] font-semibold text-[#9ca3af] uppercase tracking-wider">Status</th>
-                <th className="px-5 py-3 text-right text-[10px] font-semibold text-[#9ca3af] uppercase tracking-wider">Actions</th>
-              </tr>
+              <TableHeadRow />
             </thead>
             <tbody>
               {paged.map((booking) => {
@@ -553,6 +613,16 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
                       ) : booking.checkOut && booking.checkOut !== booking.checkIn ? (
                         <div className="text-[10px] text-[#9ca3af] mt-0.5">to {booking.checkOut}</div>
                       ) : null}
+                      {(() => {
+                        const time = checkoutMomentLabel(stayArrival(booking)).split("·").pop()?.trim()
+                        return time ? <div className="text-[10px] text-[#6b7280] mt-0.5">→ {time}</div> : null
+                      })()}
+                      {(() => {
+                        const ext = rowExtension(booking)
+                        return ext ? (
+                          <div className={cn("text-[10px] font-medium mt-0.5", ext.cls)}>{ext.label}</div>
+                        ) : null
+                      })()}
                     </td>
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-2">
@@ -607,7 +677,9 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
         </div>
 
         <Pagination page={safePage} totalPages={totalPages} onPageChange={setPage} />
-      </div>
+          </>
+        )}
+      </SkeletonRegion>
 
       {/* ── Booking Detail Modal ──────────────────────────────── */}
       <Dialog
@@ -689,6 +761,17 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
                         : `${selectedBooking.nights} night${selectedBooking.nights !== 1 ? "s" : ""}`
                     } />
                     <DetailRow icon={<LogIn className="h-4 w-4" />} label="Arrival" value={arrivalLabel(selectedBooking, now)} />
+                    <DetailRow
+                      icon={<LogOut className="h-4 w-4" />}
+                      label="Checkout"
+                      value={checkoutMomentLabel(stayArrival(selectedBooking)) || "—"}
+                    />
+                    {(() => {
+                      const ext = extensionInfo(selectedBooking)
+                      return ext ? (
+                        <DetailRow icon={<Clock className="h-4 w-4" />} label="Extension" value={ext.value} valueClass={ext.valueClass} />
+                      ) : null
+                    })()}
                     {selectedBooking.specialRequests ? (
                       <DetailRow icon={<FileText className="h-4 w-4" />} label="Requests" value={selectedBooking.specialRequests} />
                     ) : null}
@@ -849,6 +932,24 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
         </DialogContent>
       </Dialog>
     </>
+  )
+}
+
+/* ── Table Head ────────────────────────────────────────────────────── */
+
+function TableHeadRow() {
+  return (
+    <tr className="border-b border-[#e2e4e8]">
+      <th className="px-5 py-3 text-left text-[10px] font-semibold text-[#9ca3af] uppercase tracking-wider">Guest</th>
+      <th className="px-5 py-3 text-left text-[10px] font-semibold text-[#9ca3af] uppercase tracking-wider">Booking ID</th>
+      <th className="px-5 py-3 text-left text-[10px] font-semibold text-[#9ca3af] uppercase tracking-wider">Booked</th>
+      <th className="px-5 py-3 text-left text-[10px] font-semibold text-[#9ca3af] uppercase tracking-wider">Stay Date</th>
+      <th className="px-5 py-3 text-left text-[10px] font-semibold text-[#9ca3af] uppercase tracking-wider">Room</th>
+      <th className="px-5 py-3 text-left text-[10px] font-semibold text-[#9ca3af] uppercase tracking-wider">Type</th>
+      <th className="px-5 py-3 text-right text-[10px] font-semibold text-[#9ca3af] uppercase tracking-wider">Amount</th>
+      <th className="px-5 py-3 text-left text-[10px] font-semibold text-[#9ca3af] uppercase tracking-wider">Status</th>
+      <th className="px-5 py-3 text-right text-[10px] font-semibold text-[#9ca3af] uppercase tracking-wider">Actions</th>
+    </tr>
   )
 }
 

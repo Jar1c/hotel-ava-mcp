@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { useNavigate, useSearchParams } from "react-router"
-import { ChevronRight, SlidersHorizontal, ChevronLeft, CheckCircle, CreditCard, Star, Mail, Phone, User } from "lucide-react"
+import { ChevronRight, SlidersHorizontal, ChevronLeft, CheckCircle, CreditCard, Star, Mail, Phone, User, RotateCcw } from "lucide-react"
 import BookingQr from "@/components/BookingQr"
 import { Button } from "@/components/ui/button"
 import { userBookingsApi, ApiError, type UserBookingData } from "@/services/api"
@@ -17,6 +17,8 @@ import { usePolling } from "@/hooks/usePolling"
 import { formatPaymentMethod } from "@/lib/payment"
 import { deriveArrival, canCancel, startMomentLabel, arrivalTimeLabel, checkoutMomentLabel } from "@/lib/arrival"
 import CancelReasonPicker, { composeCancelReason } from "@/components/CancelReasonPicker"
+import { Skeleton, SkeletonLine } from "@/components/ui/skeleton"
+import { useMinSkeleton } from "@/hooks/useMinSkeleton"
 import { cn } from "@/lib/utils"
 
 const PRIMARY = "#82285f"
@@ -237,6 +239,13 @@ export default function MyBookings() {
   const [extending, setExtending] = useState<string | null>(null)
   const [conflictDialog, setConflictDialog] = useState<{ open: boolean; error: string; next?: string; rooms: SuggestedRoom[] }>({ open: false, error: "", rooms: [] })
 
+  const [loadError, setLoadError] = useState(false)
+  const loadedRef = useRef(false)
+
+  // Skeletons show at least 500ms; the destination then fades in.
+  const showSkeleton = useMinSkeleton(loading)
+  const showDetailSkeleton = useMinSkeleton(detailLoading)
+
   useEffect(() => {
     if (searchParams.get("payment") === "cancelled") {
       toast({ title: "Payment cancelled", description: "You can retry payment from My Bookings.", variant: "error" })
@@ -282,16 +291,41 @@ export default function MyBookings() {
   // Poll bookings every 15 seconds for live updates
   usePolling(
     () => userBookingsApi.getMine(),
-    (data) => { setBookings(data); setLoading(false) },
+    (data) => {
+      setBookings(data)
+      loadedRef.current = true
+      setLoadError(false)
+      setLoading(false)
+    },
     15000,
   )
 
   // Failsafe: the poller swallows fetch errors, so if the first request keeps
-  // failing the page would sit on skeletons forever. Show the empty state.
+  // failing the page would sit on skeletons forever. Show the error state.
   useEffect(() => {
-    const id = setTimeout(() => setLoading(false), 8000)
+    const id = setTimeout(() => {
+      if (!loadedRef.current) {
+        setLoadError(true)
+        setLoading(false)
+      }
+    }, 8000)
     return () => clearTimeout(id)
   }, [])
+
+  const retryBookings = async () => {
+    setLoadError(false)
+    setLoading(true)
+    try {
+      const data = await userBookingsApi.getMine()
+      setBookings(data)
+      loadedRef.current = true
+      setLoadError(false)
+    } catch {
+      setLoadError(true)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
     // Fire auto-complete in background (non-blocking)
@@ -419,38 +453,18 @@ export default function MyBookings() {
     }
   }
 
-  if (loading) {
-    return (
-      <div className="px-base py-section">
-        <div className="max-w-[720px] mx-auto">
-          <div className="h-8 bg-gray-100 rounded w-40 mb-2 animate-pulse" />
-          <div className="h-4 bg-gray-50 rounded w-28 mb-lg animate-pulse" />
-          <div className="space-y-md">
-            {[1, 2].map((i) => (
-              <div key={i} className="bg-white border border-hairline rounded-[12px] p-6">
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex-1">
-                    <div className="h-5 bg-gray-100 rounded w-32 mb-2 animate-pulse" />
-                    <div className="h-3 bg-gray-50 rounded w-20 animate-pulse" />
-                  </div>
-                  <div className="h-5 bg-gray-100 rounded-full w-24 animate-pulse" />
-                </div>
-                <div className="flex gap-4">
-                  <div className="h-3 bg-gray-50 rounded w-28 animate-pulse" />
-                  <div className="h-3 bg-gray-50 rounded w-16 animate-pulse" />
-                  <div className="h-3 bg-gray-50 rounded w-16 animate-pulse" />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    )
-  }
-
   return (
-    <div className="px-base py-section">
-      <div className="max-w-[720px] mx-auto">
+    <div className="px-base py-section" aria-busy={showSkeleton}>
+      <div
+        aria-live="polite"
+        className={cn("max-w-[720px] mx-auto", !showSkeleton && "content-fade")}
+      >
+        {showSkeleton ? (
+          <MyBookingsSkeleton />
+        ) : loadError && bookings.length === 0 ? (
+          <MyBookingsError onRetry={retryBookings} />
+        ) : (
+        <>
         {/* Header */}
         <div className="mb-lg">
           <h1 className="typo-display-lg text-ink">My Bookings</h1>
@@ -599,6 +613,25 @@ export default function MyBookings() {
                             `${booking.guests} ${booking.guests === 1 ? "guest" : "guests"}`,
                           ].join(" · ")}
                         </p>
+                        {/* Stay end + extension — glanceable without opening the detail */}
+                        {(() => {
+                          const outTime = checkoutMomentLabel(booking).split("·").pop()?.trim()
+                          const ext = extensionInfo(booking)
+                          return outTime || ext ? (
+                            <div className="mt-1 flex flex-wrap items-center gap-x-2 text-[12px]">
+                              {outTime && <span className="text-muted">→ out {outTime}</span>}
+                              {ext && (
+                                <span className={cn("font-medium", ext.valueClass ?? "text-primary")}>{ext.value}</span>
+                              )}
+                            </div>
+                          ) : null
+                        })()}
+                        {rawStatus === "cancelled" && booking.cancellation_reason && (
+                          <p className="mt-1 text-[12px] text-muted">
+                            <span className="font-medium text-ink/70">Reason:</span>{" "}
+                            {booking.cancellation_reason}
+                          </p>
+                        )}
                       </div>
 
                       {/* Bottom Row: Price + refund status + Actions */}
@@ -612,6 +645,22 @@ export default function MyBookings() {
                           )}
                         </div>
                         <div className="flex flex-wrap items-center justify-end gap-2">
+                          {/* In-house: extend straight from the card — no detail
+                              modal round-trip. Same gate as the detail action. */}
+                          {rawStatus === "confirmed" &&
+                            deriveArrival(booking) === "in_house" &&
+                            booking.end_time &&
+                            new Date(booking.end_time).getTime() > Date.now() &&
+                            (booking.extended_hours ?? 0) <= 0 && (
+                              <Button
+                                size="sm"
+                                onClick={(e) => { e.stopPropagation(); setExtendDialog({ id: booking.id, hours: 1 }) }}
+                                className="!rounded-[8px] text-xs font-semibold"
+                                style={{ backgroundColor: PRIMARY, color: CANVAS }}
+                              >
+                                Extend
+                              </Button>
+                            )}
                           {rawStatus === "confirmed" && canCancel(booking) && (
                             <button
                               type="button"
@@ -748,6 +797,8 @@ export default function MyBookings() {
           )}
           </>
         )}
+        </>
+        )}
       </div>
 
       {/* ── Booking Detail Dialog ────────────────────────────────────── */}
@@ -761,12 +812,14 @@ export default function MyBookings() {
         <DialogContent className="!rounded-[16px] !max-w-[520px] !p-0 overflow-hidden">
           <DialogTitle className="sr-only">Booking Details</DialogTitle>
 
-          {detailLoading ? (
-            <div className="p-6 space-y-4">
+          <div aria-busy={showDetailSkeleton}>
+          <div aria-live="polite" className={showDetailSkeleton ? undefined : "content-fade"}>
+          {showDetailSkeleton ? (
+            <div className="p-6 space-y-4" aria-hidden="true">
               {[1, 2, 3, 4].map((i) => (
-                <div key={i} className="animate-pulse">
-                  <div className="h-3 bg-gray-100 rounded w-24 mb-2" />
-                  <div className="h-4 bg-gray-50 rounded w-full" />
+                <div key={i}>
+                  <SkeletonLine className="h-3 w-24 mb-2" />
+                  <SkeletonLine className="h-4 w-full" />
                 </div>
               ))}
             </div>
@@ -793,21 +846,28 @@ export default function MyBookings() {
                 </div>
               </div>
 
-              {/* Check-in QR — the visual focus of this modal */}
+              {/* Check-in QR — only while the stay is live. Cancelled/finished
+                  bookings keep their details, but the QR image and its code
+                  are no longer shown. */}
               {(() => {
                 const status = detailBooking.status.toLowerCase()
+                const finished =
+                  status === "cancelled" || status === "completed" || status === "checked-out"
+                if (finished) {
+                  return (
+                    <p className="mb-5 rounded-[10px] bg-gray-50 px-4 py-3 text-[13px] text-muted">
+                      {status === "cancelled"
+                        ? "This booking was cancelled — the check-in QR is no longer available."
+                        : "This stay has ended — the check-in QR is no longer available."}
+                    </p>
+                  )
+                }
                 const qrActive = status === "confirmed"
-                const qrInactiveMsg =
-                  status === "cancelled"
-                    ? "This booking was cancelled — the check-in QR is no longer valid."
-                    : status === "completed" || status === "checked-out"
-                      ? "This stay has ended — the check-in QR is no longer valid."
-                      : "Your QR becomes active once payment is confirmed."
                 return (
                   <BookingQr
                     bookingId={detailBooking.id}
                     className="mb-5"
-                    inactiveMessage={qrActive ? undefined : qrInactiveMsg}
+                    inactiveMessage={qrActive ? undefined : "Your QR becomes active once payment is confirmed."}
                     validFrom={qrActive && deriveArrival(detailBooking) === "none" && startMomentLabel(detailBooking) ? `Valid from ${startMomentLabel(detailBooking)}` : undefined}
                     checkInLabel={checkInMomentLabel(detailBooking) || undefined}
                     checkOutLabel={checkoutMomentLabel(detailBooking) || undefined}
@@ -852,6 +912,16 @@ export default function MyBookings() {
                     label="Guests"
                     value={guestBreakdown(detailBooking)}
                   />
+                  <DetailRow
+                    label="Checkout"
+                    value={checkoutMomentLabel(detailBooking) || "—"}
+                  />
+                  {(() => {
+                    const ext = extensionInfo(detailBooking)
+                    return ext ? (
+                      <DetailRow label="Extension" value={ext.value} valueClass={ext.valueClass} />
+                    ) : null
+                  })()}
                 </div>
               </div>
 
@@ -980,7 +1050,8 @@ export default function MyBookings() {
                 {detailBooking.status.toLowerCase() === "confirmed" &&
                   deriveArrival(detailBooking) === "in_house" &&
                   detailBooking.end_time &&
-                  new Date(detailBooking.end_time).getTime() > Date.now() && (
+                  new Date(detailBooking.end_time).getTime() > Date.now() &&
+                  (detailBooking.extended_hours ?? 0) <= 0 && (
                     <Button
                       variant="outline"
                       onClick={() => { setDetailOpen(false); setExtendDialog({ id: detailBooking.id, hours: 1 }) }}
@@ -1008,6 +1079,8 @@ export default function MyBookings() {
                 )}
             </div>
           ) : null}
+          </div>
+          </div>
         </DialogContent>
       </Dialog>
 
@@ -1216,16 +1289,88 @@ export default function MyBookings() {
   )
 }
 
+/* ── Loading & Error States ─────────────────────────────────────────────── */
+
+/** Suggested list skeleton — matches the card chrome of the real booking list. */
+function MyBookingsSkeleton() {
+  return (
+    <div aria-hidden="true">
+      <div className="mb-lg">
+        <SkeletonLine className="h-8 w-40" />
+        <SkeletonLine className="mt-2 h-4 w-28" />
+      </div>
+      <div className="space-y-md">
+        {[1, 2].map((i) => (
+          <div key={i} className="bg-white border border-hairline rounded-[12px] p-6">
+            <div className="flex items-start justify-between mb-4">
+              <div className="flex-1 space-y-2">
+                <SkeletonLine className="h-5 w-32" />
+                <SkeletonLine className="h-3 w-20" />
+              </div>
+              <Skeleton className="h-5 w-24 rounded-full" />
+            </div>
+            <div className="flex gap-4">
+              <SkeletonLine className="h-3 w-28" />
+              <SkeletonLine className="h-3 w-16" />
+              <SkeletonLine className="h-3 w-16" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function MyBookingsError({ onRetry }: { onRetry: () => void }) {
+  return (
+    <div className="py-section text-center">
+      <h2 className="typo-title-md text-ink mb-xs">Couldn't load your bookings</h2>
+      <p className="typo-body-sm text-muted mb-lg">
+        Something went wrong while fetching your reservations. Please try again.
+      </p>
+      <Button
+        onClick={onRetry}
+        className="!rounded-[8px] px-6"
+        style={{ backgroundColor: PRIMARY, color: CANVAS }}
+      >
+        <RotateCcw className="h-4 w-4 mr-1.5" />
+        Try again
+      </Button>
+    </div>
+  )
+}
+
 /* ── Detail Row Component ──────────────────────────────────────────────── */
 
-function DetailRow({ icon, label, value }: { icon?: React.ReactNode; label: string; value: string }) {
+/** '+2h · Oct 6, 2026 2:14 PM' — or '+1h · awaiting payment' while PayMongo confirms. */
+function extensionInfo(b: UserBookingData): { value: string; valueClass?: string } | null {
+  if (b.status.toLowerCase() === "cancelled") return null
+  const pending = b.payment_method?.startsWith("extend:") ? Number(b.payment_method.split(":")[2]) : null
+  if (pending !== null && Number.isFinite(pending) && pending > 0) {
+    return { value: `+${pending}h · awaiting payment`, valueClass: "font-medium text-amber-700" }
+  }
+  const hours = b.extended_hours ?? 0
+  if (hours <= 0) return null
+  const at = b.extended_at
+    ? new Date(b.extended_at).toLocaleString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      })
+    : ""
+  return { value: at ? `+${hours}h · ${at}` : `+${hours}h` }
+}
+
+function DetailRow({ icon, label, value, valueClass }: { icon?: React.ReactNode; label: string; value: string; valueClass?: string }) {
   return (
     <div className="flex items-center justify-between gap-3">
       <span className="flex items-center gap-2 text-sm text-ink/70">
         {icon}
         {label}
       </span>
-      <span className="text-sm font-medium text-ink text-right">{value}</span>
+      <span className={cn("text-sm font-medium text-right", valueClass ?? "text-ink")}>{value}</span>
     </div>
   )
 }

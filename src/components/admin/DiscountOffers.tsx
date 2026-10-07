@@ -1,245 +1,425 @@
-import { useState, useEffect, useMemo } from "react"
-import { Tag, Check, X, Brain, Calendar, Sparkles, Shield, Pencil, Save } from "lucide-react"
+import { useState, useEffect, useMemo, useCallback } from "react"
 import { cn, formatCurrency } from "@/lib/utils"
-import AiAbout from "@/components/admin/AiAbout"
-import type { DiscountOfferData } from "@/services/adminService"
-import { setDiscountOfferStatus } from "@/services/adminService"
-import { offerTitle } from "@/services/discountService"
-import { getActiveDiscounts, getUpcomingDiscounts, type ActiveDiscount, type DiscountRoom } from "@/lib/discountEngine"
-import { useDiscountApproval } from "@/hooks/useDiscountApproval"
+import ConfirmDialog from "@/components/ui/confirm-dialog"
 import { useToast } from "@/contexts/ToastContext"
+import { ApiError } from "@/services/api"
+import type {
+  DiscountOfferData,
+  DiscountOfferStatus,
+  DiscountSuggestion,
+  DiscountRules,
+  DiscountAuditEntry,
+} from "@/services/adminService"
+import {
+  getDiscountOffers,
+  getDiscountOffersFresh,
+  getDiscountSuggestions,
+  getDiscountRules,
+  getDiscountAudit,
+  setDiscountOfferStatus,
+  applyDiscountSuggestion,
+} from "@/services/adminService"
+import type { DiscountRoom } from "@/lib/discountEngine"
 
 interface DiscountOffersProps {
-  offers: DiscountOfferData[]
-  rooms: DiscountRoom[]
+  /** Optional seed from the host page; the component keeps its own copy. */
+  offers?: DiscountOfferData[]
+  /** Used by the host page; kept for call-site compatibility. */
+  rooms?: DiscountRoom[]
   loading?: boolean
 }
 
-export default function DiscountOffers({ offers: initialOffers, rooms, loading }: DiscountOffersProps) {
-  const [offers, setOffers] = useState(initialOffers)
-  const [editingOfferId, setEditingOfferId] = useState<string | null>(null)
-  const [editPercent, setEditPercent] = useState(10)
-  const [savingEdit, setSavingEdit] = useState(false)
-  const [aiDiscounts, setAiDiscounts] = useState<ActiveDiscount[]>([])
-  const [upcomingDiscounts, setUpcomingDiscounts] = useState<(ActiveDiscount & { daysUntilStart: number })[]>([])
-  const { approvedKeys, loading: approvalLoading, approve, dismiss } = useDiscountApproval()
+const DEFAULT_RULES: DiscountRules = { maxPercent: 50, minPrice: 500 }
+
+const STATUS_LABEL: Record<DiscountOfferStatus, string> = {
+  live: "Live",
+  scheduled: "Scheduled",
+  off: "Off",
+  expired: "Expired",
+}
+
+const STATUS_ORDER: Record<DiscountOfferStatus, number> = {
+  live: 0,
+  scheduled: 1,
+  off: 2,
+  expired: 3,
+}
+
+const ACTION_VERB: Record<DiscountAuditEntry["action"], string> = {
+  create: "created",
+  activate: "activated",
+  deactivate: "deactivated",
+}
+
+const shortDate = (iso: string) =>
+  new Date(`${iso.slice(0, 10)}T00:00:00`).toLocaleDateString("en-PH", { month: "short", day: "numeric" })
+
+const longDate = (iso: string) =>
+  new Date(`${iso.slice(0, 10)}T00:00:00`).toLocaleDateString("en-PH", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  })
+
+const monthLabel = (iso: string) =>
+  new Date(`${iso.slice(0, 10)}T00:00:00`).toLocaleDateString("en-PH", { month: "short", year: "numeric" })
+
+const offerName = (o: DiscountOfferData) =>
+  o.name ||
+  `${new Date(`${o.validFrom.slice(0, 10)}T00:00:00`).toLocaleDateString("en-PH", { month: "long" })} promo`
+
+const isEnabled = (o: DiscountOfferData) =>
+  o.enabled ?? (o.status === "live" || o.status === "scheduled")
+
+const errorMessage = (err: unknown) =>
+  err instanceof ApiError && err.message ? err.message : "Couldn't save. Try again."
+
+interface OfferGroup {
+  key: string
+  name: string
+  validFrom: string
+  validTo: string
+  offers: DiscountOfferData[]
+  status: DiscountOfferStatus
+  percentRange: [number, number]
+  roomTypes: string[]
+  enabled: boolean
+}
+
+function groupOffers(offers: DiscountOfferData[]): OfferGroup[] {
+  const map = new Map<string, DiscountOfferData[]>()
+  for (const o of offers) {
+    const key = `${offerName(o)}|${o.validFrom}|${o.validTo}`
+    const list = map.get(key)
+    if (list) list.push(o)
+    else map.set(key, [o])
+  }
+  const groups: OfferGroup[] = Array.from(map.entries()).map(([key, list]) => {
+    const first = list[0]
+    const pcts = list.map((o) => o.discountPercent)
+    const statuses = list.map((o) => o.status)
+    const status: DiscountOfferStatus =
+      statuses.includes("live")
+        ? "live"
+        : statuses.includes("scheduled")
+          ? "scheduled"
+          : statuses.every((s) => s === "expired")
+            ? "expired"
+            : "off"
+    return {
+      key,
+      name: offerName(first),
+      validFrom: first.validFrom,
+      validTo: first.validTo,
+      offers: list.sort((a, b) => a.roomType.localeCompare(b.roomType)),
+      status,
+      percentRange: [Math.min(...pcts), Math.max(...pcts)],
+      roomTypes: list.map((o) => o.roomType),
+      // Partially enabled counts as on: guests see the room types that are
+      // switched on, so the promo toggle must read ON (clicking it then turns
+      // the whole promo off in one batch).
+      enabled: list.some(isEnabled),
+    }
+  })
+  return groups.sort((a, b) => {
+    const byStatus = STATUS_ORDER[a.status] - STATUS_ORDER[b.status]
+    if (byStatus !== 0) return byStatus
+    return a.validFrom.localeCompare(b.validFrom)
+  })
+}
+
+function StatusBadge({ status }: { status: DiscountOfferStatus }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center rounded-[4px] px-2 py-1 text-[13px] font-semibold",
+        status === "live"
+          ? "bg-[#82285f]/10 text-[#82285f]"
+          : "bg-[#f0f1f3] text-[#5c6070]",
+      )}
+    >
+      {STATUS_LABEL[status]}
+    </span>
+  )
+}
+
+export default function DiscountOffers({ offers: initialOffers, loading }: DiscountOffersProps) {
+  const [offers, setOffers] = useState<DiscountOfferData[]>(initialOffers ?? [])
+  const [suggestions, setSuggestions] = useState<DiscountSuggestion[]>([])
+  const [rules, setRules] = useState<DiscountRules>(DEFAULT_RULES)
+  const [audit, setAudit] = useState<DiscountAuditEntry[]>([])
+  const [ready, setReady] = useState(false)
+
+  const [statusFilter, setStatusFilter] = useState<"all" | DiscountOfferStatus>("all")
+  const [typeFilter, setTypeFilter] = useState("all")
+  const [monthFilter, setMonthFilter] = useState("all")
+
+  const [editKey, setEditKey] = useState<string | null>(null)
+  const [draft, setDraft] = useState<Record<string, number>>({})
+  const [saving, setSaving] = useState(false)
+  const [togglingKey, setTogglingKey] = useState<string | null>(null)
+
+  const [dialog, setDialog] = useState<{ kind: "approve" | "dismiss"; suggestion: DiscountSuggestion } | null>(null)
+  const [dialogBusy, setDialogBusy] = useState(false)
+
   const { toast } = useToast()
 
-  useEffect(() => {
-    setOffers(initialOffers)
-  }, [initialOffers])
+  const loadAll = useCallback(async () => {
+    const [offerList, suggestionList, auditList, rulesData] = await Promise.all([
+      getDiscountOffers(),
+      getDiscountSuggestions(),
+      getDiscountAudit(),
+      getDiscountRules(),
+    ])
+    setOffers(offerList)
+    setSuggestions(suggestionList)
+    setAudit(auditList)
+    setRules(rulesData)
+  }, [])
+
+  const refreshOffers = useCallback(async () => {
+    const [offerList, suggestionList, auditList] = await Promise.all([
+      getDiscountOffersFresh(),
+      getDiscountSuggestions(),
+      getDiscountAudit(),
+    ])
+    setOffers(offerList)
+    setSuggestions(suggestionList)
+    setAudit(auditList)
+  }, [])
 
   useEffect(() => {
-    setAiDiscounts(getActiveDiscounts(rooms))
-    setUpcomingDiscounts(getUpcomingDiscounts(rooms))
-  }, [rooms])
-
-  const consolidatedDiscounts = useMemo(() => {
-    const map = new Map<string, ActiveDiscount>()
-    for (const d of aiDiscounts) {
-      const existing = map.get(d.roomType)
-      if (!existing || d.discountPercent > existing.discountPercent) {
-        map.set(d.roomType, d)
-      }
+    let cancelled = false
+    loadAll()
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled) setReady(true)
+      })
+    return () => {
+      cancelled = true
     }
-    return Array.from(map.values())
-  }, [aiDiscounts])
+  }, [loadAll])
 
-  const handleApproveDiscount = async (eventRoomTypeKey: string) => {
-    try {
-      await approve(eventRoomTypeKey)
-      toast({ title: "Promo approved", description: "Holiday discount is now active.", variant: "success" })
-    } catch {
-      toast({ title: "Couldn't save", description: "Try again.", variant: "error" })
-    }
-  }
+  const groups = useMemo(() => groupOffers(offers), [offers])
+  const pendingSuggestions = useMemo(
+    () => suggestions.filter((s) => s.state === "pending"),
+    [suggestions],
+  )
 
-  const handleDismissDiscount = async (eventRoomTypeKey: string) => {
-    try {
-      await dismiss(eventRoomTypeKey)
-      toast({ title: "Promo dismissed", variant: "default" })
-    } catch {
-      toast({ title: "Couldn't save", description: "Try again.", variant: "error" })
-    }
-  }
+  const typeOptions = useMemo(
+    () => Array.from(new Set(offers.map((o) => o.roomType))).sort(),
+    [offers],
+  )
+  const monthOptions = useMemo(() => {
+    const keys = Array.from(new Set(offers.map((o) => o.validFrom.slice(0, 7)))).sort()
+    return keys
+  }, [offers])
 
-  const handleToggleOffer = async (offerId: string) => {
-    const offer = offers.find((o) => o.id === offerId)
-    if (!offer) return
-    const next = offer.status === "active" ? ("scheduled" as const) : ("active" as const)
+  const filteredGroups = useMemo(
+    () =>
+      groups.filter((g) => {
+        if (statusFilter !== "all" && g.status !== statusFilter) return false
+        if (typeFilter !== "all" && !g.offers.some((o) => o.roomType === typeFilter)) return false
+        if (monthFilter !== "all" && !g.validFrom.startsWith(monthFilter)) return false
+        return true
+      }),
+    [groups, statusFilter, typeFilter, monthFilter],
+  )
+
+  const handleToggle = async (group: OfferGroup) => {
+    const next = !group.enabled
+    setTogglingKey(group.key)
     setOffers((prev) =>
-      prev.map((o) => (o.id === offerId ? { ...o, status: next } : o))
+      prev.map((o) =>
+        group.offers.some((g) => g.id === o.id)
+          ? {
+              ...o,
+              enabled: next,
+              status: next
+                ? o.status === "expired"
+                  ? o.status
+                  : new Date(`${o.validTo.slice(0, 10)}T23:59:59`) < new Date()
+                    ? "expired"
+                    : new Date(`${o.validFrom.slice(0, 10)}T00:00:00`) > new Date()
+                      ? "scheduled"
+                      : "live"
+                : "off",
+            }
+          : o,
+      ),
     )
     try {
-      await setDiscountOfferStatus(offerId, next)
+      await setDiscountOfferStatus({ ids: group.offers.map((o) => o.id), enabled: next })
+      await refreshOffers()
       toast({
-        title: next === "active" ? "Offer activated" : "Offer deactivated",
-        description: offer.roomType,
+        title: next ? "Promo activated" : "Promo turned off",
+        description: next
+          ? `${group.name} applies automatically during its dates.`
+          : `${group.name} is hidden from guests.`,
         variant: "success",
       })
-    } catch {
-      setOffers((prev) =>
-        prev.map((o) => (o.id === offerId ? { ...o, status: offer.status } : o))
-      )
-      toast({ title: "Couldn't save", description: "Try again.", variant: "error" })
-    }
-  }
-
-  const beginEditOffer = (offer: DiscountOfferData) => {
-    setEditingOfferId(offer.id)
-    setEditPercent(offer.discountPercent)
-  }
-
-  const handleSaveOfferEdit = async (offer: DiscountOfferData) => {
-    const percent = Math.round(editPercent)
-    if (!Number.isFinite(percent) || percent < 1 || percent > 80) {
-      toast({ title: "Invalid discount", description: "Choose a value from 1% to 80%.", variant: "error" })
-      return
-    }
-    setSavingEdit(true)
-    try {
-      const persistedStatus = offer.status === "expired" ? "scheduled" : offer.status
-      await setDiscountOfferStatus(offer.id, persistedStatus, percent)
-      const discountedRate = Math.round(offer.baseRate * (1 - percent / 100))
-      setOffers((prev) => prev.map((o) => o.id === offer.id
-        ? { ...o, discountPercent: percent, discountedRate, projectedRevenue: o.projectedBookings * discountedRate }
-        : o))
-      setEditingOfferId(null)
-      toast({ title: "Discount updated", description: `${offer.roomType}: ${percent}% off`, variant: "success" })
-    } catch {
-      toast({ title: "Couldn't save discount", description: "Try again.", variant: "error" })
+    } catch (err) {
+      await refreshOffers()
+      toast({ title: "Couldn't save", description: errorMessage(err), variant: "error" })
     } finally {
-      setSavingEdit(false)
+      setTogglingKey(null)
     }
   }
 
-  if (loading || approvalLoading) {
+  const beginEdit = (group: OfferGroup) => {
+    setEditKey(group.key)
+    setDraft(Object.fromEntries(group.offers.map((o) => [o.id, o.discountPercent])))
+  }
+
+  const validateDraft = (o: DiscountOfferData, percent: number): string | null => {
+    if (!Number.isFinite(percent) || percent < 1 || percent > rules.maxPercent) {
+      return `Discount must be 1% to ${rules.maxPercent}%`
+    }
+    const discounted = Math.round(o.baseRate * (1 - percent / 100))
+    if (o.baseRate && discounted < rules.minPrice) {
+      return `${o.roomType} would drop to ${formatCurrency(discounted)}, below the ${formatCurrency(rules.minPrice)} minimum`
+    }
+    return null
+  }
+
+  const saveEdit = async (group: OfferGroup) => {
+    for (const o of group.offers) {
+      const percent = Math.round(draft[o.id] ?? o.discountPercent)
+      const problem = validateDraft(o, percent)
+      if (problem) {
+        toast({ title: "Invalid discount", description: problem, variant: "error" })
+        return
+      }
+    }
+    setSaving(true)
+    try {
+      for (const o of group.offers) {
+        const percent = Math.round(draft[o.id] ?? o.discountPercent)
+        if (percent === o.discountPercent) continue
+        await setDiscountOfferStatus({
+          id: o.id,
+          enabled: isEnabled(o),
+          discountPercent: percent,
+        })
+      }
+      setEditKey(null)
+      await refreshOffers()
+      toast({ title: "Discounts updated", description: group.name, variant: "success" })
+    } catch (err) {
+      await refreshOffers()
+      toast({ title: "Couldn't save discount", description: errorMessage(err), variant: "error" })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const runDialogAction = async () => {
+    if (!dialog) return
+    setDialogBusy(true)
+    try {
+      await applyDiscountSuggestion(dialog.suggestion.event, dialog.kind)
+      await refreshOffers()
+      toast({
+        title: dialog.kind === "approve" ? "Promo approved" : "Promo dismissed",
+        description:
+          dialog.kind === "approve"
+            ? `${dialog.suggestion.event} offers were created.`
+            : `${dialog.suggestion.event} was removed from suggestions.`,
+        variant: "success",
+      })
+      setDialog(null)
+    } catch (err) {
+      toast({
+        title: dialog.kind === "approve" ? "Couldn't approve" : "Couldn't dismiss",
+        description: errorMessage(err),
+        variant: "error",
+      })
+    } finally {
+      setDialogBusy(false)
+    }
+  }
+
+  if (loading || !ready) {
     return (
-      <div className="bg-white rounded-[6px] border border-[#e2e4e8] animate-pulse p-6">
-        <div className="h-5 w-36 bg-[#f0f1f3] rounded mb-4" />
-        <div className="h-40 bg-[#f0f1f3] rounded" />
+      <div className="flex flex-col gap-4">
+        <div className="h-40 skeleton rounded-[8px]" />
+        <div className="h-64 skeleton rounded-[8px]" />
       </div>
     )
   }
 
+  const selectClass =
+    "h-9 rounded-[6px] border border-[#e2e4e8] bg-white px-2 text-[13px] text-foreground focus:border-[#82285f] focus:outline-none cursor-pointer"
+
   return (
-    <div className="flex flex-col gap-5">
-      {/* AI Holiday Discount Suggestions */}
-      <div className="bg-white rounded-[6px] border border-[#e2e4e8]">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#e2e4e8]">
-          <div className="flex items-center gap-2">
-            <div className="flex size-8 items-center justify-center rounded-[6px] bg-[#82285f]/10">
-              <Brain className="w-4 h-4 text-[#82285f]" />
-            </div>
-            <div>
-              <div className="flex items-center gap-1.5">
-                <h3 className="font-display text-lg font-semibold text-foreground">AI Holiday Suggestions</h3>
-                <AiAbout text="AI-generated promo proposals for holidays and local events, based on past demand. Approved promos automatically apply to guest search." />
-              </div>
-              <p className="text-sm text-muted mt-0.5">Promos for holidays and local events — approve to activate</p>
-            </div>
+    <div className="flex flex-col gap-4">
+      {/* AI Holiday Suggestions */}
+      <div className="rounded-[8px] border border-[#e2e4e8] bg-white">
+        <div className="flex items-center justify-between gap-2 px-6 py-4 border-b border-[#e2e4e8]">
+          <div>
+            <h3 className="font-display text-lg font-semibold text-foreground">AI Holiday Suggestions</h3>
+            <p className="text-[13px] text-muted mt-0.5">Promos for holidays and local events. Approve to create offers, or dismiss to hide them.</p>
           </div>
-          {consolidatedDiscounts.length > 0 && (
-            <span className="text-[11px] font-medium text-[#82285f] bg-[#82285f]/10 px-2.5 py-1 rounded-[4px]">
-              {consolidatedDiscounts.filter(d => approvedKeys.has(d.eventRoomTypeKey)).length} / {consolidatedDiscounts.length} Approved
+          {pendingSuggestions.length > 0 && (
+            <span className="shrink-0 rounded-[4px] bg-[#82285f]/10 px-2.5 py-1 text-[13px] font-semibold text-[#82285f]">
+              {pendingSuggestions.length} pending
             </span>
           )}
         </div>
 
-        {consolidatedDiscounts.length > 0 ? (
+        {pendingSuggestions.length > 0 ? (
           <div className="p-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {consolidatedDiscounts.map((discount) => {
-                const isApproved = approvedKeys.has(discount.eventRoomTypeKey)
-                return (
-                  <div
-                    key={discount.roomType}
-                    className={cn(
-                      "border rounded-[8px] p-4 transition-colors",
-                      isApproved ? "border-[#3D6B4F]/40 bg-[#3D6B4F]/[0.03]" : "border-[#e2e4e8] hover:border-[#82285f]/30"
-                    )}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-[13px] font-bold text-foreground">{discount.roomType}</span>
-                      <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-[4px] bg-[#A4423A]/10 text-[#A4423A]">
-                        <Tag className="w-3 h-3" />
-                        {discount.discountPercent}% OFF
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1.5 mb-3">
-                      <Sparkles className="w-3 h-3 text-[#82285f]" />
-                      <span className="text-[11px] font-medium text-[#82285f]">{discount.event}</span>
-                    </div>
-                    <div className="flex items-center gap-1.5 mb-3">
-                      <Calendar className="w-3 h-3 text-muted" />
-                      <span className="text-[11px] text-muted">
-                        {new Date(discount.validFrom).toLocaleDateString("en-PH", { month: "short", day: "numeric" })} –{" "}
-                        {new Date(discount.validTo).toLocaleDateString("en-PH", { month: "short", day: "numeric" })}
-                      </span>
-                    </div>
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-[15px] font-bold text-[#A4423A]">
-                        {formatCurrency(discount.discountedPrice)}
-                      </span>
-                      <span className="text-[11px] text-muted line-through">
-                        {formatCurrency(Math.round(discount.discountedPrice / (1 - discount.discountPercent / 100)))}
-                      </span>
-                      <span className="text-[10px] text-muted">/night</span>
-                    </div>
-                    <div className="flex items-center gap-2 mt-3 pt-3 border-t border-[#e2e4e8]">
-                      {isApproved ? (
-                        <>
-                          <Shield className="w-3.5 h-3.5 text-[#3D6B4F]" />
-                          <span className="text-[11px] font-medium text-[#3D6B4F]">Approved</span>
-                          <button
-                            onClick={() => handleDismissDiscount(discount.eventRoomTypeKey)}
-                            className="ml-auto inline-flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded-[4px] bg-[#f0f1f3] text-muted hover:bg-[#e2e4e8] transition-colors"
-                          >
-                            <X className="w-3 h-3" />
-                            Remove
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          <button
-                            onClick={() => handleApproveDiscount(discount.eventRoomTypeKey)}
-                            className="inline-flex items-center gap-1 text-[11px] font-medium px-2.5 py-1.5 rounded-[4px] bg-[#3D6B4F]/10 text-[#3D6B4F] hover:bg-[#3D6B4F]/20 transition-colors"
-                          >
-                            <Check className="w-3 h-3" />
-                            Approve
-                          </button>
-                          <button
-                            onClick={() => handleDismissDiscount(discount.eventRoomTypeKey)}
-                            className="inline-flex items-center gap-1 text-[11px] font-medium px-2.5 py-1.5 rounded-[4px] bg-[#f0f1f3] text-muted hover:bg-[#e2e4e8] transition-colors"
-                          >
-                            <X className="w-3 h-3" />
-                            Dismiss
-                          </button>
-                        </>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              {pendingSuggestions.map((s) => (
+                <div key={s.event} className="flex flex-col gap-2 rounded-[8px] border border-[#e2e4e8] p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="text-[15px] font-bold text-foreground">{s.event}</span>
+                    <span
+                      className={cn(
+                        "shrink-0 rounded-[4px] px-2 py-1 text-[13px] font-semibold",
+                        s.phase === "live"
+                          ? "bg-[#82285f]/10 text-[#82285f]"
+                          : "bg-[#f0f1f3] text-[#5c6070]",
                       )}
-                    </div>
+                    >
+                      {s.phase === "live" ? "Live now" : `in ${s.daysUntilStart} days`}
+                    </span>
                   </div>
-                )
-              })}
-            </div>
-          </div>
-        ) : upcomingDiscounts.length > 0 ? (
-          <div className="p-6">
-            <p className="text-[12px] text-muted mb-3">No active promos right now. Upcoming:</p>
-            <div className="space-y-2">
-              {upcomingDiscounts.slice(0, 3).map((discount, i) => (
-                <div
-                  key={`up-${discount.roomId}-${i}`}
-                  className="flex items-center justify-between p-3 bg-[#f5f6f8] rounded-[6px]"
-                >
-                  <div className="flex items-center gap-2">
-                    <Sparkles className="w-3.5 h-3.5 text-[#82285f]" />
-                    <span className="text-[12px] font-medium text-foreground">{discount.event}</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-[11px] text-muted">{discount.roomType}</span>
-                    <span className="text-[11px] font-bold text-[#82285f]">{discount.discountPercent}% OFF</span>
-                    <span className="text-[10px] text-muted">in {discount.daysUntilStart} days</span>
+
+                  <p className="text-[13px] text-muted">
+                    {shortDate(s.validFrom)} to {longDate(s.validTo)}
+                    {" · "}
+                    {s.roomTypes.length} room type{s.roomTypes.length === 1 ? "" : "s"}
+                    {" · "}
+                    {s.percentRange[0]}-{s.percentRange[1]}% off
+                  </p>
+
+                  <p className="text-[13px] text-[#4a4f59]">
+                    {s.roomTypes.map((r) => `${r.roomType} ${r.percent}%`).join(" · ")}
+                  </p>
+
+                  <p className="text-[13px] text-muted">{s.reasoning}</p>
+                  {s.estimatedImpact && (
+                    <p className="text-[13px] text-muted">
+                      <span className="font-semibold text-foreground">Estimate:</span> {s.estimatedImpact}
+                    </p>
+                  )}
+
+                  <div className="mt-1 flex items-center gap-2 pt-3 border-t border-[#e2e4e8]">
+                    <button
+                      type="button"
+                      onClick={() => setDialog({ kind: "approve", suggestion: s })}
+                      className="rounded-[6px] bg-[#82285f] px-3 py-1.5 text-[13px] font-semibold text-[#FBF9F4] hover:bg-[#6d2050] transition-colors cursor-pointer"
+                    >
+                      Approve
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDialog({ kind: "dismiss", suggestion: s })}
+                      className="rounded-[6px] border border-[#e2e4e8] px-3 py-1.5 text-[13px] font-medium text-muted hover:border-[#c9ccd3] hover:text-foreground transition-colors cursor-pointer"
+                    >
+                      Dismiss
+                    </button>
                   </div>
                 </div>
               ))}
@@ -247,107 +427,243 @@ export default function DiscountOffers({ offers: initialOffers, rooms, loading }
           </div>
         ) : (
           <div className="p-6 text-center">
-            <p className="text-[12px] text-muted">No holiday promos at this time.</p>
+            <p className="text-[13px] text-muted">No pending promo suggestions right now.</p>
           </div>
         )}
       </div>
 
-      {/* Scheduled Discount Offers */}
-      {offers.length > 0 && (
-        <div className="bg-white rounded-[6px] border border-[#e2e4e8]">
-          <div className="px-6 py-4 border-b border-[#e2e4e8]">
+      {/* Scheduled Offers */}
+      <div className="rounded-[8px] border border-[#e2e4e8] bg-white">
+        <div className="flex flex-col gap-3 px-6 py-4 border-b border-[#e2e4e8]">
+          <div>
             <h3 className="font-display text-lg font-semibold text-foreground">Scheduled Offers</h3>
-            <p className="text-sm text-muted mt-0.5">Price cuts for slow months — activate when you're ready</p>
+            <p className="text-[13px] text-muted mt-0.5">One switch per promo. Live offers apply automatically during their dates.</p>
           </div>
+          {offers.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                aria-label="Filter by status"
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
+                className={selectClass}
+              >
+                <option value="all">All statuses</option>
+                <option value="live">Live</option>
+                <option value="scheduled">Scheduled</option>
+                <option value="off">Off</option>
+                <option value="expired">Expired</option>
+              </select>
+              <select
+                aria-label="Filter by room type"
+                value={typeFilter}
+                onChange={(e) => setTypeFilter(e.target.value)}
+                className={selectClass}
+              >
+                <option value="all">All room types</option>
+                {typeOptions.map((t) => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
+              </select>
+              <select
+                aria-label="Filter by month"
+                value={monthFilter}
+                onChange={(e) => setMonthFilter(e.target.value)}
+                className={selectClass}
+              >
+                <option value="all">All months</option>
+                {monthOptions.map((m) => (
+                  <option key={m} value={m}>{monthLabel(`${m}-01`)}</option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
 
-          <div className="p-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {offers.map((offer) => {
-                const isActive = offer.status === "active"
-                const editing = editingOfferId === offer.id
+        {offers.length === 0 ? (
+          <div className="p-6 text-center">
+            <p className="text-[13px] text-muted">No offers yet. Approve a suggestion above to create one.</p>
+          </div>
+        ) : filteredGroups.length === 0 ? (
+          <div className="p-6 text-center">
+            <p className="text-[13px] text-muted">No offers match these filters.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-left">
+              <thead>
+                <tr className="border-b border-[#e2e4e8] text-[13px] font-semibold text-muted">
+                  <th className="px-6 py-3 font-semibold">Promo</th>
+                  <th className="px-3 py-3 font-semibold">Dates</th>
+                  <th className="px-3 py-3 font-semibold">Room types</th>
+                  <th className="px-3 py-3 font-semibold">Discount</th>
+                  <th className="px-3 py-3 font-semibold">Status</th>
+                  <th className="px-6 py-3 text-right font-semibold">Actions</th>
+                </tr>
+              </thead>
+              {filteredGroups.map((group) => {
+                const editing = editKey === group.key
+                const busy = togglingKey === group.key
+                const percentLabel =
+                  group.percentRange[0] === group.percentRange[1]
+                    ? `${group.percentRange[0]}%`
+                    : `${group.percentRange[0]}-${group.percentRange[1]}%`
                 return (
-                  <div
-                    key={offer.id}
-                    className={cn(
-                      "border rounded-[8px] p-4 transition-colors",
-                      isActive
-                        ? "border-[#3D6B4F]/40 bg-[#3D6B4F]/[0.03]"
-                        : "border-[#e2e4e8] hover:border-[#82285f]/30"
+                  <tbody key={group.key} className="border-b border-[#e2e4e8] last:border-b-0">
+                    <tr className="text-[13px] text-foreground">
+                      <td className="px-6 py-3 font-semibold">{group.name}</td>
+                      <td className="px-3 py-3 text-muted whitespace-nowrap">
+                        {shortDate(group.validFrom)} to {longDate(group.validTo)}
+                      </td>
+                      <td className="px-3 py-3 text-muted">{group.roomTypes.join(", ")}</td>
+                      <td className="px-3 py-3 font-semibold">{percentLabel} off</td>
+                      <td className="px-3 py-3"><StatusBadge status={group.status} /></td>
+                      <td className="px-6 py-3">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={group.enabled}
+                            aria-label={`${group.enabled ? "Turn off" : "Activate"} ${group.name}`}
+                            disabled={busy}
+                            onClick={() => handleToggle(group)}
+                            className={cn(
+                              "relative h-6 w-11 shrink-0 rounded-full transition-colors cursor-pointer disabled:cursor-wait",
+                              group.enabled ? "bg-[#82285f]" : "bg-[#d6d8dd]",
+                            )}
+                          >
+                            <span
+                              className={cn(
+                                "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all",
+                                group.enabled ? "left-[22px]" : "left-0.5",
+                              )}
+                            />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => (editing ? setEditKey(null) : beginEdit(group))}
+                            className="rounded-[6px] border border-[#e2e4e8] px-3 py-1.5 text-[13px] font-medium text-muted hover:border-[#82285f]/40 hover:text-[#82285f] transition-colors cursor-pointer"
+                          >
+                            {editing ? "Cancel" : "Edit"}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                    {editing && (
+                      <tr>
+                        <td colSpan={6} className="bg-[#f8f9fb] px-6 py-4">
+                          <div className="flex flex-col gap-3">
+                            <p className="text-[13px] font-semibold text-foreground">
+                              Discount by room type (1 to {rules.maxPercent}%, minimum {formatCurrency(rules.minPrice)} rate)
+                            </p>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              {group.offers.map((o) => {
+                                const pct = draft[o.id] ?? o.discountPercent
+                                const problem = validateDraft(o, pct)
+                                return (
+                                  <div
+                                    key={o.id}
+                                    className="flex items-center justify-between gap-3 rounded-[6px] border border-[#e2e4e8] bg-white px-3 py-2"
+                                  >
+                                    <div className="min-w-0">
+                                      <p className="text-[13px] font-semibold text-foreground">{o.roomType}</p>
+                                      <p className={cn("text-[13px]", problem ? "text-[#A4423A]" : "text-muted")}>
+                                        {problem
+                                          ? problem
+                                          : `${formatCurrency(Math.round(o.baseRate * (1 - pct / 100)))} from ${formatCurrency(o.baseRate)}`}
+                                      </p>
+                                    </div>
+                                    <div className="flex shrink-0 items-center gap-1">
+                                      <input
+                                        aria-label={`Discount percent for ${o.roomType}`}
+                                        type="number"
+                                        min={1}
+                                        max={rules.maxPercent}
+                                        step={1}
+                                        value={pct}
+                                        onChange={(e) =>
+                                          setDraft((prev) => ({ ...prev, [o.id]: Number(e.target.value) }))
+                                        }
+                                        className={cn(
+                                          "w-16 rounded-[6px] border bg-white px-2 py-1.5 text-right text-[13px] text-foreground focus:outline-none",
+                                          problem ? "border-[#A4423A]" : "border-[#e2e4e8] focus:border-[#82285f]",
+                                        )}
+                                      />
+                                      <span className="text-[13px] text-muted">%</span>
+                                    </div>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                disabled={saving}
+                                onClick={() => saveEdit(group)}
+                                className="rounded-[6px] bg-[#455d58] px-3 py-1.5 text-[13px] font-semibold text-white hover:bg-[#374d48] disabled:opacity-50 transition-colors cursor-pointer"
+                              >
+                                {saving ? "Saving..." : "Save changes"}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={saving}
+                                onClick={() => setEditKey(null)}
+                                className="rounded-[6px] border border-[#e2e4e8] px-3 py-1.5 text-[13px] font-medium text-muted hover:text-foreground disabled:opacity-50 transition-colors cursor-pointer"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
                     )}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-[13px] font-bold text-foreground">{offer.roomType}</span>
-                      {editing ? (
-                        <span className="inline-flex items-center gap-1">
-                          <input
-                            aria-label={`Discount percent for ${offer.roomType}`}
-                            type="number"
-                            min={1}
-                            max={80}
-                            step={1}
-                            value={editPercent}
-                            onChange={(event) => setEditPercent(Number(event.target.value))}
-                            className="w-16 rounded-[4px] border border-[#e2e4e8] px-2 py-1 text-right text-xs text-foreground focus:border-[#82285f] focus:outline-none"
-                          />
-                          <span className="text-xs text-muted">%</span>
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-[4px] bg-[#A4423A]/10 text-[#A4423A]">
-                          <Tag className="w-3 h-3" />
-                          {offer.discountPercent}% OFF
-                        </span>
-                      )}
-                    </div>
-
-                    <p className="text-[11px] font-medium text-[#82285f] mb-2">{offerTitle(offer)}</p>
-
-                    <div className="flex items-center gap-1.5 mb-3">
-                      <Calendar className="w-3 h-3 text-muted" />
-                      <span className="text-[11px] text-muted">
-                        {new Date(offer.validFrom).toLocaleDateString("en-PH", { month: "short", day: "numeric" })} –{" "}
-                        {new Date(offer.validTo).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}
-                      </span>
-                    </div>
-
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-[15px] font-bold text-[#A4423A]">{formatCurrency(offer.discountedRate)}</span>
-                      <span className="text-[11px] text-muted line-through">{formatCurrency(offer.baseRate)}</span>
-                      <span className="text-[10px] text-muted">/night</span>
-                    </div>
-
-                    <p className={cn("mt-1 text-[11px] font-medium", isActive ? "text-[#3D6B4F]" : "text-muted")}>
-                      {isActive ? "Live — guests see this on the Rooms page" : "Off — activate to show it to guests"}
-                    </p>
-
-                    <div className="flex items-center gap-2 mt-3 pt-3 border-t border-[#e2e4e8]">
-                      {editing ? (
-                        <>
-                          <button type="button" onClick={() => handleSaveOfferEdit(offer)} disabled={savingEdit} className="inline-flex items-center gap-1 rounded-[4px] bg-[#455d58] px-2.5 py-1.5 text-xs font-medium text-white hover:bg-[#374d48] disabled:opacity-50">
-                            <Save className="h-3 w-3" /> Save
-                          </button>
-                          <button type="button" onClick={() => setEditingOfferId(null)} disabled={savingEdit} aria-label="Cancel editing" className="rounded-[4px] border border-[#e2e4e8] p-1.5 text-muted hover:bg-[#f5f6f8] disabled:opacity-50"><X className="h-3 w-3" /></button>
-                        </>
-                      ) : (
-                        <>
-                          <button type="button" onClick={() => beginEditOffer(offer)} className="inline-flex items-center gap-1 rounded-[4px] border border-[#e2e4e8] px-2.5 py-1.5 text-xs font-medium text-muted hover:border-[#82285f]/40 hover:text-[#82285f]">
-                            <Pencil className="h-3 w-3" /> Edit
-                          </button>
-                          <button onClick={() => handleToggleOffer(offer.id)} className={cn(
-                            "inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-[4px] transition-all duration-200",
-                            isActive ? "bg-[#3D6B4F]/10 text-[#3D6B4F] hover:bg-[#3D6B4F]/20" : "bg-[#f0f1f3] text-muted hover:bg-[#e2e4e8]"
-                          )}>
-                            {isActive ? <><Check className="w-3 h-3" /> Deactivate</> : <><Tag className="w-3 h-3" /> Activate</>}
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </div>
+                  </tbody>
                 )
               })}
-            </div>
+            </table>
           </div>
-        </div>
-      )}
+        )}
+
+        {audit.length > 0 && (
+          <div className="border-t border-[#e2e4e8] px-6 py-4">
+            <p className="text-[13px] font-semibold text-foreground mb-2">Recent activity</p>
+            <ul className="flex flex-col gap-1">
+              {audit.slice(0, 5).map((entry, i) => (
+                <li key={`${entry.offer_id}-${entry.action}-${i}`} className="text-[13px] text-muted">
+                  {new Date(entry.created_at).toLocaleString("en-PH", {
+                    month: "short",
+                    day: "numeric",
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })}
+                  {" · "}
+                  {entry.actor_email || "admin"} {ACTION_VERB[entry.action]} {entry.promo} ({entry.room_type}, {entry.discount_percent}%)
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+
+      <ConfirmDialog
+        open={dialog !== null}
+        onOpenChange={(open) => {
+          if (!open && !dialogBusy) setDialog(null)
+        }}
+        variant="default"
+        title={
+          dialog?.kind === "approve"
+            ? `Approve ${dialog.suggestion.event}?`
+            : `Dismiss ${dialog?.suggestion.event ?? ""}?`
+        }
+        description={
+          dialog?.kind === "approve"
+            ? `Creates ${dialog.suggestion.roomTypes.length} offer${dialog.suggestion.roomTypes.length === 1 ? "" : "s"} for ${shortDate(dialog.suggestion.validFrom)} to ${longDate(dialog.suggestion.validTo)}. Guests only see the discount when the dates are live, and you can switch it off anytime.`
+            : "Hides this suggestion and removes any existing approval for it. No offers are created."
+        }
+        confirmLabel={dialog?.kind === "approve" ? "Approve" : "Dismiss"}
+        cancelLabel="Cancel"
+        onConfirm={runDialogAction}
+      />
     </div>
   )
 }
