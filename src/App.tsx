@@ -13,6 +13,7 @@ const Login = lazy(() => import("./pages/Login"))
 const Register = lazy(() => import("./pages/Register"))
 const Profile = lazy(() => import("./pages/Profile"))
 const VerifyEmail = lazy(() => import("./pages/VerifyEmail"))
+const CopyCode = lazy(() => import("./pages/CopyCode"))
 const Booking = lazy(() => import("./pages/Booking"))
 const BookingConfirmation = lazy(() => import("./pages/BookingConfirmation"))
 const PaymentFailed = lazy(() => import("./pages/PaymentFailed"))
@@ -55,6 +56,7 @@ export default function App() {
           <Routes>
           {/* Standalone pages — no navbar/footer */}
           <Route path="verify-email" element={<VerifyEmail />} />
+          <Route path="copy-code" element={<CopyCode />} />
           <Route path="login" element={<Login />} />
           <Route path="register" element={<Register />} />
           <Route path="forgot-password" element={<ForgotPassword />} />
