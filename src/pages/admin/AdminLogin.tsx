@@ -4,6 +4,7 @@ import { Mail, Lock, Eye, EyeOff, Shield } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useAuth } from "@/contexts/AuthContext"
 import LoadingDots from "@/components/LoadingDots"
+import hotelLogo from "@/assets/images/Hotel Ava logo.png"
 
 const PRIMARY = "#82285f"
 
@@ -61,21 +62,7 @@ export default function AdminLogin() {
 
         {/* Top-left logo */}
         <div className="relative z-10 p-10">
-          <div className="flex items-center gap-3">
-            <div
-              className="w-9 h-9 rounded-full flex items-center justify-center shadow-lg"
-              style={{ backgroundColor: PRIMARY }}
-            >
-              <div className="grid grid-cols-2 gap-0.5">
-                {[...Array(4)].map((_, i) => (
-                  <div key={i} className="w-1.5 h-1.5 rounded-full bg-white" />
-                ))}
-              </div>
-            </div>
-            <span className="font-display text-white font-semibold text-lg tracking-wide">
-              Hotel Ava
-            </span>
-          </div>
+          <img src={hotelLogo} alt="Hotel Ava" className="h-10 w-auto drop-shadow-lg" />
         </div>
 
         {/* Bottom hero copy */}
@@ -101,26 +88,26 @@ export default function AdminLogin() {
             className="font-display text-white font-bold leading-[1.15] mb-5"
             style={{ fontSize: "clamp(1.9rem, 3vw, 2.65rem)" }}
           >
-            Hotel Management<br />
-            Dashboard
+            Dare To Be Different<br />
+            Here at Hotel Ava
           </h2>
 
           <p
             className="font-body text-white/72 leading-relaxed mb-9"
             style={{ fontSize: "0.975rem", maxWidth: "400px" }}
           >
-            Sign in to manage bookings, monitor occupancy, and oversee hotel operations.
+            Sign in to manage bookings, monitor occupancy, and oversee Hotel Ava Malate.
           </p>
 
-          <div className="flex items-center gap-8">
+          <div className="flex items-center gap-6">
             {[
-              { value: "25", label: "Total Rooms" },
+              { value: "13", label: "Total Rooms" },
               { value: "74%", label: "Occupancy" },
               { value: "₱378K", label: "Monthly Revenue" },
             ].map(({ value, label }) => (
-              <div key={label}>
-                <p className="text-white font-semibold text-base leading-tight">{value}</p>
-                <p className="text-white/55 text-xs mt-1">{label}</p>
+              <div key={label} className="border-l border-white/20 pl-4 first:border-0 first:pl-0">
+                <p className="text-white font-semibold text-sm leading-tight">{value}</p>
+                <p className="text-white/45 text-[11px] mt-0.5">{label}</p>
               </div>
             ))}
           </div>
@@ -145,12 +132,7 @@ export default function AdminLogin() {
 
           {/* Brand mark */}
           <div className="flex justify-center mb-7">
-            <div
-              className="w-12 h-12 rounded-full flex items-center justify-center shadow-md"
-              style={{ backgroundColor: PRIMARY }}
-            >
-              <Shield className="w-5 h-5 text-white" />
-            </div>
+            <img src={hotelLogo} alt="Hotel Ava" className="h-14 w-auto" />
           </div>
 
           <h1 className="typo-display-xl text-ink mb-2 text-center">

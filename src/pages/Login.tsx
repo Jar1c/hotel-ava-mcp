@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react"
 import { Link, useNavigate, useSearchParams } from "react-router"
-import { Mail, Lock, Eye, EyeOff, QrCode } from "lucide-react"
+import { Mail, Lock, Eye, EyeOff, QrCode, User } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useAuth } from "@/contexts/AuthContext"
 import LoadingDots from "@/components/LoadingDots"
@@ -115,25 +115,41 @@ export default function Login() {
         <div className="absolute inset-0 bg-gradient-to-t from-scrim/92 via-scrim/25 to-transparent" />
 
         <div className="relative z-10 p-10">
-          <img src={hotelLogo} alt="Hotel Ava" className="h-10 w-auto brightness-0 invert" />
+          <img src={hotelLogo} alt="Hotel Ava" className="h-10 w-auto drop-shadow-lg" />
         </div>
 
         <div className="relative z-10 mt-auto px-12 pb-14">
-          <div className="w-10 h-[2px] mb-5" style={{ backgroundColor: PRIMARY }} />
+          <div
+            className="w-14 h-[3px] mb-6 rounded-full"
+            style={{ backgroundColor: PRIMARY }}
+          />
+
+          <div
+            className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full mb-5 text-white text-xs font-semibold tracking-widest uppercase"
+            style={{
+              background: "rgba(130,40,95,0.50)",
+              backdropFilter: "blur(10px)",
+              border: "1px solid rgba(255,255,255,0.18)",
+            }}
+          >
+            <User className="w-3 h-3" />
+            Guest Portal
+          </div>
+
           <h2
-            className="font-display text-white font-bold leading-[1.15] mb-4"
-            style={{ fontSize: "clamp(1.75rem, 2.8vw, 2.4rem)" }}
+            className="font-display text-white font-bold leading-[1.15] mb-5"
+            style={{ fontSize: "clamp(1.9rem, 3vw, 2.65rem)" }}
           >
             Dare To Be Different<br />Here at Hotel Ava
           </h2>
-          <p className="font-body text-white/65 leading-relaxed mb-8" style={{ fontSize: "0.9rem", maxWidth: "380px" }}>
+          <p className="font-body text-white/72 leading-relaxed mb-9" style={{ fontSize: "0.975rem", maxWidth: "400px" }}>
             Sign in to retrieve your bookings and manage your stays.
           </p>
           <div className="flex items-center gap-6">
             {[
+              { value: "12 Hrs", label: "Prime Stay" },
+              { value: "24 Hrs", label: "Full Day" },
               { value: "Private", label: "Garage" },
-              { value: "4.2 ★", label: "Google Rating" },
-              { value: "494+", label: "Happy Guests" },
             ].map(({ value, label }) => (
               <div key={label} className="border-l border-white/20 pl-4 first:border-0 first:pl-0">
                 <p className="text-white font-semibold text-sm leading-tight">{value}</p>

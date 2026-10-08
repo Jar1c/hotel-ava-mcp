@@ -126,27 +126,39 @@ export default function Register() {
 
         {/* Top-left logo */}
         <div className="relative z-10 p-10">
-          <img src={hotelLogo} alt="Hotel Ava" className="h-10 w-auto brightness-0 invert" />
+          <img src={hotelLogo} alt="Hotel Ava" className="h-10 w-auto drop-shadow-lg" />
         </div>
 
         {/* Bottom hero copy */}
         <div className="relative z-10 mt-auto px-12 pb-14">
           <div
-            className="w-10 h-[2px] mb-5"
+            className="w-14 h-[3px] mb-6 rounded-full"
             style={{ backgroundColor: PRIMARY }}
           />
 
-          <h2
-            className="font-display text-white font-bold leading-[1.15] mb-4"
-            style={{ fontSize: "clamp(1.75rem, 2.8vw, 2.4rem)" }}
+          <div
+            className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full mb-5 text-white text-xs font-semibold tracking-widest uppercase"
+            style={{
+              background: "rgba(130,40,95,0.50)",
+              backdropFilter: "blur(10px)",
+              border: "1px solid rgba(255,255,255,0.18)",
+            }}
           >
-            Every Stay<br />
-            Starts with Comfort
+            <User className="w-3 h-3" />
+            Guest Portal
+          </div>
+
+          <h2
+            className="font-display text-white font-bold leading-[1.15] mb-5"
+            style={{ fontSize: "clamp(1.9rem, 3vw, 2.65rem)" }}
+          >
+            Dare To Be Different<br />
+            Here at Hotel Ava
           </h2>
 
           <p
-            className="font-body text-white/65 leading-relaxed mb-8"
-            style={{ fontSize: "0.9rem", maxWidth: "380px" }}
+            className="font-body text-white/72 leading-relaxed mb-9"
+            style={{ fontSize: "0.975rem", maxWidth: "400px" }}
           >
             Join Hotel Ava Malate and unlock exclusive rates and seamless booking.
           </p>

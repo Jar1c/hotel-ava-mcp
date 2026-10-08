@@ -22,7 +22,7 @@
   --color-canvas: #F4F6F8;
   --color-surface-soft: #EDEFF2;
   --color-surface-strong: #E2E5EA;
-  --color-skeleton: #c9cdd4;
+  --color-skeleton: #e3e6eb;
 
   --color-hairline: #D5DADF;
   --color-hairline-soft: #E6E9EE;
@@ -522,9 +522,9 @@ html, body {
   100% { transform: translateX(100%); }
 }
 
-/* Skeleton loading blocks — dark-gray base with a social-media style
-   shine sweep. Apply the `skeleton` class to placeholder divs; the shine
-   rides the existing `shimmer` keyframes above. */
+/* Skeleton loading blocks — soft gray base (social-media style, e.g.
+   Facebook/Twitter) with a shine sweep. Apply the `skeleton` class to
+   placeholder divs; the shine rides the existing `shimmer` keyframes above. */
 .skeleton {
   position: relative;
   overflow: hidden;

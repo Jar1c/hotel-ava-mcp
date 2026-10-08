@@ -20,8 +20,9 @@ interface LoginChallengeDialogProps {
 
 /**
  * Step-up verification for an unfamiliar device/location: shows the emailed
- * 6-digit code screen. Rendered by AuthProvider whenever a challenge is
- * pending (password logins render their own inline copy inside Login.tsx).
+ * one-time code screen. Rendered by AuthProvider whenever a challenge is
+ * pending. Code input accepts up to 8 digits because this Supabase project
+ * issues 8-digit OTPs (admin.generate_link returns 8); 6-digit codes still work.
  */
 export default function LoginChallengeDialog({ challenge, onVerified, onClose }: LoginChallengeDialogProps) {
   const [code, setCode] = useState("")
@@ -77,7 +78,7 @@ export default function LoginChallengeDialog({ challenge, onVerified, onClose }:
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose() }}>
-      <DialogContent className="sm:max-w-[400px]">
+      <DialogContent className="sm:max-w-[400px] !rounded-[16px]">
         <DialogHeader>
           <div
             className="mx-auto mb-1 flex h-12 w-12 items-center justify-center rounded-full"
@@ -85,9 +86,11 @@ export default function LoginChallengeDialog({ challenge, onVerified, onClose }:
           >
             <ShieldCheck className="h-6 w-6" style={{ color: PRIMARY }} />
           </div>
-          <DialogTitle className="text-center">Verify it's you</DialogTitle>
-          <DialogDescription className="text-center">
-            {reasonText} We sent a 6-digit code to{" "}
+          <DialogTitle className="text-center font-display text-xl text-ink">
+            Verify it's you
+          </DialogTitle>
+          <DialogDescription className="text-center typo-body-sm text-muted">
+            {reasonText} We sent a one-time code to{" "}
             <span className="font-semibold text-ink">{challenge.email_masked}</span>.
           </DialogDescription>
         </DialogHeader>
@@ -97,12 +100,12 @@ export default function LoginChallengeDialog({ challenge, onVerified, onClose }:
             autoFocus
             inputMode="numeric"
             autoComplete="one-time-code"
-            maxLength={6}
-            placeholder="123456"
+            maxLength={8}
+            placeholder="12345678"
             aria-label="One-time code"
             value={code}
             onChange={(e) => setCode(e.target.value.replace(/[^0-9]/g, ""))}
-            className="w-full rounded-[10px] border border-hairline bg-canvas py-2.5 text-center text-xl font-semibold tracking-[0.4em] text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary"
+            className="w-full rounded-[12px] border border-hairline bg-canvas px-4 py-3 text-center text-[22px] font-bold tracking-[0.4em] text-ink placeholder:font-medium placeholder:text-muted-soft focus:outline-none focus:border-primary"
           />
 
           {error && <p className="text-center text-sm text-red-500">{error}</p>}
@@ -110,7 +113,7 @@ export default function LoginChallengeDialog({ challenge, onVerified, onClose }:
           <Button
             type="submit"
             disabled={busy || code.length < 6}
-            className="w-full !rounded-[10px] font-medium disabled:opacity-50"
+            className="w-full !rounded-[12px] py-3 font-medium disabled:opacity-50"
             style={{ backgroundColor: PRIMARY, color: "#FBF9F4" }}
           >
             {busy ? (

@@ -4292,19 +4292,19 @@ def cancel_booking(booking_id):
         if refund_ok:
             msg = "Your booking has been cancelled successfully."
         elif refund_amount > 0:
-            msg = (
-                "Your booking has been cancelled. Because this was within 24 "
-                "hours of check-in, no refund is issued."
-            )
-        elif b.get("status") == "confirmed" and paid > 0:
+            # Inside the free-cancellation window, but PayMongo rejected the
+            # refund — don't tell the guest it was "within 24 hours" (it wasn't).
             msg = (
                 "Your booking has been cancelled. Your refund could not be "
                 "processed automatically — our front desk will contact you "
                 "about returning your payment."
             )
-            notify_admins("booking", "Refund needs review",
-                f"Automatic refund failed for booking #{booking_id[:8]} "
-                f"(₱{paid:,.0f}): {refund_detail}", booking_id=booking_id)
+        elif b.get("status") == "confirmed" and paid > 0:
+            # Paid, but too late for the 24-hour free-refund policy: money is kept.
+            msg = (
+                "Your booking has been cancelled. Because this was within 24 "
+                "hours of check-in, no refund is issued."
+            )
         else:
             msg = "Your booking has been cancelled successfully."
 
@@ -4322,6 +4322,11 @@ def cancel_booking(booking_id):
                 f"Guest cancelled booking #{booking_id[:8]} — refund of "
                 f"₱{refund_amount:,.0f} initiated.", booking_id=booking_id)
         elif refund_amount > 0:
+            # Refund was attempted but rejected by PayMongo — money is still owed.
+            notify_admins("booking", "Refund needs review",
+                f"Automatic refund failed for booking #{booking_id[:8]} "
+                f"(₱{paid:,.0f}): {refund_detail}", booking_id=booking_id)
+        elif b.get("status") == "confirmed" and paid > 0:
             notify_admins("booking", "Booking Cancelled",
                 f"Guest cancelled booking #{booking_id[:8]} within 24 hours of "
                 f"check-in — no refund issued.", booking_id=booking_id)
@@ -5716,6 +5721,25 @@ def review_reply(review_id):
         res = supabase_admin.table("reviews").update(update).eq("id", review_id).execute()
         if not res.data:
             return jsonify({"error": "Review not found"}), 404
+
+        # Tell the guest their review got an answer — the reply itself lives on
+        # the room page, so the bell is how anyone finds out. Only for a real
+        # reply; clearing it stays silent.
+        if reply:
+            row = res.data[0]
+            guest_id = row.get("user_id")
+            if guest_id:
+                room_name = "your room"
+                try:
+                    rr = supabase_admin.table("rooms").select("name") \
+                        .eq("id", row.get("room_id")).limit(1).execute()
+                    if rr.data:
+                        room_name = rr.data[0].get("name") or room_name
+                except Exception:
+                    pass
+                create_notification(guest_id, "review", "We replied to your review",
+                    f"The team responded to your review of {room_name} — see it on the room page.",
+                    booking_id=row.get("booking_id"))
         return jsonify(res.data[0]), 200
     except Exception as e:
         if _review_columns_missing(str(e)):

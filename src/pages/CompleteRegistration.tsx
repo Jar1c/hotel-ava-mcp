@@ -80,7 +80,7 @@ export default function CompleteRegistration() {
         <div className="absolute inset-0 bg-gradient-to-br from-scrim/50 via-transparent to-transparent" />
         <div className="absolute inset-0 bg-gradient-to-t from-scrim/92 via-scrim/25 to-transparent" />
         <div className="relative z-10 p-10">
-          <img src={hotelLogo} alt="Hotel Ava" className="h-10 w-auto brightness-0 invert" />
+          <img src={hotelLogo} alt="Hotel Ava" className="h-10 w-auto drop-shadow-lg" />
         </div>
         <div className="relative z-10 mt-auto px-12 pb-14">
           <div className="w-10 h-[2px] mb-5" style={{ backgroundColor: PRIMARY }} />

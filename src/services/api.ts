@@ -252,7 +252,7 @@ export const authApi = {
     return res as LoginResponse
   },
 
-  /** Complete a step-up challenge with the emailed 6-digit code. */
+  /** Complete a step-up challenge with the emailed one-time code. */
   verifyLoginChallenge: (data: { challenge_id: string; code: string }) =>
     apiFetch<LoginResponse>("/auth/login/verify", { method: "POST", body: JSON.stringify(data) }),
 
