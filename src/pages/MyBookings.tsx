@@ -131,7 +131,8 @@ function receiptFor(b: BookingDetail): ReceiptData {
   const isDay = b.stay_type === "day"
   const rate = b.room_price ?? 0
   const nights = Math.max(1, b.nights || 1)
-  const dayPrice = isDay && b.duration ? Math.round((rate * b.duration) / 24) : 0
+  const dayBase = isDay && b.duration ? b.room_day_use?.[String(b.duration)] : undefined
+  const dayPrice = isDay && b.duration ? (dayBase ?? Math.round((rate * b.duration) / 24)) : 0
   const fmtDate = (d?: string) =>
     d ? new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"
   const down = b.payment_mode === "downpayment"
@@ -1102,7 +1103,10 @@ export default function MyBookings() {
           <div className="p-6 space-y-5">
             {(() => {
               const bk = detailBooking?.id === extendDialog.id ? detailBooking : bookings.find((b) => b.id === extendDialog.id)
-              const price = Math.max(1, Math.round(((bk?.room_price ?? 0) * extendDialog.hours) / 24))
+              const booked = bk?.duration ?? 0
+              const dayBase = bk?.stay_type === "day" && booked ? bk?.room_day_use?.[String(booked)] : undefined
+              const hourly = dayBase != null && booked ? dayBase / booked : (bk?.room_price ?? 0) / 24
+              const price = Math.max(1, Math.round(hourly * extendDialog.hours))
               const endIso = bk?.end_time ?? null
               const newEnd = endIso ? new Date(new Date(endIso).getTime() + extendDialog.hours * 3600000) : null
               return (

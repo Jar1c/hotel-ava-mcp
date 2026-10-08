@@ -572,6 +572,7 @@ export interface UserBookingData {
   start_time?: string
   end_time?: string | null
   room_price?: number
+  room_day_use?: Record<string, number>
   /** True once the guest has reviewed this stay */
   reviewed?: boolean
   rating?: number | null

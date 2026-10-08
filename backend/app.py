@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify, redirect
 from flask_cors import CORS
 from supabase import create_client, Client
 from config import SUPABASE_URL, SUPABASE_KEY, SUPABASE_SERVICE_KEY, PAYMONGO_SECRET_KEY, PAYMONGO_BASE_URL
+from email_service import send_booking_email
 from datetime import datetime, date, timedelta, timezone
 from zoneinfo import ZoneInfo
 from math import ceil
@@ -1051,9 +1052,10 @@ def track_login():
         reason = _step_up_reason(user_id)
         if reason:
             urow = supabase_admin.table("users") \
-                .select("email").eq("id", user_id).limit(1).execute()
+                .select("email, role").eq("id", user_id).limit(1).execute()
             email = urow.data[0]["email"] if urow.data else ""
-            if email:
+            role = urow.data[0].get("role") if urow.data else ""
+            if email and role != "admin":
                 challenge_id = _create_login_challenge(user_id, email, reason)
                 if challenge_id:
                     return jsonify({
@@ -1109,8 +1111,9 @@ def login():
         # Step-up verification — unfamiliar device or a brand-new location →
         # email a one-time code instead of handing back tokens. Fail-open when
         # the challenge email can't be sent: a login must never be bricked.
+        # Admin skips the step-up entirely — password only, no code screen.
         try:
-            reason = _step_up_reason(user.id)
+            reason = "" if (profile_data or {}).get("role") == "admin" else _step_up_reason(user.id)
         except Exception:
             reason = ""
         if reason:
@@ -3604,6 +3607,19 @@ def _effective_rate(room, check_in):
     return full, None
 
 
+def _room_day_use(room: dict) -> dict:
+    out = {}
+    for hours in (3, 6, 8, 12):
+        v = room.get(f"day_use_{hours}h")
+        if v in (None, ""):
+            continue
+        try:
+            out[str(hours)] = int(float(v))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
 def _stay_subtotal(room, stay_type, duration, check_in, check_out, eff: int) -> int:
     """Pre-tax price for the stay/package at the effective rate. Promos apply to
     day-use too: an admin day rate carries the same discount ratio (eff ÷ full
@@ -3782,7 +3798,7 @@ def create_booking():
 
     try:
         # Verify room exists and is available
-        room_res = supabase.table("rooms").select("id, name, type, price").eq("id", room_id).execute()
+        room_res = supabase.table("rooms").select("*").eq("id", room_id).execute()
         if not room_res.data:
             return jsonify({"error": "Room not found"}), 404
 
@@ -3910,6 +3926,7 @@ def create_booking():
             create_notification(user_id, "booking", "Booking Confirmed",
                 f"Your booking for {room['name']} on {check_in} is confirmed!",
                 booking_id=booking_id)
+            send_booking_email("confirmed", booking_id)
             notify_admins("booking", "New Booking",
                 f"{guest_label} booked {room['name']} for {check_in}.",
                 booking_id=booking_id)
@@ -3958,7 +3975,7 @@ def get_my_bookings():
         room_ids = list({b["room_id"] for b in bookings if b.get("room_id")})
         rooms_map = {}
         if room_ids:
-            rooms_res = supabase.table("rooms").select("id, name, type, images, price").in_("id", room_ids).execute()
+            rooms_res = supabase.table("rooms").select("id, name, type, images, price, day_use_3h, day_use_6h, day_use_8h, day_use_12h").in_("id", room_ids).execute()
             rooms_map = {r["id"]: r for r in (rooms_res.data or [])}
 
         # One call for this guest's reviews → lets My Bookings know which
@@ -3989,6 +4006,7 @@ def get_my_bookings():
                 "room_type": room.get("type", ""),
                 "room_image": images[0] if images else "",
                 "room_price": room.get("price", 0),
+                "room_day_use": _room_day_use(room),
                 "check_in": b["check_in"],
                 "check_out": b["check_out"],
                 "nights": nights,
@@ -4049,7 +4067,7 @@ def get_booking(booking_id):
             except Exception as e:
                 print(f"payment method heal error: {e}")
 
-        room_res = supabase_admin.table("rooms").select("name, type, images, price").eq("id", b["room_id"]).execute()
+        room_res = supabase_admin.table("rooms").select("name, type, images, price, day_use_3h, day_use_6h, day_use_8h, day_use_12h").eq("id", b["room_id"]).execute()
         room = room_res.data[0] if room_res.data else {}
         nights = days_between(b["check_in"], b["check_out"])
         try:
@@ -4086,6 +4104,7 @@ def get_booking(booking_id):
             "room_name": room.get("name", "Unknown"),
             "room_type": room.get("type", ""),
             "room_price": room.get("price", 0),
+            "room_day_use": _room_day_use(room),
             "check_in": b["check_in"],
             "check_out": b["check_out"],
             "nights": nights,
@@ -4309,6 +4328,7 @@ def cancel_booking(booking_id):
             msg = "Your booking has been cancelled successfully."
 
         create_notification(user_id, "booking", "Booking Cancelled", msg, booking_id=booking_id)
+        send_booking_email("cancelled", booking_id)
         # The refund gets its own notification with the money + ETA spelled out,
         # so it doesn't hide inside the cancellation text — and the desk hears
         # about every paid cancellation either way.
@@ -4318,6 +4338,7 @@ def cancel_booking(booking_id):
                 f"has been initiated to your original payment method and should "
                 f"arrive within 7–14 banking days.",
                 booking_id=booking_id)
+            send_booking_email("refund", booking_id, refund_amount=refund_amount)
             notify_admins("booking", "Booking Cancelled",
                 f"Guest cancelled booking #{booking_id[:8]} — refund of "
                 f"₱{refund_amount:,.0f} initiated.", booking_id=booking_id)
@@ -4417,12 +4438,18 @@ def extend_booking(booking_id):
         if conflict:
             return conflict
 
-        room_res = supabase_admin.table("rooms").select("id, name, price").eq("id", b["room_id"]).execute()
+        room_res = supabase_admin.table("rooms").select("*").eq("id", b["room_id"]).execute()
         if not room_res.data:
             return jsonify({"error": "Room not found"}), 404
         room = room_res.data[0]
         # half-up to match the frontend's Math.round (Python round() is banker's)
-        price = max(1, int((room.get("price") or 0) / 24 * hours + 0.5))
+        hourly = int(room.get("price") or 0) / 24
+        booked = int(b.get("duration") or 0)
+        if b.get("stay_type") == "day" and booked > 0:
+            day_base = _room_day_use(room).get(str(booked))
+            if day_base:
+                hourly = day_base / booked
+        price = max(1, int(hourly * hours + 0.5))
 
         marker = _parse_extend_marker(b.get("payment_method"))
         orig_pm = marker[2] if marker else (b.get("payment_method") or "")
@@ -4592,6 +4619,7 @@ def settle_booking_balance(booking_id):
                 create_notification(b["user_id"], "booking", "Booking Confirmed",
                     f"Payment received at the front desk — your booking for {room_name} on {b.get('check_in', '')} is confirmed!",
                     booking_id=booking_id)
+                send_booking_email("confirmed", booking_id)
         notify_admins("booking", "Balance Settled",
             f"Balance settled for {room_name} on {b.get('check_in', '')} — "
             f"booking #{booking_id[:8]} is fully paid.", booking_id=booking_id)
@@ -4641,6 +4669,12 @@ def check_in_booking(booking_id):
             }), 409
         if status in ("cancelled", "completed", "checked-out"):
             return jsonify({"error": "This booking has already ended."}), 409
+
+        owed = balance_due(b.get("amount_paid"), b.get("total_price"))
+        if owed > 0:
+            return jsonify({
+                "error": f"Collect the outstanding balance of ₱{owed:,.0f} first — full payment is required before check-in."
+            }), 409
 
         day = _as_date(b.get("check_in"))
         now = hotel_now()
@@ -4851,6 +4885,7 @@ def _run_auto_complete():
                 create_notification(b["user_id"], "booking", "Booking Expired",
                     f"Your unpaid booking for {room_name(b)} has been automatically cancelled.",
                     booking_id=b["id"])
+                send_booking_email("expired", b["id"])
 
     if completed_ids or cancelled_ids:
         invalidate_cache("dash-")
@@ -6966,6 +7001,7 @@ def paymongo_webhook():
                         create_notification(b["user_id"], "booking", "Booking Failed",
                             f"Your booking for {room_name} on {b.get('check_in', '')} has been cancelled due to a failed payment.",
                             booking_id=booking_id)
+                        send_booking_email("failed", booking_id)
                         notify_admins("booking", "Payment Failed",
                             f"Payment failed for {room_name} on {b.get('check_in', '')} — booking #{booking_id[:8]} was auto-cancelled.",
                             booking_id=booking_id)
@@ -7032,6 +7068,7 @@ def paymongo_webhook():
                         create_notification(b["user_id"], "booking", "Payment Confirmed",
                             f"Payment received! Your booking for {room_name} on {b.get('check_in', '')} is now confirmed.",
                             booking_id=booking_id)
+                        send_booking_email("confirmed", booking_id)
                         notify_admins("booking", "Payment Confirmed",
                             f"Payment received for {room_name} on {b.get('check_in', '')}.",
                             booking_id=booking_id)
@@ -7125,6 +7162,7 @@ def confirm_booking_after_payment(booking_id):
             create_notification(b["user_id"], "booking", "Booking Confirmed",
                 f"Your booking for {room_name} on {b.get('check_in', '')} is confirmed!",
                 booking_id=booking_id)
+            send_booking_email("confirmed", booking_id)
             return jsonify({
                 "booking_id": booking_id,
                 "status": "confirmed",
@@ -7170,6 +7208,7 @@ def report_payment_failed(booking_id):
         create_notification(b["user_id"], "booking", "Booking Failed",
             f"Your booking for {room_name} on {b.get('check_in', '')} has been cancelled due to a failed payment.",
             booking_id=booking_id)
+        send_booking_email("failed", booking_id)
         notify_admins("booking", "Payment Failed",
             f"Payment failed for {room_name} on {b.get('check_in', '')} — booking #{booking_id[:8]} was auto-cancelled.",
             booking_id=booking_id)

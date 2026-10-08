@@ -55,7 +55,7 @@ type StatusLine = { text: string; cls: string; Icon: typeof CheckCircle }
  * The one line that says whether check-in may happen right now — it replaces
  * the old "Booking found" heading, the status pill, and the arrival badge.
  */
-function statusLine(d: VerifyBookingData, now: Date): StatusLine {
+function statusLine(d: VerifyBookingData, now: Date, owed = 0): StatusLine {
   const state = deriveArrival(d, now)
   const startLabel = startMomentLabel(d)
   const arrivedAt = arrivalTimeLabel(d.checked_in_at)
@@ -90,6 +90,13 @@ function statusLine(d: VerifyBookingData, now: Date): StatusLine {
   if (until !== null && until > 0) {
     return {
       text: `Not yet. Check-in opens ${startLabel || "on the check-in date"}`,
+      cls: "text-amber-700",
+      Icon: Clock,
+    }
+  }
+  if (owed > 0) {
+    return {
+      text: `Balance ₱${owed.toLocaleString()} due — collect before check-in`,
       cls: "text-amber-700",
       Icon: Clock,
     }
@@ -513,9 +520,7 @@ export default function VerifyQrDialog({ open, onOpenChange }: Props) {
           {/* Result */}
           {result.kind === "found" && (() => {
             const d = result.data
-            const status = statusLine(d, now)
             const state = deriveArrival(d, now)
-            const ready = canCheckIn(d, now) && (minutesUntilStart(d, now) ?? 0) <= 0
 
             // One line of payment truth: paid in full, or what's still due.
             const total = Number(d.total_price) || 0
@@ -534,6 +539,8 @@ export default function VerifyQrDialog({ open, onOpenChange }: Props) {
                       ? `Paid in full, ₱${total.toLocaleString()}`
                       : "No payment due",
             }
+            const ready = canCheckIn(d, now) && (minutesUntilStart(d, now) ?? 0) <= 0
+            const status = statusLine(d, now, pay.showSettle ? pay.balance : 0)
 
             return (
             <div className="overflow-hidden rounded-[10px] border border-[#e2e4e8] bg-white">
@@ -574,20 +581,6 @@ export default function VerifyQrDialog({ open, onOpenChange }: Props) {
                     >
                       {pay.text}
                     </span>
-                    {pay.showSettle && (
-                      <button
-                        type="button"
-                        onClick={() => void settleBalance()}
-                        disabled={settling}
-                        className="cursor-pointer text-xs font-semibold text-[#82285f] hover:underline disabled:opacity-60"
-                      >
-                        {settling
-                          ? "Saving…"
-                          : d.status === "pending"
-                            ? `Collect ₱${pay.balance.toLocaleString()} & confirm`
-                            : `Collect ₱${pay.balance.toLocaleString()}`}
-                      </button>
-                    )}
                   </dd>
                 </div>
                 <div className="flex justify-between gap-3">
@@ -620,24 +613,40 @@ export default function VerifyQrDialog({ open, onOpenChange }: Props) {
               )}
 
               {/* Actions — check in is gated by the clock; receipt is a link */}
-              <div className="mt-4 flex items-center gap-4">
-                {state === "none" && (
+              <div className="mt-4 space-y-2">
+                {pay.showSettle && (
                   <Button
                     type="button"
-                    onClick={() => void checkInGuest()}
-                    disabled={!ready || checkingIn}
-                    className="flex-1 !rounded-[8px] gap-2 bg-[#3D6B4F] text-white hover:bg-[#2d5a3e] disabled:bg-[#d6d9de] disabled:text-[#9aa0a6]"
+                    onClick={() => void settleBalance()}
+                    disabled={settling}
+                    className="w-full !rounded-[8px] gap-2 bg-[#82285f] text-white hover:bg-[#6a1f4d] disabled:bg-[#d6d9de] disabled:text-[#9aa0a6]"
                   >
-                    {checkingIn ? "Checking in…" : "Check in"}
+                    {settling
+                      ? "Saving…"
+                      : d.status === "pending"
+                        ? `Collect ₱${pay.balance.toLocaleString()} & confirm`
+                        : `Collect ₱${pay.balance.toLocaleString()}`}
                   </Button>
                 )}
-                <button
-                  type="button"
-                  onClick={() => setReceiptOpen(true)}
-                  className="cursor-pointer text-xs font-semibold text-[#82285f] hover:underline"
-                >
-                  View receipt
-                </button>
+                <div className="flex items-center gap-4">
+                  {state === "none" && (
+                    <Button
+                      type="button"
+                      onClick={() => void checkInGuest()}
+                      disabled={!ready || checkingIn || pay.showSettle}
+                      className="flex-1 !rounded-[8px] gap-2 bg-[#3D6B4F] text-white hover:bg-[#2d5a3e] disabled:bg-[#d6d9de] disabled:text-[#9aa0a6]"
+                    >
+                      {checkingIn ? "Checking in…" : "Check in"}
+                    </Button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setReceiptOpen(true)}
+                    className="cursor-pointer text-xs font-semibold text-[#82285f] hover:underline"
+                  >
+                    View receipt
+                  </button>
+                </div>
               </div>
               </div>
             </div>
