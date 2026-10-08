@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react"
 import { Link, useLocation, useNavigate } from "react-router"
 import { X, Loader2, Mail, QrCode } from "lucide-react"
 import QuickSignInPanel from "@/components/auth/QuickSignInPanel"
+import LastUsedBadge from "@/components/LastUsedBadge"
+import { getLastSignIn, setLastSignIn, type LastSignIn } from "@/lib/lastSignIn"
 import hotelLogo from "@/assets/images/Hotel Ava logo.png"
 
 const PRIMARY = "#82285f"
@@ -14,12 +16,16 @@ interface GoogleSignInModalProps {
 export default function GoogleSignInModal({ open, onClose }: GoogleSignInModalProps) {
   const [loading, setLoading] = useState(false)
   const [mode, setMode] = useState<"default" | "quick">("default")
+  const [lastUsed, setLastUsed] = useState<LastSignIn | null>(null)
   const navigate = useNavigate()
   const location = useLocation()
 
   // Always start from the default options whenever the popup opens
   useEffect(() => {
-    if (open) setMode("default")
+    if (open) {
+      setMode("default")
+      setLastUsed(getLastSignIn())
+    }
   }, [open])
 
   // The modal lives in the Header, which survives every route change. The
@@ -108,15 +114,16 @@ export default function GoogleSignInModal({ open, onClose }: GoogleSignInModalPr
         </p>
 
         {mode === "quick" ? (
-          <QuickSignInPanel layout="wide" onSignedIn={() => onClose()} onBack={() => setMode("default")} />
+          <QuickSignInPanel layout="wide" onSignedIn={() => { setLastSignIn("quick"); onClose() }} onBack={() => setMode("default")} />
         ) : (
           <>
         <button
           type="button"
           onClick={handleGoogleSignIn}
           disabled={loading}
-          className="w-full flex items-center justify-center gap-3 px-4 py-2.5 rounded-[10px] border border-hairline bg-white hover:bg-surface-soft transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+          className="relative w-full flex items-center justify-center gap-3 px-4 py-2.5 rounded-[10px] border border-hairline bg-white hover:bg-surface-soft transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
         >
+          {lastUsed === "google" && <LastUsedBadge />}
           {loading ? (
             <Loader2 className="w-4 h-4 animate-spin" />
           ) : (
@@ -145,8 +152,9 @@ export default function GoogleSignInModal({ open, onClose }: GoogleSignInModalPr
             const returnToUrl = `${window.location.pathname}${window.location.search}`
             navigate(`/login?returnTo=${encodeURIComponent(returnToUrl)}`)
           }}
-          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-[10px] border border-hairline bg-white hover:bg-surface-soft transition-colors cursor-pointer text-sm text-ink/80"
+          className="relative w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-[10px] border border-hairline bg-white hover:bg-surface-soft transition-colors cursor-pointer text-sm text-ink/80"
         >
+          {lastUsed === "password" && <LastUsedBadge />}
           <Mail className="w-4 h-4" />
           Sign in with Email
         </button>
@@ -155,8 +163,9 @@ export default function GoogleSignInModal({ open, onClose }: GoogleSignInModalPr
         <button
           type="button"
           onClick={() => setMode("quick")}
-          className="mt-3 w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-[10px] border border-hairline bg-white hover:bg-surface-soft transition-colors cursor-pointer text-sm text-ink/80"
+          className="relative mt-3 w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-[10px] border border-hairline bg-white hover:bg-surface-soft transition-colors cursor-pointer text-sm text-ink/80"
         >
+          {lastUsed === "quick" && <LastUsedBadge />}
           <QrCode className="w-4 h-4" />
           Quick Sign-In
         </button>

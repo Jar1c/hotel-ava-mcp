@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Check, Loader2 } from "lucide-react"
+import { Check } from "lucide-react"
 import { QRCodeSVG } from "qrcode.react"
 import { useAuth } from "@/contexts/AuthContext"
 import { qrLogoSettings } from "@/lib/qrLogo"
@@ -144,9 +144,7 @@ export default function QuickSignInPanel({ onSignedIn, onBack, layout = "stacked
         {/* QR (minimal spinner while generating) */}
         <div className={`flex justify-center ${wide ? "shrink-0" : ""}`}>
           {phase === "loading" ? (
-            <div className="flex h-[194px] items-center justify-center" aria-hidden="true">
-              <Loader2 className="h-5 w-5 animate-spin text-muted" />
-            </div>
+            <div className="skeleton h-[194px] w-[194px] rounded-[8px]" aria-hidden="true" />
           ) : hasCode ? (
             <div
               className={`rounded-[8px] border border-hairline bg-white p-1.5 transition-opacity ${dimmed ? "opacity-40 grayscale" : ""}`}
@@ -188,6 +186,20 @@ export default function QuickSignInPanel({ onSignedIn, onBack, layout = "stacked
                 </button>
               </div>
             </>
+          )}
+
+          {/* Skeleton while the code is being created — mirrors the final
+              label + code + copy layout so nothing jumps when it arrives. */}
+          {phase === "loading" && (
+            <div aria-hidden="true" className="flex flex-col items-center">
+              <div className={`mb-2 mt-6 flex h-5 items-center ${wide ? "sm:mt-0" : ""}`}>
+                <div className="skeleton h-[13px] w-[190px] rounded-full" />
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="skeleton h-6 w-[150px] rounded-[6px]" />
+                <div className="skeleton h-[13px] w-[34px] rounded-full" />
+              </div>
+            </div>
           )}
 
           {/* Status — announced politely to screen readers */}

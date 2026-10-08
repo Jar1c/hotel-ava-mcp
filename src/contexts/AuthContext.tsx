@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useCallback, useEffect, useRef, ty
 import { authApi, syncSessionHashes, type LoginChallenge, type LoginResponse, type TrackLoginResult } from "@/services/api"
 import { supabase } from "@/lib/supabase"
 import { getAccessToken, getRefreshToken, setAccess, setRefresh, clearTokens } from "@/lib/tokenStore"
+import { setLastSignIn } from "@/lib/lastSignIn"
 import LoginChallengeDialog from "@/components/auth/LoginChallengeDialog"
 
 export type UserRole = "public" | "guest" | "admin"
@@ -361,6 +362,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // are tracked server-side in /api/auth/login; backend dedups by device).
         // INITIAL_SESSION is intentionally skipped — a restored session is not a login.
         if (event === "SIGNED_IN") {
+          const providers = session.user?.app_metadata?.providers
+          if (Array.isArray(providers) && providers.includes("google")) {
+            setLastSignIn("google")
+          }
           logoutSuppressRef.current = false
           // Step-up gate: unfamiliar device/location → tear down this fresh
           // session and ask for the emailed code. Plain fetch only (calling a

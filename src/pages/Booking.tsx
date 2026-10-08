@@ -20,6 +20,8 @@ import { useAuth } from "@/contexts/AuthContext"
 import LoadingDots from "@/components/LoadingDots"
 import TermsPopup from "@/components/TermsPopup"
 import QuickSignInPanel from "@/components/auth/QuickSignInPanel"
+import LastUsedBadge from "@/components/LastUsedBadge"
+import { getLastSignIn, setLastSignIn, type LastSignIn } from "@/lib/lastSignIn"
 import hotelLogo from "@/assets/images/Hotel Ava logo.png"
 
 const PRIMARY = "#82285f"
@@ -68,9 +70,14 @@ export default function Booking() {
   })
   // Non-blocking warning: guest already has an overlapping stay in ANOTHER room.
   const [overlapDialog, setOverlapDialog] = useState<{ open: boolean; roomName?: string; range?: string }>({ open: false })
-  const [showSignInModal, setShowSignInModal] = useState(false)
-  const [signInMode, setSignInMode] = useState<"default" | "quick">("default")
-  const [googleLoading, setGoogleLoading] = useState(false)
+const [showSignInModal, setShowSignInModal] = useState(false)
+const [signInMode, setSignInMode] = useState<"default" | "quick">("default")
+const [googleLoading, setGoogleLoading] = useState(false)
+const [lastUsed, setLastUsed] = useState<LastSignIn | null>(null)
+
+useEffect(() => {
+  if (showSignInModal) setLastUsed(getLastSignIn())
+}, [showSignInModal])
 
   // Always start from the default options whenever the modal opens
   useEffect(() => {
@@ -814,7 +821,7 @@ export default function Booking() {
             {signInMode === "quick" ? (
               <QuickSignInPanel
                 layout="wide"
-                onSignedIn={() => setShowSignInModal(false)}
+                onSignedIn={() => { setLastSignIn("quick"); setShowSignInModal(false) }}
                 onBack={() => setSignInMode("default")}
               />
             ) : (
@@ -847,8 +854,9 @@ export default function Booking() {
                   setGoogleLoading(false)
                 }
               }}
-              className="w-full flex items-center justify-center gap-3 px-4 py-2.5 rounded-[10px] border border-hairline bg-white hover:bg-surface-soft transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              className="relative w-full flex items-center justify-center gap-3 px-4 py-2.5 rounded-[10px] border border-hairline bg-white hover:bg-surface-soft transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
+              {lastUsed === "google" && <LastUsedBadge />}
               {googleLoading ? (
                 <LoadingDots size="sm" />
               ) : (
@@ -876,8 +884,9 @@ export default function Booking() {
                 setShowSignInModal(false)
                 navigate(`/login?returnTo=${encodeURIComponent(window.location.pathname + window.location.search)}`)
               }}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-[10px] border border-hairline bg-white hover:bg-surface-soft transition-colors cursor-pointer text-sm text-ink/80"
+              className="relative w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-[10px] border border-hairline bg-white hover:bg-surface-soft transition-colors cursor-pointer text-sm text-ink/80"
             >
+              {lastUsed === "password" && <LastUsedBadge />}
               <Mail className="w-4 h-4" />
               Sign in with Email
             </button>
@@ -886,8 +895,9 @@ export default function Booking() {
             <button
               type="button"
               onClick={() => setSignInMode("quick")}
-              className="mt-3 w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-[10px] border border-hairline bg-white hover:bg-surface-soft transition-colors cursor-pointer text-sm text-ink/80"
+              className="relative mt-3 w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-[10px] border border-hairline bg-white hover:bg-surface-soft transition-colors cursor-pointer text-sm text-ink/80"
             >
+              {lastUsed === "quick" && <LastUsedBadge />}
               <QrCode className="w-4 h-4" />
               Quick Sign-In
             </button>
