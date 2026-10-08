@@ -164,16 +164,9 @@ export default function Register() {
           </p>
 
           <div className="flex items-center gap-6">
-            {[
-              { value: "12 Hrs", label: "Prime Stay" },
-              { value: "24 Hrs", label: "Full Day" },
-              { value: "Private", label: "Garage" },
-            ].map(({ value, label }) => (
-              <div key={label} className="border-l border-white/20 pl-4 first:border-0 first:pl-0">
-                <p className="text-white font-semibold text-sm leading-tight">{value}</p>
-                <p className="text-white/45 text-[11px] mt-0.5">{label}</p>
-              </div>
-            ))}
+            <p className="font-body text-white/55 text-[13px]">
+              Day-use and overnight stays &middot; Free WiFi
+            </p>
           </div>
         </div>
       </div>

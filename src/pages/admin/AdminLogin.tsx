@@ -100,16 +100,9 @@ export default function AdminLogin() {
           </p>
 
           <div className="flex items-center gap-6">
-            {[
-              { value: "13", label: "Total Rooms" },
-              { value: "74%", label: "Occupancy" },
-              { value: "₱378K", label: "Monthly Revenue" },
-            ].map(({ value, label }) => (
-              <div key={label} className="border-l border-white/20 pl-4 first:border-0 first:pl-0">
-                <p className="text-white font-semibold text-sm leading-tight">{value}</p>
-                <p className="text-white/45 text-[11px] mt-0.5">{label}</p>
-              </div>
-            ))}
+            <p className="font-body text-white/55 text-[13px]">
+              Bookings, occupancy, and revenue at a glance
+            </p>
           </div>
         </div>
       </div>
