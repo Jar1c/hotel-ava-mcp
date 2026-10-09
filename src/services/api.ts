@@ -606,7 +606,7 @@ export const userBookingsApi = {
   getOne: (id: string) => apiFetch<UserBookingData & { full_name: string; email: string; phone: string; special_requests: string }>(`/bookings/${id}`),
 
   cancel: (id: string, reason?: string) =>
-    apiFetch<{ status: string; refunded?: boolean; refund_amount?: number }>(
+    apiFetch<{ status: string; refunded?: boolean; refund_amount?: number; message?: string }>(
       `/bookings/${id}/cancel`,
       { method: "POST", body: JSON.stringify(reason ? { reason } : {}) },
     ),
@@ -729,6 +729,16 @@ export const bookingsApi = {
     apiFetch<{ booking_id: string; amount_paid: number; balance_due: number; status?: string }>(
       `/bookings/${bookingId}/settle-balance`,
       { method: "POST" },
+    ),
+  /**
+   * Front desk: push a refund-pending booking to Refunded. `auto` retries the
+   * PayMongo refund; `manual` records money already returned outside the
+   * system (PayMongo dashboard, GCash, cash at the counter).
+   */
+  refund: (bookingId: string, mode: "auto" | "manual") =>
+    apiFetch<{ booking_id: string; refunded: boolean; mode: string; refunded_at: string }>(
+      `/bookings/${bookingId}/refund`,
+      { method: "POST", body: JSON.stringify({ mode }) },
     ),
   /**
    * Front desk: stamp the guest's arrival after scanning their QR code.

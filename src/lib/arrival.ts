@@ -213,3 +213,17 @@ export function canCancel(b: ArrivalBooking, now: Date = new Date()): boolean {
   const state = deriveArrival(b, now)
   return state !== "early" && state !== "in_house"
 }
+
+/**
+ * True when cancelling now still earns a refund: at least 24 hours before the
+ * stay starts (same start moment as check-in). Mirrors free_cancellation_ok in
+ * backend/app.py — used to pick the refundable / not-refundable cancel dialog.
+ */
+export function freeCancellationOk(b: ArrivalBooking, now: Date = new Date()): boolean {
+  const start = startMoment(b)
+  if (!start) return false
+  const nowWallMs =
+    Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) +
+    (now.getHours() * 60 + now.getMinutes()) * 60000
+  return nowWallMs + 24 * 60 * 60 * 1000 <= start.day + start.minutes * 60000
+}

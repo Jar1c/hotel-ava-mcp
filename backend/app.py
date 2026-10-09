@@ -3080,16 +3080,38 @@ def session_payment_intent_id(attrs):
     return None
 
 
-def paymongo_refund(payment_intent_id, amount_php, reason="requested_by_customer"):
+def payment_intent_id(raw):
+    """Bare "pi_..." id from the payment_intent column. Historical rows stored
+    the whole PayMongo PI resource as JSON — PayMongo's refund API only accepts
+    the bare id, so pass every stored value through this first."""
+    s = (raw or "").strip()
+    if not s:
+        return ""
+    if s.startswith("{"):
+        try:
+            return (json.loads(s).get("id") or "").strip()
+        except Exception:
+            return ""
+    return s
+
+
+def paymongo_refund(raw_payment_intent, amount_php, reason="others", note=None):
     """POST /v1/refunds. `amount_php` is whole pesos; PayMongo wants centavos.
 
-    Returns (ok: bool, detail: str) — detail is the refund id on success, or the
-    reason it failed. Never raises: a refund failure must not stop the booking
-    from being cancelled.
+    PayMongo refunds the Payment ("pay_..."), not the intent ("pi_...") —
+    resolve it from the stored payment_intent column: the full PI resource
+    carries payments[] inline; a bare pi_ id costs one retrieve call. The
+    payload must sit under data.attributes or PayMongo 400s with
+    "attributes cannot be blank".
+
+    Returns (ok: bool, detail: str) — detail is the refund id on success, or
+    the reason it failed. Never raises: a refund failure must not stop the
+    booking from being cancelled.
     """
     if not PAYMONGO_SECRET_KEY:
         return False, "PAYMONGO_SECRET_KEY is not configured"
-    if not payment_intent_id:
+    intent = payment_intent_id(raw_payment_intent)
+    if not intent:
         return False, "no payment reference stored on this booking"
     centavos = int(round(float(amount_php or 0) * 100))
     if centavos <= 0:
@@ -3097,17 +3119,49 @@ def paymongo_refund(payment_intent_id, amount_php, reason="requested_by_customer
     try:
         import base64
         encoded_key = base64.b64encode(PAYMONGO_SECRET_KEY.encode()).decode()
+        headers = {
+            "Authorization": f"Basic {encoded_key}",
+            "Content-Type": "application/json",
+        }
+        pay_id = ""
+        s = (raw_payment_intent or "").strip()
+        if s.startswith("{"):
+            try:
+                for p in (json.loads(s).get("attributes") or {}).get("payments") or []:
+                    if p.get("id"):
+                        pay_id = p["id"]
+                        break
+            except Exception:
+                pay_id = ""
+        if not pay_id:
+            pi_res = http_requests.get(
+                f"{PAYMONGO_BASE_URL}/payment_intents/{intent}",
+                headers=headers,
+                timeout=20,
+            )
+            if pi_res.status_code in (200, 201):
+                pi_attrs = ((pi_res.json() or {}).get("data") or {}).get("attributes") or {}
+                for p in pi_attrs.get("payments") or []:
+                    if isinstance(p, dict) and p.get("id"):
+                        pay_id = p["id"]
+                        break
+        if not pay_id:
+            return False, f"could not find the PayMongo payment for {intent}"
         res = http_requests.post(
             f"{PAYMONGO_BASE_URL}/refunds",
             headers={
-                "Authorization": f"Basic {encoded_key}",
-                "Content-Type": "application/json",
-                "Idempotency-Key": f"refund-{payment_intent_id}-{centavos}",
+                **headers,
+                "Idempotency-Key": f"refund-{intent}-{centavos}",
             },
             json={
-                "amount": centavos,
-                "payment_intent": payment_intent_id,
-                "reason": reason,
+                "data": {
+                    "attributes": {
+                        "amount": centavos,
+                        "payment_id": pay_id,
+                        "reason": reason,
+                        "notes": (note or f"Hotel Ava refund")[:255],
+                    }
+                }
             },
             timeout=20,
         )
@@ -4277,7 +4331,9 @@ def cancel_booking(booking_id):
         if b.get("status") == "confirmed" and paid > 0:
             if free_cancellation_ok(b):
                 refund_amount = paid
-                refund_ok, refund_detail = paymongo_refund(b.get("payment_intent"), paid)
+                refund_ok, refund_detail = paymongo_refund(
+                    b.get("payment_intent"), paid,
+                    note=f"Guest cancellation booking #{booking_id[:8]}")
             else:
                 refund_detail = "cancelled within 24 hours of check-in"
 
@@ -4343,6 +4399,7 @@ def cancel_booking(booking_id):
             "status": "cancelled",
             "refunded": refund_ok,
             "refund_amount": refund_amount if refund_ok else 0,
+            "message": msg,
         }), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -4624,6 +4681,102 @@ def settle_booking_balance(booking_id):
             "amount_paid": total,
             "balance_due": 0,
             "status": "confirmed" if status == "pending" else status,
+        }), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/bookings/<booking_id>/refund", methods=["POST"])
+def refund_booking(booking_id):
+    """Front desk: push a refund-pending booking to Refunded.
+
+    Body: {"mode": "auto"} (default) retries the PayMongo refund for the money
+    still sitting on the booking — the idempotency key inside paymongo_refund
+    means a retry can never double-refund. {"mode": "manual"} records a refund
+    already sent back outside the system (PayMongo dashboard, GCash, cash).
+    Either way the booking ends with refunded_at set, so the amber
+    "Refund pending" badge finally flips to green.
+    """
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    if not require_admin(token):
+        return jsonify({"error": "Admin access required"}), 403
+
+    try:
+        res = supabase_admin.table("bookings").select(
+            "id, user_id, status, amount_paid, refunded_at, payment_intent"
+        ).eq("id", booking_id).execute()
+        if not res.data:
+            return jsonify({"error": "Booking not found"}), 404
+        b = res.data[0]
+
+        if b.get("refunded_at"):
+            return jsonify({"error": "This booking has already been refunded"}), 409
+        if (b.get("status") or "") != "cancelled":
+            return jsonify({"error": "Only cancelled bookings can be refunded"}), 409
+        paid = float(b.get("amount_paid") or 0)
+        if paid <= 0:
+            return jsonify({"error": "No payment left on this booking to refund"}), 409
+
+        data = request.get_json(silent=True) or {}
+        mode = "manual" if str(data.get("mode") or "") == "manual" else "auto"
+
+        refund_id = "manual"
+        if mode == "auto":
+            intent = payment_intent_id(b.get("payment_intent"))
+            if not intent:
+                return jsonify({
+                    "error": "This booking has no online payment reference stored, "
+                    "so a PayMongo refund isn't possible. Return the amount to the "
+                    "guest directly through GCash or bank transfer, then use "
+                    "\"Mark as refunded\"."
+                }), 409
+            ok, detail = paymongo_refund(
+                b.get("payment_intent"), paid,
+                note=f"Front desk refund booking #{booking_id[:8]}")
+            if not ok:
+                return jsonify({"error": f"PayMongo refund failed: {detail}"}), 409
+            refund_id = detail
+
+        fields = {
+            "amount_paid": 0,
+            "refunded_at": hotel_now().isoformat(),
+            "refund_id": refund_id,
+        }
+        _update_booking_fields(
+            lambda f: supabase_admin.table("bookings").update(f).eq("id", booking_id), fields)
+
+        invalidate_cache("bookings")
+        invalidate_cache("dash-")
+        invalidate_cache("analytics-")
+
+        if b.get("user_id"):
+            if mode == "auto":
+                msg = (
+                    f"A refund of ₱{paid:,.0f} for booking #{booking_id[:8]} "
+                    f"has been initiated to your original payment method and should "
+                    f"arrive within 7–14 banking days."
+                )
+            else:
+                msg = (
+                    f"A refund of ₱{paid:,.0f} for booking #{booking_id[:8]} "
+                    f"has been arranged by our front desk and should arrive "
+                    f"within 7–14 banking days."
+                )
+            create_notification(b["user_id"], "booking", "Refund Processed", msg,
+                booking_id=booking_id)
+            # Email on every completed refund — auto or manual — so the guest
+            # hears about the money either way.
+            send_booking_email("refund", booking_id, refund_amount=paid)
+        notify_admins("booking", "Refund Processed",
+            f"Refund of ₱{paid:,.0f} recorded for booking #{booking_id[:8]} "
+            f"({'via PayMongo' if mode == 'auto' else 'recorded manually'}).",
+            booking_id=booking_id)
+
+        return jsonify({
+            "booking_id": booking_id,
+            "refunded": True,
+            "mode": mode,
+            "refunded_at": fields["refunded_at"],
         }), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -5150,10 +5303,8 @@ def auto_complete_bookings():
 @app.route("/api/bookings/<booking_id>/status", methods=["PUT"])
 def update_booking_status(booking_id):
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    set_auth(token)
-    user_id = get_user_from_token(token)
-    if not user_id:
-        return jsonify({"error": "Unauthorized"}), 401
+    if not require_admin(token):
+        return jsonify({"error": "Admin access required"}), 403
 
     data = request.get_json()
     new_status = data.get("status")
@@ -5161,10 +5312,20 @@ def update_booking_status(booking_id):
     valid_statuses = ["pending", "confirmed", "cancelled", "completed", "checked-out"]
     if new_status not in valid_statuses:
         return jsonify({"error": f"Invalid status. Must be one of: {', '.join(valid_statuses)}"}), 400
+    if new_status == "cancelled":
+        # Cancellation belongs to the guest: only the My Bookings cancel flow
+        # runs the refund policy (24-hour rule, PayMongo refund, notifications).
+        # The front desk cancels nothing on the guest's behalf.
+        return jsonify({
+            "error": "Bookings can only be cancelled by the guest from My Bookings — "
+            "the front desk cannot cancel a booking."
+        }), 400
 
     try:
         # Verify booking exists and get user_id for notification
-        booking_res = supabase.table("bookings").select("id, room_id, check_in, user_id, status").eq("id", booking_id).execute()
+        booking_res = supabase.table("bookings").select(
+            "id, room_id, check_in, user_id, status"
+        ).eq("id", booking_id).execute()
         if not booking_res.data:
             return jsonify({"error": "Booking not found"}), 404
 
@@ -5181,10 +5342,8 @@ def update_booking_status(booking_id):
             if room_res.data:
                 room_name = room_res.data[0]["name"]
 
-        # Update status — a cancellation can carry the canceller's reason.
+        # Update status.
         fields = {"status": new_status}
-        if new_status == "cancelled" and reason:
-            fields["cancellation_reason"] = reason
         result = _update_booking_fields(
             lambda f: supabase_admin.table("bookings").update(f).eq("id", booking_id), fields)
 
@@ -5884,8 +6043,8 @@ def _build_dashboard_stats():
 
     # 2 parallel-ish sequential queries (rooms is tiny); drop the wasted guests
     # count that was discarded and hard-coded to 0.
-    all_bookings = supabase.table("bookings").select("status, total_price, check_in, check_out").execute().data or []
-    all_rooms = supabase.table("rooms").select("id, available").execute().data or []
+    all_bookings = supabase_admin.table("bookings").select("status, total_price, check_in, check_out").execute().data or []
+    all_rooms = supabase_admin.table("rooms").select("id, available").execute().data or []
 
     total_rooms = len(all_rooms) or 1
     total_bookings = len(all_bookings)
@@ -5940,14 +6099,18 @@ def _build_dashboard_summary():
     today_s, tomorrow_s = today.isoformat(), tomorrow.isoformat()
     month_start = today.replace(day=1)
     next_month = (month_start + timedelta(days=32)).replace(day=1)
+    # Dedicated service-role client: the shared `supabase` client's auth gets
+    # flipped mid-build by concurrent set_auth()/clear_auth() calls, which made
+    # these admin sums run under the wrong RLS role and flap between values.
+    db = supabase_admin
 
     # Unpaid = awaiting payment (downpayment balances are downpaymentDue).
     pending_unpaid = _exact_count(
-        supabase.table("bookings").select("id", count="exact").eq("status", "pending")
+        db.table("bookings").select("id", count="exact").eq("status", "pending")
     )
     downpayment_due = 0
     downpayment_due_amount = 0.0
-    downpayment_rows = supabase.table("bookings").select("total_price, amount_paid") \
+    downpayment_rows = db.table("bookings").select("total_price, amount_paid") \
         .eq("payment_mode", "downpayment") \
         .in_("status", ["confirmed", "completed"]).range(0, 999).execute().data or []
     for r in downpayment_rows:
@@ -5958,18 +6121,18 @@ def _build_dashboard_summary():
 
     # Extension awaiting PayMongo confirm — marker survives until /extend/confirm.
     pending_extend = _exact_count(
-        supabase.table("bookings").select("id", count="exact").like("payment_method", "extend:%")
+        db.table("bookings").select("id", count="exact").like("payment_method", "extend:%")
     )
 
     pending_refunds = 0
     pending_refunds_amount = 0.0
     try:
-        refund_rows = supabase.table("bookings").select("id, amount_paid") \
+        refund_rows = db.table("bookings").select("id, amount_paid") \
             .eq("status", "cancelled").gt("amount_paid", 0).is_("refunded_at", "null") \
             .range(0, 999).execute().data or []
     except Exception:
         # migrate-refund.sql not run yet — refunded bookings carry amount_paid=0.
-        refund_rows = supabase.table("bookings").select("id, amount_paid") \
+        refund_rows = db.table("bookings").select("id, amount_paid") \
             .eq("status", "cancelled").gt("amount_paid", 0) \
             .range(0, 999).execute().data or []
     pending_refunds = len(refund_rows)
@@ -5979,7 +6142,7 @@ def _build_dashboard_summary():
     # scheduled end (overdue is a subset); departures/overdue split on the
     # scheduled checkout clock and are disjoint: due-today vs already passed.
     in_house = departures_today = overdue = 0
-    candidates = supabase.table("bookings").select("*") \
+    candidates = db.table("bookings").select("*") \
         .eq("status", "confirmed").filter("checked_in_at", "not.is", "null").execute().data or []
     for b in candidates:
         state = arrival_state(b, now)
@@ -5996,14 +6159,14 @@ def _build_dashboard_summary():
             departures_today += 1
 
     total_rooms = sum(1 for r in (
-        supabase.table("rooms").select("id, available").execute().data or []
+        db.table("rooms").select("id, available").execute().data or []
     ) if r.get("available") is not False)
     occupancy_rate = round(in_house / total_rooms * 100) if total_rooms else 0
 
     # Arrivals = confirmed + paid + check-in today, still awaiting the guest
     # (arrival_state none/early). "late" flags a passed arrival time with no
     # check-in stamp yet — the list renders a small gray "Late" label.
-    arrival_rows = supabase.table("bookings") \
+    arrival_rows = db.table("bookings") \
         .select("id, full_name, user_id, room_id, start_time, check_in, check_out, "
                 "status, checked_in_at, stay_type, duration, amount_paid") \
         .eq("status", "confirmed").gt("amount_paid", 0) \
@@ -6012,10 +6175,10 @@ def _build_dashboard_summary():
     arr_uids = list({r.get("user_id") for r in arrival_rows if r.get("user_id")})
     arr_rids = list({r.get("room_id") for r in arrival_rows if r.get("room_id")})
     arr_users = {u["id"]: u for u in (
-        supabase.table("users").select("id, name").in_("id", arr_uids).execute().data or []
+        db.table("users").select("id, name").in_("id", arr_uids).execute().data or []
     )} if arr_uids else {}
     arr_rooms = {r["id"]: r for r in (
-        supabase.table("rooms").select("id, name").in_("id", arr_rids).execute().data or []
+        db.table("rooms").select("id, name").in_("id", arr_rids).execute().data or []
     )} if arr_rids else {}
     arrivals_list = []
     for r in arrival_rows:
@@ -6051,7 +6214,7 @@ def _build_dashboard_summary():
 
     def _paid_stay_sum(start_dt, end_dt):
         return _sum_paid(
-            lambda: supabase.table("bookings").select("amount_paid")
+            lambda: db.table("bookings").select("amount_paid")
             .neq("status", "cancelled")
             .gte("check_in", start_dt.isoformat()).lt("check_in", end_dt.isoformat())
         )
@@ -6071,7 +6234,7 @@ def _build_dashboard_summary():
     series_map = {}
     page = 0
     while page <= 50:
-        batch = supabase.table("bookings").select("amount_paid, check_in") \
+        batch = db.table("bookings").select("amount_paid, check_in") \
             .neq("status", "cancelled") \
             .gte("check_in", series_start.isoformat()).lt("check_in", tomorrow_s) \
             .range(page * 1000, page * 1000 + 999).execute().data or []

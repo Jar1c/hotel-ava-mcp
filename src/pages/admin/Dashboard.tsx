@@ -2,16 +2,17 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { Link } from "react-router"
 import { ChevronRight, QrCode } from "lucide-react"
 import StatCard from "@/components/admin/StatCard"
-import DashboardAiCard from "@/components/admin/DashboardAiCard"
-import RevenueChart from "@/components/admin/RevenueChart"
+import DashboardInsightsRotator from "@/components/admin/DashboardInsightsRotator"
 import VerifyQrDialog from "@/components/admin/VerifyQrDialog"
 import { Button } from "@/components/ui/button"
 import { SkeletonBlock, SkeletonLine, SkeletonRegion } from "@/components/ui/skeleton"
 import { useMinSkeleton } from "@/hooks/useMinSkeleton"
 import {
   getAIRecommendations,
+  getInsights,
   type DashboardSummary,
   type RecommendationsData,
+  type Insight,
 } from "@/services/adminService"
 import { dashboardApi } from "@/services/api"
 import { getStale, setCache } from "@/lib/cache"
@@ -35,6 +36,7 @@ const sectionHeading = "text-[14px] font-semibold text-[#1a1d26] mb-4"
 export default function Dashboard() {
   const [summary, setSummary] = useState<DashboardSummary | null>(null)
   const [recommendations, setRecommendations] = useState<RecommendationsData | null>(null)
+  const [insights, setInsights] = useState<Insight[]>([])
   const [error, setError] = useState(false)
   const [retryToken, setRetryToken] = useState(0)
   const [verifyOpen, setVerifyOpen] = useState(false)
@@ -74,6 +76,9 @@ export default function Dashboard() {
     getAIRecommendations()
       .then((r) => setRecommendations(r))
       .catch(() => { /* keep whatever is on screen; the next tick retries */ })
+    getInsights()
+      .then(setInsights)
+      .catch(() => { /* same: keep the last good list */ })
   }, [])
 
   useEffect(() => {
@@ -351,16 +356,15 @@ export default function Dashboard() {
                     )}
                   </div>
 
-                  <div className={`${cardClass} md:col-span-2`}>
-                    <RevenueChart points={summary.revenueSeries} />
-                  </div>
+                  <DashboardInsightsRotator
+                    recommendations={recommendations}
+                    insights={insights}
+                    loading={showSkeleton}
+                  />
                 </div>
               )
             )}
           </section>
-
-          {/* AI Insights — bottom, plain card */}
-          <DashboardAiCard recommendations={recommendations} loading={showSkeleton} />
         </SkeletonRegion>
       )}
 

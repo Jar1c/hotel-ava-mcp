@@ -18,7 +18,7 @@ import CancelReasonPicker, { composeCancelReason } from "@/components/CancelReas
 type BookingStatus = "confirmed" | "pending" | "completed" | "cancelled" | "checked-out"
 /** What the row shows: a stay that is running reads as In-house, not Confirmed. */
 type DisplayStatus = BookingStatus | "in-house"
-type RowAction = BookingStatus | "check-in"
+type RowAction = BookingStatus | "check-in" | "refund-auto" | "refund-manual"
 
 const PAGE_SIZE = 10
 
@@ -308,7 +308,7 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
   const [sort, setSort] = useState<SortKey>("newest")
   const [page, setPage] = useState(1)
   const [actingId, setActingId] = useState<string | null>(null)
-  const [confirmAction, setConfirmAction] = useState<{ bookingId: string; bookingIdShort: string; action: RowAction; label: string } | null>(null)
+  const [confirmAction, setConfirmAction] = useState<{ bookingId: string; bookingIdShort: string; action: RowAction; label: string; amountPaid: number } | null>(null)
   const [cancelReason, setCancelReason] = useState("")
   const [cancelReasonOther, setCancelReasonOther] = useState("")
   const [cancelReasonError, setCancelReasonError] = useState(false)
@@ -378,17 +378,27 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
 
   async function handleStatusChange(bookingId: string, newStatus: RowAction, reason?: string) {
     if (!bookingId) return
-    setActingId(bookingId)
+    const isRefund = newStatus === "refund-auto" || newStatus === "refund-manual"
     try {
+      setActingId(bookingId)
       if (newStatus === "check-in") {
         await bookingsApi.checkIn(bookingId)
+      } else if (isRefund) {
+        await bookingsApi.refund(bookingId, newStatus === "refund-auto" ? "auto" : "manual")
       } else {
         await bookingsApi.updateStatus(bookingId, newStatus, reason)
       }
+      // Refund success announces itself through the backend's in-app
+      // notification ("Refund Processed · Tap to view") — a second toast here
+      // only duplicated it.
       onStatusChange?.()
     } catch (err) {
       toast({
-        title: newStatus === "check-in" ? "Couldn't check this guest in" : "Couldn't update this booking",
+        title: isRefund
+          ? "Couldn't process the refund"
+          : newStatus === "check-in"
+            ? "Couldn't check this guest in"
+            : "Couldn't update this booking",
         description: err instanceof ApiError ? err.message : "Please try again.",
         variant: "error",
       })
@@ -401,7 +411,13 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
 
   function openConfirm(booking: Booking, action: RowAction, label: string) {
     const bid = booking.fullId || booking.id
-    setConfirmAction({ bookingId: bid, bookingIdShort: booking.id, action, label })
+    setConfirmAction({
+      bookingId: bid,
+      bookingIdShort: booking.id,
+      action,
+      label,
+      amountPaid: booking.amount_paid ?? 0,
+    })
     setCancelReason("")
     setCancelReasonOther("")
     setCancelReasonError(false)
@@ -415,14 +431,13 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
 
     if (booking.status === "pending") {
       actions.push({ label: "Confirm", action: "confirmed", style: "bg-[#3D6B4F] text-white hover:bg-[#2d5a3e]" })
-      actions.push({ label: "Cancel", action: "cancelled", style: "bg-white text-[#A4423A] border border-[#A4423A]/30 hover:bg-[#A4423A]/5" })
     } else if (booking.status === "confirmed") {
       if (state === "none") {
         // Not at the hotel yet — no cancelling once they show up either.
+        // Cancellation itself belongs to the guest (My Bookings).
         if (canCheckIn(booking, now)) {
           actions.push({ label: "Check In", action: "check-in", style: "bg-[#3D6B4F] text-white hover:bg-[#2d5a3e]" })
         }
-        actions.push({ label: "Cancel", action: "cancelled", style: "bg-white text-[#A4423A] border border-[#A4423A]/30 hover:bg-[#A4423A]/5" })
       } else if (state === "in_house") {
         // In the building: cancellations are blocked server-side from here on.
         actions.push({ label: "Check Out", action: "checked-out", style: "bg-[#82285f] text-white hover:bg-[#6d204f]" })
@@ -866,16 +881,44 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
                     )}
                     <DetailRow icon={<Clock className="h-4 w-4" />} label="Status" value={paymentNote(selectedBooking)} />
                     {selectedRefund && (
-                      <DetailRow
-                        icon={selectedBooking.refunded_at ? <CheckCircle className="h-4 w-4" /> : <Clock className="h-4 w-4" />}
-                        label="Refund"
-                        value={
-                          selectedBooking.refunded_at
-                            ? `Sent ${new Date(selectedBooking.refunded_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} · 7–14 banking days`
-                            : "Pending — queued for processing"
-                        }
-                        valueClass={selectedBooking.refunded_at ? "font-semibold text-[#3D6B4F]" : "font-semibold text-[#b45309]"}
-                      />
+                      <>
+                        <DetailRow
+                          icon={selectedBooking.refunded_at ? <CheckCircle className="h-4 w-4" /> : <Clock className="h-4 w-4" />}
+                          label="Refund"
+                          value={
+                            selectedBooking.refunded_at
+                              ? `Sent ${new Date(selectedBooking.refunded_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} · 7–14 banking days`
+                              : "Pending — queued for processing"
+                          }
+                          valueClass={selectedBooking.refunded_at ? "font-semibold text-[#3D6B4F]" : "font-semibold text-[#b45309]"}
+                        />
+                        {!selectedBooking.refunded_at && (
+                          <div className="space-y-2 pt-0.5">
+                            <button
+                              type="button"
+                              disabled={actingId === (selectedBooking.fullId || selectedBooking.id)}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                openConfirm(selectedBooking, "refund-auto", "Process refund")
+                              }}
+                              className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-[8px] bg-[#82285f] py-2 text-[12px] font-semibold text-white transition-colors hover:bg-[#6d204f] disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              Process refund online · ₱{(selectedBooking.amount_paid ?? 0).toLocaleString()}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={actingId === (selectedBooking.fullId || selectedBooking.id)}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                openConfirm(selectedBooking, "refund-manual", "Mark as refunded")
+                              }}
+                              className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-[8px] border border-[#e2e4e8] bg-white py-2 text-[12px] font-semibold text-[#6b7280] transition-colors hover:border-[#82285f]/40 hover:text-[#82285f] disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              Mark as refunded (already returned)
+                            </button>
+                          </div>
+                        )}
+                      </>
                     )}
                     {isDownpayment(selectedBooking) && selectedBooking.status !== "cancelled" && bookingBalance(selectedBooking) > 0 && (
                       <button
@@ -956,6 +999,8 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
                   {confirmAction.action === "cancelled" && "Cancel Booking?"}
                   {confirmAction.action === "checked-out" && "Mark as Checked Out?"}
                   {confirmAction.action === "check-in" && "Check In Guest?"}
+                  {confirmAction.action === "refund-auto" && "Process Refund?"}
+                  {confirmAction.action === "refund-manual" && "Mark as Refunded?"}
                 </DialogTitle>
               </DialogHeader>
               <p className={cn("text-[13px] text-muted leading-relaxed", confirmAction.action === "cancelled" ? "mb-4" : "mb-6")}>
@@ -963,6 +1008,8 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
                 {confirmAction.action === "cancelled" && `Booking #${confirmAction.bookingIdShort} will be cancelled. This cannot be undone.`}
                 {confirmAction.action === "checked-out" && `Booking #${confirmAction.bookingIdShort} will be marked as checked out.`}
                 {confirmAction.action === "check-in" && `Booking #${confirmAction.bookingIdShort} will be marked as arrived. The stay starts running at its booked time, and the guest will be notified.`}
+                {confirmAction.action === "refund-auto" && `A refund of ₱${confirmAction.amountPaid.toLocaleString()} for booking #${confirmAction.bookingIdShort} will be sent through PayMongo to the guest's original payment method (7–14 banking days). This cannot be undone.`}
+                {confirmAction.action === "refund-manual" && `Booking #${confirmAction.bookingIdShort} will be recorded as refunded for ₱${confirmAction.amountPaid.toLocaleString()}. Use this only if the money has already been returned outside the system (PayMongo dashboard, GCash, cash). This cannot be undone.`}
               </p>
               {confirmAction.action === "cancelled" && (
                 <div className="mb-6">
@@ -999,6 +1046,8 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
                     confirmAction.action === "check-in" && "bg-[#3D6B4F] text-white hover:bg-[#2d5a3e]",
                     confirmAction.action === "cancelled" && "bg-destructive text-white hover:bg-destructive-hover",
                     confirmAction.action === "checked-out" && "bg-primary text-white hover:bg-primary-active",
+                    (confirmAction.action === "refund-auto" || confirmAction.action === "refund-manual") &&
+                      "bg-primary text-white hover:bg-primary-active",
                   )}
                 >
                   {actingId === confirmAction.bookingId ? <LoadingDots size="sm" /> : "Yes, Proceed"}

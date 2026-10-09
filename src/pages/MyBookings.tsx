@@ -15,7 +15,7 @@ import ReceiptDialog, { type ReceiptData } from "@/components/ReceiptDialog"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { usePolling } from "@/hooks/usePolling"
 import { formatPaymentMethod, downpaymentOnline } from "@/lib/payment"
-import { deriveArrival, canCancel, startMomentLabel, arrivalTimeLabel, checkoutMomentLabel } from "@/lib/arrival"
+import { deriveArrival, canCancel, freeCancellationOk, startMomentLabel, arrivalTimeLabel, checkoutMomentLabel } from "@/lib/arrival"
 import CancelReasonPicker, { composeCancelReason } from "@/components/CancelReasonPicker"
 import { Skeleton, SkeletonLine } from "@/components/ui/skeleton"
 import { useMinSkeleton } from "@/hooks/useMinSkeleton"
@@ -34,10 +34,12 @@ const statusStyles: Record<string, { label: string; dot: string; text: string; b
   completed: { label: "Completed", dot: "bg-gray-300", text: "text-muted", badgeCls: "bg-gray-100 text-muted" },
   "checked-out": { label: "Checked Out", dot: "bg-gray-300", text: "text-muted", badgeCls: "bg-gray-100 text-muted" },
   cancelled: { label: "Cancelled", dot: "bg-gray-300", text: "text-muted", badgeCls: "bg-red-50 text-[#b91c1c]" },
+  refunded: { label: "Refunded", dot: "bg-emerald-400", text: "text-emerald-600", badgeCls: "bg-emerald-50 text-emerald-700" },
 }
 
 /** Badge for a booking, including the arrival states the server derives. */
 function statusFor(b: UserBookingData) {
+  if (b.refunded_at && b.status.toLowerCase() === "cancelled") return statusStyles.refunded
   const state = deriveArrival(b)
   if (state === "early") return statusStyles.arrived
   if (state === "in_house") return statusStyles["in-house"]
@@ -239,6 +241,17 @@ export default function MyBookings() {
     setCancelReasonError(false)
   }
 
+  // Refund preview for the cancel dialog — mirrors the backend's 24-hour
+  // policy so the guest sees refundable vs not-refundable BEFORE confirming.
+  const cancelTarget = cancelDialog.id ? bookings.find((b) => b.id === cancelDialog.id) : undefined
+  const cancelPaid = Math.max(0, cancelTarget?.amount_paid ?? 0)
+  const cancelRefundable = Boolean(
+    cancelTarget &&
+      cancelPaid > 0 &&
+      cancelTarget.status.toLowerCase() === "confirmed" &&
+      freeCancellationOk(cancelTarget),
+  )
+
   // Review state — the stay is over, we're asking the guest what they thought
   const [reviewTarget, setReviewTarget] = useState<UserBookingData | null>(null)
 
@@ -413,7 +426,7 @@ export default function MyBookings() {
         title: "Booking cancelled",
         description: res.refunded
           ? `₱${(res.refund_amount ?? 0).toLocaleString()} is on its way back to your original payment method — 7–14 banking days.`
-          : "Your booking has been cancelled.",
+          : res.message || "Your booking has been cancelled.",
         variant: "success",
       })
     } catch (err) {
@@ -1306,19 +1319,27 @@ export default function MyBookings() {
         title="Cancel Booking?"
         description={
           <div className="text-left">
-            <p className="mb-2 font-medium text-ink">Cancellation policy</p>
-            <ul className="mb-3 space-y-1">
-              <li className="text-[13px]">
-                <span className="font-medium text-ink">24h+ before check-in</span> — full refund, 7–14 banking days.
-              </li>
-              <li className="text-[13px]">
-                <span className="font-medium text-ink">Within 24h or no-show</span> — no refund.
-              </li>
-              <li className="text-[13px]">
-                <span className="font-medium text-ink">Already checked in</span> — contact the front desk.
-              </li>
-            </ul>
-            <p className="mb-3 text-[13px] text-muted">This action cannot be undone.</p>
+            {cancelPaid > 0 && cancelRefundable && (
+              <div className="mb-3 rounded-[8px] border border-[#3D6B4F]/30 bg-[#3D6B4F]/[0.07] p-3 text-[13px] leading-relaxed text-ink">
+                This booking is <span className="font-semibold text-[#3D6B4F]">refundable</span>. If you cancel
+                now, <span className="font-semibold">₱{cancelPaid.toLocaleString()}</span> will be refunded to
+                your original payment method within{" "}
+                <span className="font-semibold">7–14 banking days</span>.
+              </div>
+            )}
+            {cancelPaid > 0 && !cancelRefundable && (
+              <div className="mb-3 rounded-[8px] border border-[#A4423A]/30 bg-[#A4423A]/[0.07] p-3 text-[13px] leading-relaxed text-[#A4423A]">
+                <span className="font-semibold">Your booking is not refundable.</span> This cancellation is
+                within 24 hours of check-in — no refund will be issued.
+              </div>
+            )}
+            {cancelPaid > 0 ? (
+              <p className="mb-3 text-[13px] text-muted">This action cannot be undone.</p>
+            ) : (
+              <p className="mb-3 text-[13px] text-muted">
+                Cancel this booking? This action cannot be undone.
+              </p>
+            )}
             <div className="border-t border-hairline pt-3">
               <p className="mb-2 text-[13px] font-medium text-ink">Reason for cancellation</p>
               <CancelReasonPicker
