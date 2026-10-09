@@ -79,8 +79,8 @@ function orderBookings(list: UserBookingData[]): UserBookingData[] {
   const now = Date.now()
   const isUpcoming = (b: UserBookingData) =>
     (b.status === "pending" || b.status === "confirmed") && stayEndMs(b) >= now
-  // Fresh bookings (last 7 days) pin to the very top, newest first — they get
-  // the highlight treatment on the card so they can't be missed.
+  // Fresh bookings (last 48 hours) pin to the very top, newest first — they get
+  // the NEW badge so they can't be missed.
   const fresh = list
     .filter(isNewBooking)
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
@@ -94,8 +94,8 @@ function orderBookings(list: UserBookingData[]): UserBookingData[] {
   ]
 }
 
-/** Bookings made in the last 7 days — pinned on top and highlighted. */
-const NEW_BOOKING_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
+/** Bookings made in the last 48 hours — pinned on top and badged NEW. */
+const NEW_BOOKING_WINDOW_MS = 48 * 60 * 60 * 1000
 function isNewBooking(b: UserBookingData): boolean {
   const t = new Date(b.created_at || 0).getTime()
   return Number.isFinite(t) && t > 0 && Date.now() - t <= NEW_BOOKING_WINDOW_MS
@@ -604,10 +604,7 @@ export default function MyBookings() {
                   key={booking.id}
                   onClick={() => handleCardClick(booking)}
                   className={cn(
-                    "bg-white border rounded-[12px] overflow-hidden hover:shadow-[0_4px_14px_rgba(0,0,0,0.08)] hover:border-primary/25 transition-all duration-200 cursor-pointer group",
-                    isNew
-                      ? "border-primary/45 bg-primary/[0.035] shadow-[0_2px_12px_rgba(130,40,95,0.10)]"
-                      : "border-hairline",
+                    "bg-white border border-hairline rounded-[12px] overflow-hidden hover:shadow-[0_4px_14px_rgba(0,0,0,0.08)] hover:border-primary/25 transition-all duration-200 cursor-pointer group",
                   )}
                 >
                   <div className="flex flex-col sm:flex-row">

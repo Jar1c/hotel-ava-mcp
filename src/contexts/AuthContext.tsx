@@ -358,6 +358,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if ((event === "SIGNED_IN" || event === "INITIAL_SESSION") && session?.access_token) {
 
+        // A real browser session means this sign-in already succeeded server-side
+        // (Google OAuth / quick sign-in / OTP completed). Any step-up challenge
+        // still pending is stale - the OTP gate only belongs to password login.
+        setChallenge(null)
+
         // Track new-device logins for OAuth/Google sign-ins (password logins
         // are tracked server-side in /api/auth/login; backend dedups by device).
         // INITIAL_SESSION is intentionally skipped — a restored session is not a login.
