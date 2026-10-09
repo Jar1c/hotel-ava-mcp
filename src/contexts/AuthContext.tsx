@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from "react"
-import { authApi, syncSessionHashes, type LoginChallenge, type LoginResponse, type TrackLoginResult } from "@/services/api"
+import { authApi, syncSessionHashes, type LoginChallenge, type LoginResponse } from "@/services/api"
 import { supabase } from "@/lib/supabase"
 import { getAccessToken, getRefreshToken, setAccess, setRefresh, clearTokens } from "@/lib/tokenStore"
 import { setLastSignIn } from "@/lib/lastSignIn"
@@ -367,33 +367,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setLastSignIn("google")
           }
           logoutSuppressRef.current = false
-          // Step-up gate: unfamiliar device/location → tear down this fresh
-          // session and ask for the emailed code. Plain fetch only (calling a
-          // supabase auth method inside this callback can deadlock the client);
-          // signOut is deferred out of the callback for the same reason.
-          let gate: TrackLoginResult | null = null
-          try {
-            gate = await authApi.trackLogin()
-          } catch {
-            gate = null
-          }
-          if (gate?.verification_required && gate.challenge_id) {
-            clearTokens()
-            setChallenge({
-              challenge: "otp",
-              challenge_id: gate.challenge_id,
-              email_masked: gate.email_masked || "",
-              reason: gate.reason || "",
-            })
-            setTimeout(() => {
-              // LOCAL scope: this teardown must only kill the session created
-              // for this attempt. The default global scope revoked every
-              // session of the user — a new-device check on one browser
-              // signed out ALL their other devices.
-              supabase.auth.signOut({ scope: "local" }).catch(() => {})
-            }, 0)
-            return
-          }
+          authApi.trackLogin().catch(() => {})
         }
 
         // Check if we have a cached user with a valid identity (name or email)

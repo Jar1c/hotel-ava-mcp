@@ -9,6 +9,7 @@ export interface Booking {
   guestId?: string
   roomType: string
   roomNumber: string
+  roomImage?: string
   checkIn: string
   checkOut: string
   nights: number

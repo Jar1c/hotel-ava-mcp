@@ -318,7 +318,7 @@ useEffect(() => {
           adults: guests.adults,
           children: guests.children,
           pets: guests.pets,
-          stays: isOvernight ? `${nights} Night${nights > 1 ? "s" : ""}` : `${dayDuration} Hours`,
+          stays: isOvernight ? `${nights} Night${nights > 1 ? "s" : ""}` : `${dayDuration} Hour${dayDuration === 1 ? "" : "s"}`,
           stay_type: stayType,
           duration: isOvernight ? null : dayDuration,
           start_time: isOvernight ? overnightStartTime : startTime,
@@ -331,7 +331,15 @@ useEffect(() => {
       const data = await res.json()
 
       if (!res.ok) {
-        throw new Error(data.error || "Booking failed")
+        const raw = data.error || "Booking failed"
+        const looksInternal =
+          /exclusion constraint|conflicting key|23P01|row-level security|postgrest/i.test(raw) ||
+          raw.trim().startsWith("{'message'")
+        throw new Error(
+          looksInternal
+            ? "This room was just booked by someone else for these dates. Please choose a different room or time."
+            : raw,
+        )
       }
 
        if (data.checkout_url) {
@@ -464,7 +472,7 @@ useEffect(() => {
                   </div>
                   <div className="flex items-center gap-3 py-2 border-b border-hairline">
                     <span className="text-sm text-muted">Duration</span>
-                    <span className="text-sm font-semibold text-ink">{dayDuration} hours</span>
+                    <span className="text-sm font-semibold text-ink">{dayDuration} hour{dayDuration === 1 ? "" : "s"}</span>
                   </div>
                   {startTime && (
                     <div className="flex items-center gap-3 py-2 border-b border-hairline">
@@ -908,7 +916,7 @@ useEffect(() => {
               By signing in, you agree to our{" "}
               <Link to="/terms" className="font-medium" style={{ color: PRIMARY }}>Terms of Service</Link>
               {" "}and{" "}
-              <Link to="/terms#privacy" className="font-medium" style={{ color: PRIMARY }}>Privacy Policy</Link>
+              <Link to="/privacy" className="font-medium" style={{ color: PRIMARY }}>Privacy Policy</Link>
             </p>
           </div>
         </div>

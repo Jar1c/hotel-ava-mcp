@@ -135,7 +135,7 @@ export default function CompleteRegistration() {
                   <h3 className="font-semibold text-ink mb-1">Cancellation Policy</h3>
                   <p>Free cancellation is available up to 24 hours before your scheduled check-in. Do it from your My Bookings page — no call needed.</p>
                   <p className="mt-2">Cancel <strong className="text-ink">24 hours or more</strong> ahead and everything you paid online is refunded automatically to your original payment method within 7–14 banking days (100% of a full payment, or the 50% downpayment).</p>
-                  <p className="mt-2">Cancelling <strong className="text-ink">inside 24 hours</strong> — or failing to show up at all — is <strong className="text-ink">non-refundable</strong>. If you do not arrive and do not check in on your booking date, your booking closes automatically as a <strong className="text-ink">no-show</strong>. On downpayment bookings the 50% paid online is retained as a no-show fee; the unpaid balance is waived and never charged to you.</p>
+                  <p className="mt-2">Cancelling <strong className="text-ink">inside 24 hours</strong> — or failing to show up at all — is <strong className="text-ink">non-refundable</strong>. If you do not arrive and do not check in on your booking date, your booking closes automatically as a <strong className="text-ink">no-show</strong>. On downpayment bookings the 50% paid online is retained as a no-show fee; the remaining balance is never charged online, but the front desk must record it as settled before you can book again.</p>
                 </div>
               </div>
 

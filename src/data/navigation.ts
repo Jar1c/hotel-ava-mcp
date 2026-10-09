@@ -34,16 +34,9 @@ export const adminNavItems: NavItem[] = [
 ]
 
 export const footerLinkGroups: FooterLinkGroup[] = [
-  {
-    title: "Accommodation",
-    links: [
-      { label: "Standard Room", path: "/rooms/standard-room" },
-      { label: "Deluxe Room", path: "/rooms/deluxe-room" },
-      { label: "Executive Deluxe", path: "/rooms/executive-deluxe" },
-      { label: "Junior Suite", path: "/rooms/junior-suite" },
-      { label: "Superior Suite", path: "/rooms/superior-suite" },
-    ],
-  },
+  // NOTE: The "Accommodation" group is rendered dynamically in Footer.tsx —
+  // its links are built from the live room list (/api/rooms/public), not
+  // hardcoded, so they always point at real room pages.
   {
     title: "Quick Links",
     links: [
@@ -57,8 +50,8 @@ export const footerLinkGroups: FooterLinkGroup[] = [
     title: "Policies",
     links: [
       { label: "Terms & Conditions", path: "/terms" },
-      { label: "Privacy Policy", path: "/terms#privacy" },
-      { label: "Data Privacy", path: "/terms#privacy" },
+      { label: "Privacy Policy", path: "/privacy" },
+      { label: "Data Privacy", path: "/privacy" },
       { label: "Hotel Policies", path: "/terms" },
     ],
   },

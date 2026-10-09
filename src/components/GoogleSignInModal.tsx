@@ -176,7 +176,7 @@ export default function GoogleSignInModal({ open, onClose }: GoogleSignInModalPr
           By signing in, you agree to our{" "}
           <Link to="/terms" onClick={onClose} className="font-medium" style={{ color: PRIMARY }}>Terms of Service</Link>
           {" "}and{" "}
-          <Link to="/terms#privacy" onClick={onClose} className="font-medium" style={{ color: PRIMARY }}>Privacy Policy</Link>
+          <Link to="/privacy" onClick={onClose} className="font-medium" style={{ color: PRIMARY }}>Privacy Policy</Link>
         </p>
       </div>
     </div>

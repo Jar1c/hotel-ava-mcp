@@ -685,6 +685,7 @@ export interface BookingData {
   guestId?: string
   roomType: string
   roomNumber: string
+  roomImage?: string
   checkIn: string
   checkOut: string
   nights: number
@@ -798,7 +799,11 @@ export interface DashboardSummary {
   departuresToday: number
   inHouse: number
   overdueCheckouts: number
-  pendingUnpaid: number
+      pendingUnpaid: number
+      /** Downpayment bookings (confirmed/completed) with a balance still owed. */
+      downpaymentDue?: number
+      /** Total outstanding balance across those downpayment bookings. */
+      downpaymentDueAmount?: number
   pendingExtendRequests: number
   pendingRefunds: number
   /** Total amount_paid sitting in the refund queue (sum of refund-pending rows). */

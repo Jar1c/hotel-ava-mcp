@@ -1,9 +1,79 @@
+import { useEffect, useState } from "react"
 import { Link } from "react-router"
 import { footerLinkGroups } from "@/data/navigation"
 import { devTeam } from "@/data/devTeam"
+import { rooms as fallbackRooms } from "@/data/rooms"
+import { publicRoomsApi, type PublicRoomData } from "@/services/api"
+import { getCached, setCache } from "@/lib/cache"
 import { MapPin, Phone, Globe } from "lucide-react"
 
+interface AccommodationLink {
+  label: string
+  path: string
+}
+
+/** Footer label for a room type — reads naturally in prose. */
+function typeLabel(type: string): string {
+  if (type === "Standard") return "Standard Room"
+  if (type === "Deluxe") return "Deluxe Room"
+  return type
+}
+
+/** Preferred display order for known room types; unknown ones follow. */
+const TYPE_ORDER = ["Standard", "Deluxe", "Executive Deluxe", "Junior Suite", "Superior Suite"]
+
+/**
+ * One link per room type pointing at the first room (by name) of that type,
+ * e.g. "Standard Room" → /rooms/<uuid of Standard Room 101>. Built from the
+ * live /api/rooms/public payload so the footer never links to dead pages.
+ */
+function buildAccommodationLinks(list: Pick<PublicRoomData, "id" | "name" | "type">[]): AccommodationLink[] {
+  const firstOfEachType = new Map<string, { id: string; name: string }>()
+  for (const room of [...list].sort((a, b) => a.name.localeCompare(b.name))) {
+    if (!firstOfEachType.has(room.type)) firstOfEachType.set(room.type, { id: room.id, name: room.name })
+  }
+  return [...firstOfEachType.entries()]
+    .sort(([typeA, roomA], [typeB, roomB]) => {
+      const rankA = TYPE_ORDER.indexOf(typeA)
+      const rankB = TYPE_ORDER.indexOf(typeB)
+      return (
+        (rankA === -1 ? TYPE_ORDER.length : rankA) - (rankB === -1 ? TYPE_ORDER.length : rankB) ||
+        roomA.name.localeCompare(roomB.name)
+      )
+    })
+    .map(([type, room]) => ({ label: typeLabel(type), path: `/rooms/${room.id}` }))
+}
+
+/** Offline fallback: the mock rooms — RoomDetail resolves these too. */
+const fallbackAccommodation: AccommodationLink[] = fallbackRooms.map((room) => ({
+  label: room.name,
+  path: `/rooms/${room.id}`,
+}))
+
 export default function Footer() {
+  // Cached live links render instantly; the fetch below refreshes them.
+  const [accommodation, setAccommodation] = useState<AccommodationLink[]>(
+    () => getCached<AccommodationLink[]>("footer:accommodation") ?? fallbackAccommodation,
+  )
+
+  useEffect(() => {
+    let cancelled = false
+    publicRoomsApi
+      .getAll()
+      .then((data) => {
+        if (cancelled || !Array.isArray(data) || data.length === 0) return
+        const links = buildAccommodationLinks(data)
+        setAccommodation(links)
+        setCache("footer:accommodation", links)
+      })
+      .catch(() => {
+        /* backend offline — keep whatever links we already have */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   return (
     <footer className="border-t border-hairline bg-canvas mt-xxl">
       {/* Link columns section */}
@@ -37,6 +107,20 @@ export default function Footer() {
                 <Globe className="h-4 w-4" />
               </a>
             </div>
+          </div>
+
+          {/* Accommodation — live room categories from the public API */}
+          <div>
+            <h4 className="typo-title-sm text-ink mb-md">Accommodation</h4>
+            <ul className="space-y-sm">
+              {accommodation.map((link) => (
+                <li key={link.path}>
+                  <Link to={link.path} className="typo-body-sm text-muted hover:text-ink transition-colors">
+                    {link.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
           </div>
 
           {footerLinkGroups.map((group) => (

@@ -212,6 +212,7 @@ async function fetchBookings(): Promise<Booking[]> {
     guestId: b.guestId || "",
     roomType: b.roomType,
     roomNumber: b.roomNumber,
+    roomImage: b.roomImage || "",
     checkIn: b.checkIn,
     checkOut: b.checkOut,
     nights: b.nights,

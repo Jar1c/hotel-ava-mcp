@@ -1046,25 +1046,6 @@ def track_login():
     try:
         body = request.get_json(silent=True) or {}
 
-        # Step-up gate FIRST — before any device/session row is written, or the
-        # unverified device would look familiar on the next attempt. Fail-open:
-        # when the OTP email can't be sent, sign in normally instead.
-        reason = _step_up_reason(user_id)
-        if reason:
-            urow = supabase_admin.table("users") \
-                .select("email, role").eq("id", user_id).limit(1).execute()
-            email = urow.data[0]["email"] if urow.data else ""
-            role = urow.data[0].get("role") if urow.data else ""
-            if email and role != "admin":
-                challenge_id = _create_login_challenge(user_id, email, reason)
-                if challenge_id:
-                    return jsonify({
-                        "verification_required": True,
-                        "challenge_id": challenge_id,
-                        "email_masked": _mask_email(email),
-                        "reason": reason,
-                    }), 200
-
         device_id = track_new_login(user_id)
         _, dname, dip = _request_device_info()
         _upsert_session(
@@ -3280,15 +3261,27 @@ def suggest_rooms_for_stay(b, win_start, win_end, limit=4):
 
 
 def gap_conflict_payload(b, win_start, new_end):
-    """409 body when extending would leave <= 1h before the next booking."""
+    """409 body when extending would leave <= 1h before the next booking.
+
+    Suggested rooms only need to be free for the EXTRA hours (stay end -> new
+    end) — that tail window is what the guest rebooks on another room, and it
+    ships in the payload so the frontend can prefill the booking form.
+    """
     next_start = find_room_conflict(b["room_id"], win_start, new_end, exclude_id=b["id"])
     if next_start is None:
         return None
+    try:
+        _, orig_end = _stay_window(b)
+    except Exception:
+        orig_end = win_start
     return jsonify({
         "error": "Extending would leave less than 1 hour before the next booking. Please choose a shorter extension or another room.",
         "code": "gap_conflict",
         "next_booking_start": next_start.isoformat(),
-        "suggested_rooms": suggest_rooms_for_stay(b, win_start, new_end),
+        "extension_start": orig_end.isoformat(),
+        "extension_end": new_end.isoformat(),
+        "extension_hours": max(1, int(round((new_end - orig_end).total_seconds() / 3600))),
+        "suggested_rooms": suggest_rooms_for_stay(b, orig_end, new_end),
     }), 409
 
 
@@ -3363,17 +3356,14 @@ def check_room_availability():
                 .lt("check_in", check_out).gt("check_out", check_in).execute()
             available = not (overlap_res.data and len(overlap_res.data) > 0)
         else:
-            # Day-use: window check (with 1h gap) vs all pending/confirmed stays...
+            # Day-use: window check (with 1h gap) vs all pending/confirmed stays.
+            # Same-date time slots don't block each other (2-5 PM and 6-9 PM
+            # coexist) — migrate-day-use-slots.sql dropped the whole-day DB
+            # check that used to reject the second booking of the date.
             h, mi = _parse_time12(start_time)
             win_start = datetime.strptime(check_in, "%Y-%m-%d").replace(hour=h, minute=mi)
             win_end = win_start + timedelta(hours=int(duration or 0))
             available = find_room_conflict(room_id, win_start, win_end) is None
-            # ...plus: the DB bookings_no_overlap constraint blocks any other
-            # pending/confirmed booking with the same date range entirely.
-            if available:
-                same_res = supabase.table("bookings").select("id").eq("room_id", room_id) \
-                    .in_("status", ["pending", "confirmed"]).eq("check_in", check_in).execute()
-                available = not (same_res.data and len(same_res.data) > 0)
 
         return jsonify({
             "available": available,
@@ -3821,17 +3811,13 @@ def create_booking():
             if overlap_res.data and len(overlap_res.data) > 0:
                 return jsonify({"error": "Room is not available for the selected dates"}), 409
         else:
-            # Day-use: window check (with 1h gap) vs all pending/confirmed stays...
+            # Day-use: window check (with 1h gap) vs all pending/confirmed stays.
+            # Time slots on the same date don't block each other — see
+            # migrate-day-use-slots.sql for the constraint this replaces.
             h, mi = _parse_time12(start_time)
             win_start = datetime.strptime(check_in, "%Y-%m-%d").replace(hour=h, minute=mi)
             win_end = win_start + timedelta(hours=int(duration or 0))
             if find_room_conflict(room_id, win_start, win_end) is not None:
-                return jsonify({"error": "Room is not available for the selected dates"}), 409
-            # ...plus: the DB bookings_no_overlap constraint blocks any other
-            # pending/confirmed booking with the same date range entirely.
-            same_res = supabase.table("bookings").select("id").eq("room_id", room_id) \
-                .in_("status", ["pending", "confirmed"]).eq("check_in", check_in).execute()
-            if same_res.data and len(same_res.data) > 0:
                 return jsonify({"error": "Room is not available for the selected dates"}), 409
 
         # Create booking with pending status
@@ -3943,6 +3929,8 @@ def create_booking():
         _tb.print_exc()
         if "row-level security" in err or "42501" in err:
             return jsonify({"error": "Unable to save your booking due to a permissions issue. Please try again or contact support."}), 500
+        if "exclusion constraint" in err or "conflicting key" in err or "23P01" in err:
+            return jsonify({"error": "This room was just booked by someone else for these dates. Please choose a different room or time."}), 409
         return jsonify({"error": err}), 500
 
 
@@ -4620,6 +4608,8 @@ def settle_booking_balance(booking_id):
                     f"Payment received at the front desk — your booking for {room_name} on {b.get('check_in', '')} is confirmed!",
                     booking_id=booking_id)
                 send_booking_email("confirmed", booking_id)
+            else:
+                send_booking_email("settled", booking_id)
         notify_admins("booking", "Balance Settled",
             f"Balance settled for {room_name} on {b.get('check_in', '')} — "
             f"booking #{booking_id[:8]} is fully paid.", booking_id=booking_id)
@@ -4724,6 +4714,7 @@ def check_in_booking(booking_id):
                 create_notification(b["user_id"], "booking", "You're Checked In",
                     f"Welcome! Your stay at {room_name} is now in progress. Enjoy your visit.",
                     booking_id=booking_id)
+            send_booking_email("checkin", booking_id, arrived_early=(state == "early"))
         if created:
             notify_admins("booking", "Guest Checked In",
                 f"{room_name} — arrival recorded ({state}) for booking "
@@ -4766,7 +4757,7 @@ def get_bookings():
 
         rooms_map = {}
         if room_ids:
-            rooms_res = supabase.table("rooms").select("id, name, type").in_("id", room_ids).execute()
+            rooms_res = supabase.table("rooms").select("id, name, type, images").in_("id", room_ids).execute()
             rooms_map = {r["id"]: r for r in (rooms_res.data or [])}
 
         result = []
@@ -4789,6 +4780,7 @@ def get_bookings():
                 "guestId": uid or "",
                 "roomType": room.get("type", "Unknown"),
                 "roomNumber": room.get("name", ""),
+                "roomImage": (room.get("images") or [""])[0] or "",
                 "checkIn": b["check_in"],
                 "checkOut": b["check_out"],
                 "nights": nights,
@@ -5949,15 +5941,20 @@ def _build_dashboard_summary():
     month_start = today.replace(day=1)
     next_month = (month_start + timedelta(days=32)).replace(day=1)
 
-    # Unpaid = awaiting payment + confirmed downpayments with a balance left.
+    # Unpaid = awaiting payment (downpayment balances are downpaymentDue).
     pending_unpaid = _exact_count(
         supabase.table("bookings").select("id", count="exact").eq("status", "pending")
     )
+    downpayment_due = 0
+    downpayment_due_amount = 0.0
     downpayment_rows = supabase.table("bookings").select("total_price, amount_paid") \
-        .eq("payment_mode", "downpayment").eq("status", "confirmed").execute().data or []
+        .eq("payment_mode", "downpayment") \
+        .in_("status", ["confirmed", "completed"]).range(0, 999).execute().data or []
     for r in downpayment_rows:
-        if (r.get("amount_paid") or 0) < (r.get("total_price") or 0):
-            pending_unpaid += 1
+        bal = balance_due(r.get("amount_paid"), r.get("total_price"))
+        if bal > 0:
+            downpayment_due += 1
+            downpayment_due_amount += bal
 
     # Extension awaiting PayMongo confirm — marker survives until /extend/confirm.
     pending_extend = _exact_count(
@@ -6103,6 +6100,8 @@ def _build_dashboard_summary():
         "inHouse": in_house,
         "overdueCheckouts": overdue,
         "pendingUnpaid": pending_unpaid,
+        "downpaymentDue": downpayment_due,
+        "downpaymentDueAmount": round(downpayment_due_amount, 2),
         "pendingExtendRequests": pending_extend,
         "pendingRefunds": pending_refunds,
         "pendingRefundsAmount": round(pending_refunds_amount, 2),

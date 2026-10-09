@@ -1544,7 +1544,7 @@ export default function RoomDetail() {
               By signing in, you agree to our{" "}
               <Link to="/terms" className="font-medium" style={{ color: "#82285f" }}>Terms of Service</Link>
               {" "}and{" "}
-              <Link to="/terms#privacy" className="font-medium" style={{ color: "#82285f" }}>Privacy Policy</Link>
+              <Link to="/privacy" className="font-medium" style={{ color: "#82285f" }}>Privacy Policy</Link>
             </p>
           </div>
         </div>

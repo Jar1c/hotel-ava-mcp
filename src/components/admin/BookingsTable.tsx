@@ -6,9 +6,9 @@ import type { Booking } from "@/data/admin"
 import LoadingDots from "@/components/LoadingDots"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import ReceiptDialog, { type ReceiptData } from "@/components/ReceiptDialog"
-import { Mail, Phone, CalendarDays, PhilippinePeso, User, Clock, BedDouble, CreditCard, FileText, Landmark, LogIn, LogOut, Search, X } from "lucide-react"
+import { Mail, Phone, CalendarDays, PhilippinePeso, User, Clock, BedDouble, CreditCard, FileText, Landmark, LogIn, LogOut, Search, X, CheckCircle } from "lucide-react"
 import { getStoredAvatar, getGeneratedAvatar, onAvatarError } from "@/lib/avatar"
-import { formatPaymentMethod } from "@/lib/payment"
+import { formatPaymentMethod, downpaymentOnline } from "@/lib/payment"
 import { deriveArrival, canCheckIn, arrivalTimeLabel, startMomentLabel, checkoutMomentLabel } from "@/lib/arrival"
 import { Skeleton, SkeletonRegion, SkeletonTableRow } from "@/components/ui/skeleton"
 import { useMinSkeleton } from "@/hooks/useMinSkeleton"
@@ -40,7 +40,7 @@ const statusConfig: Record<DisplayStatus, { label: string; dotColor: string; tex
   "in-house": { label: "In-house", dotColor: "bg-[#2f7d6d]", textColor: "text-[#2f7d6d]" },
 }
 
-const statusFilters: { label: string; value: DisplayStatus | "all" }[] = [
+const statusFilters: { label: string; value: DisplayStatus | "all" | "refunded" }[] = [
   { label: "All", value: "all" },
   { label: "Pending", value: "pending" },
   { label: "Confirmed", value: "confirmed" },
@@ -48,11 +48,12 @@ const statusFilters: { label: string; value: DisplayStatus | "all" }[] = [
   { label: "Completed", value: "completed" },
   { label: "Checked Out", value: "checked-out" },
   { label: "Cancelled", value: "cancelled" },
+  { label: "Refunded", value: "refunded" },
 ]
 
 /**
  * Derived filters — deep-link targets from the dashboard cards
- * (?view=arrivals|departures|overdue|extending|refunds|unpaid).
+ * (?view=arrivals|departures|overdue|extending|refunds|unpaid|downpayment).
  * Computed client-side from the already-fetched list; no extra API calls.
  */
 const viewFilters = {
@@ -62,10 +63,11 @@ const viewFilters = {
   extending: "Extend requests",
   refunds: "Refunds",
   unpaid: "Unpaid",
+  downpayment: "Downpayment balances",
 } as const
 
 type ViewKey = keyof typeof viewFilters
-type FilterValue = DisplayStatus | "all" | ViewKey
+type FilterValue = DisplayStatus | "all" | ViewKey | "refunded"
 
 function isViewKey(value: FilterValue): value is ViewKey {
   return Object.prototype.hasOwnProperty.call(viewFilters, value)
@@ -101,9 +103,12 @@ function matchesView(b: Booking, view: ViewKey, now: Date): boolean {
     case "refunds":
       return b.status === "cancelled" && (b.amount_paid ?? 0) > 0 && !b.refunded_at
     case "unpaid":
+      return b.status === "pending"
+    case "downpayment":
       return (
-        b.status === "pending" ||
-        (b.status === "confirmed" && isDownpayment(b) && bookingBalance(b) > 0)
+        ["confirmed", "completed"].includes(b.status) &&
+        isDownpayment(b) &&
+        bookingBalance(b) > 0
       )
   }
 }
@@ -226,14 +231,27 @@ function isDownpayment(b: Booking) {
   return b.payment_mode === "downpayment"
 }
 
+/**
+ * Refund state shown under the status badge — refunded bookings must be
+ * distinguishable from refunds still sitting in the queue. The pending
+ * branch mirrors the ?view=refunds predicate exactly.
+ */
+function refundBadge(b: Booking): { label: string; cls: string } | null {
+  if (b.refunded_at) return { label: "Refunded", cls: "bg-[#3D6B4F]/10 text-[#3D6B4F]" }
+  if (b.status === "cancelled" && (b.amount_paid ?? 0) > 0)
+    return { label: "Refund pending", cls: "bg-amber-500/10 text-[#b45309]" }
+  return null
+}
+
 function paymentNote(b: Booking) {
+  if (b.refunded_at) return "Refunded"
   if (b.status === "pending") return isDownpayment(b) ? "Awaiting downpayment" : "Awaiting payment"
   if (b.status === "cancelled") return "Cancelled"
   if (b.status === "confirmed" || b.status === "completed" || b.status === "checked-out") {
     return isDownpayment(b)
       ? bookingBalance(b) > 0
         ? "Downpayment · balance due"
-        : "Paid in full"
+        : "Downpayment · paid in full"
       : "Paid"
   }
   return "—"
@@ -248,8 +266,12 @@ function receiptFor(b: Booking): ReceiptData {
   const roomName = b.roomNumber || b.roomType
   const roomType = b.roomNumber && b.roomType && b.roomNumber !== b.roomType ? b.roomType : undefined
   const down = isDownpayment(b)
-  const amountPaid = down ? Math.max(0, b.amount_paid ?? 0) : b.amount
-  const balance = down ? bookingBalance(b) : 0
+  const cancelled = b.status === "cancelled"
+  const refunded = Boolean(b.refunded_at)
+  // Refunds zero amount_paid — the receipt still shows what was collected,
+  // and a cancelled stay never owes a balance at the hotel.
+  const amountPaid = down ? (refunded ? downpaymentOnline(b.amount) : Math.max(0, b.amount_paid ?? 0)) : b.amount
+  const balance = down && !cancelled && !refunded ? bookingBalance(b) : 0
   return {
     reference: (b.fullId || b.id).slice(0, 8).toUpperCase(),
     fullReference: b.fullId || b.id,
@@ -275,6 +297,7 @@ function receiptFor(b: Booking): ReceiptData {
     paymentMode: down ? "downpayment" : "full",
     amountPaid,
     balanceDue: balance,
+    refundedAt: b.refunded_at ?? null,
   }
 }
 
@@ -319,6 +342,7 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
     const rows = bookings
       .filter((b) => {
         if (filter === "all") return true
+        if (filter === "refunded") return Boolean(b.refunded_at)
         if (isViewKey(filter)) return matchesView(b, filter, now)
         return displayStatus(b, now) === filter
       })
@@ -435,10 +459,12 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
     completed: bookings.filter((b) => b.status === "completed").length,
     "checked-out": bookings.filter((b) => b.status === "checked-out").length,
     cancelled: bookings.filter((b) => b.status === "cancelled").length,
+    refunded: bookings.filter((b) => Boolean(b.refunded_at)).length,
   }
 
   // Skeletons stay at least 500ms so a fast refetch can't flash them.
   const showSkeleton = useMinSkeleton(Boolean(loading))
+  const selectedRefund = selectedBooking ? refundBadge(selectedBooking) : null
 
   return (
     <>
@@ -581,6 +607,7 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
             <tbody>
               {paged.map((booking) => {
                 const status = badgeFor(booking, now)
+                const refund = refundBadge(booking)
                 const actions = getActions(booking, now)
                 return (
                   <tr
@@ -643,7 +670,7 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
                     </td>
                     <td className="px-5 py-3 text-right font-semibold text-[#1a1d26]">
                       ₱{booking.amount.toLocaleString()}
-                      {isDownpayment(booking) && bookingBalance(booking) > 0 && (
+                      {booking.status !== "cancelled" && isDownpayment(booking) && bookingBalance(booking) > 0 && (
                         <div className="text-[10px] font-medium text-[#b45309] mt-0.5">
                           50% paid · ₱{bookingBalance(booking).toLocaleString()} due
                         </div>
@@ -654,6 +681,11 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
                         <span className={cn("size-1.5 rounded-full", status.dotColor)} />
                         {status.label}
                       </span>
+                      {refund && (
+                        <span className={cn("mt-1 block w-fit rounded px-1.5 py-0.5 text-[10px] font-semibold", refund.cls)}>
+                          {refund.label}
+                        </span>
+                      )}
                     </td>
                     <td className="px-5 py-3">
                       <div className="flex items-center justify-end gap-1.5">
@@ -710,9 +742,16 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
                   />
                   <div>
                     <h3 className="font-display font-semibold text-[#1a1d26] text-lg">{selectedBooking.guestName}</h3>
-                    <span className={cn("inline-flex items-center gap-1.5 text-[11px] font-medium mt-0.5", badgeFor(selectedBooking, now).textColor)}>
-                      <span className={cn("size-1.5 rounded-full", badgeFor(selectedBooking, now).dotColor)} />
-                      {badgeFor(selectedBooking, now).label}
+                    <span className="inline-flex flex-wrap items-center gap-2 mt-0.5">
+                      <span className={cn("inline-flex items-center gap-1.5 text-[11px] font-medium", badgeFor(selectedBooking, now).textColor)}>
+                        <span className={cn("size-1.5 rounded-full", badgeFor(selectedBooking, now).dotColor)} />
+                        {badgeFor(selectedBooking, now).label}
+                      </span>
+                      {selectedRefund && (
+                        <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-semibold", selectedRefund.cls)}>
+                          {selectedRefund.label}
+                        </span>
+                      )}
                     </span>
                   </div>
                 </div>
@@ -746,6 +785,22 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
                 <div className="space-y-3 mb-6">
                   <h4 className="text-[10px] font-semibold uppercase tracking-wider text-[#9ca3af]">Booking Information</h4>
                   <div className="bg-[#f5f6f8] rounded-[10px] p-4 space-y-3">
+                    {selectedBooking.roomImage && (
+                      <div className="relative overflow-hidden rounded-[8px] border border-[#e2e4e8] bg-white">
+                        <img
+                          src={selectedBooking.roomImage}
+                          alt={`${selectedBooking.roomType} ${selectedBooking.roomNumber}`}
+                          className="h-40 w-full object-cover"
+                          onError={(e) => { e.currentTarget.style.display = "none" }}
+                        />
+                        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 via-black/25 to-transparent px-3 pb-2.5 pt-8">
+                          <p className="text-[13px] font-semibold text-white">
+                            {selectedBooking.roomNumber || selectedBooking.roomType}
+                          </p>
+                          <p className="text-[11px] text-white/80">{selectedBooking.roomType}</p>
+                        </div>
+                      </div>
+                    )}
                     <DetailRow icon={<FileText className="h-4 w-4" />} label="Booking ID" value={`#${selectedBooking.id}`} />
                     <DetailRow icon={<Clock className="h-4 w-4" />} label="Booked On" value={formatBookingDate(selectedBooking.createdAt || "")} />
                     <DetailRow icon={<CalendarDays className="h-4 w-4" />} label="Stay" value={
@@ -784,14 +839,24 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
                   <div className="bg-[#f5f6f8] rounded-[10px] p-4 space-y-3">
                     <DetailRow icon={<CreditCard className="h-4 w-4" />} label="Method" value={formatPaymentLabel(selectedBooking.payment_method || "")} />
                     <DetailRow icon={<PhilippinePeso className="h-4 w-4" />} label="Amount" value={`₱${selectedBooking.amount.toLocaleString()}`} valueClass="font-bold text-[#82285f]" />
-                    {isDownpayment(selectedBooking) && (
+                    {isDownpayment(selectedBooking) && !selectedBooking.refunded_at && (
                       <DetailRow
                         icon={<PhilippinePeso className="h-4 w-4" />}
                         label="Paid online (50%)"
-                        value={`₱${Math.max(0, selectedBooking.amount_paid ?? 0).toLocaleString()}`}
+                        value={`₱${Math.min(Math.max(0, selectedBooking.amount_paid ?? 0), downpaymentOnline(selectedBooking.amount)).toLocaleString()}`}
                       />
                     )}
-                    {isDownpayment(selectedBooking) && bookingBalance(selectedBooking) > 0 && (
+                    {isDownpayment(selectedBooking) &&
+                      !selectedBooking.refunded_at &&
+                      selectedBooking.status !== "cancelled" &&
+                      Math.max(0, (selectedBooking.amount_paid ?? 0) - downpaymentOnline(selectedBooking.amount)) > 0 && (
+                      <DetailRow
+                        icon={<PhilippinePeso className="h-4 w-4" />}
+                        label="Settled at the hotel"
+                        value={`₱${Math.max(0, (selectedBooking.amount_paid ?? 0) - downpaymentOnline(selectedBooking.amount)).toLocaleString()}`}
+                      />
+                    )}
+                    {isDownpayment(selectedBooking) && selectedBooking.status !== "cancelled" && bookingBalance(selectedBooking) > 0 && (
                       <DetailRow
                         icon={<Landmark className="h-4 w-4" />}
                         label="Balance due at hotel"
@@ -800,7 +865,19 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
                       />
                     )}
                     <DetailRow icon={<Clock className="h-4 w-4" />} label="Status" value={paymentNote(selectedBooking)} />
-                    {isDownpayment(selectedBooking) && bookingBalance(selectedBooking) > 0 && (
+                    {selectedRefund && (
+                      <DetailRow
+                        icon={selectedBooking.refunded_at ? <CheckCircle className="h-4 w-4" /> : <Clock className="h-4 w-4" />}
+                        label="Refund"
+                        value={
+                          selectedBooking.refunded_at
+                            ? `Sent ${new Date(selectedBooking.refunded_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} · 7–14 banking days`
+                            : "Pending — queued for processing"
+                        }
+                        valueClass={selectedBooking.refunded_at ? "font-semibold text-[#3D6B4F]" : "font-semibold text-[#b45309]"}
+                      />
+                    )}
+                    {isDownpayment(selectedBooking) && selectedBooking.status !== "cancelled" && bookingBalance(selectedBooking) > 0 && (
                       <button
                         type="button"
                         disabled={actingId === (selectedBooking.fullId || selectedBooking.id)}

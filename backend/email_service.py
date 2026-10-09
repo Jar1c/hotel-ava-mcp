@@ -112,6 +112,8 @@ def _subject(event: str, booking: dict) -> str:
         "refund": f"Refund initiated for your {HOTEL_NAME} booking ({ref})",
         "failed": f"Payment failed for your {HOTEL_NAME} booking ({ref})",
         "expired": f"Your {HOTEL_NAME} booking expired ({ref})",
+        "settled": f"Your {HOTEL_NAME} booking is fully paid ({ref})",
+        "checkin": f"You're checked in at {HOTEL_NAME} ({ref})",
     }.get(event, f"{HOTEL_NAME} booking update ({ref})")
 
 
@@ -240,6 +242,29 @@ def build_email(event: str, booking: dict, room_name: str, extra: dict = None,
         cta_label = "Book a stay"
         cta_href = f"{FRONTEND_URL}/rooms"
         note = "The room may still be available for your dates."
+    elif event == "settled":
+        heading = "Balance settled"
+        banner = "Paid in full - nothing left to pay"
+        banner_color = TEAL
+        intro = (
+            f"Hi {who}, we've received your remaining balance for {room_name}. "
+            "Your booking is now fully paid."
+        )
+        note = "Nothing else is due at the front desk. Just present your QR code when you arrive."
+    elif event == "checkin":
+        heading = "You're checked in"
+        banner_color = TEAL
+        if extra.get("arrived_early"):
+            starts = _fmt_date(check_in)
+            if start_time:
+                starts = f"{starts} at {start_time}"
+            banner = "Arrived early - your stay starts on schedule"
+            intro = f"Hi {who}, we've recorded your early arrival for {room_name}. Your stay starts {starts}."
+            note = "We'll be ready for you at the scheduled time. Feel free to wait at the front desk lounge."
+        else:
+            banner = "Your stay is now in progress"
+            intro = f"Hi {who}, you're checked in at {room_name}. Enjoy your visit!"
+            note = "Our front desk is here if you need anything during your stay."
     else:
         heading = "Booking update"
         banner = "There is an update on your booking"

@@ -127,6 +127,10 @@ export default function Dashboard() {
   const showDelta = prevSameDays > 0
   const delta = showDelta ? ((summary!.monthToDateRevenue ?? 0) - prevSameDays) / prevSameDays : 0
   const hasArrivals = arrivals.length > 0
+  const downDue = summary?.downpaymentDue ?? 0
+  const downCaption = downDue > 0
+    ? `${formatCurrency(summary?.downpaymentDueAmount ?? 0)} outstanding`
+    : "Nothing outstanding"
 
   return (
     <div className="flex flex-col gap-6">
@@ -169,14 +173,14 @@ export default function Dashboard() {
         </div>
       ) : (
         <SkeletonRegion loading={showSkeleton} className="flex flex-col gap-6">
-          {/* Operations — full-width arrivals primary, then a row of three */}
+          {/* Operations — arrivals primary, then a compact secondary pair */}
           <section>
             <h2 className={sectionHeading}>Operations</h2>
             {showSkeleton ? (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-[3fr_2fr] gap-4">
                 {/* Arrivals card — same chrome as the real card, with
                     suggested label, count, and three arrival rows. */}
-                <div className="flex min-h-[290px] flex-col rounded-[8px] border border-[#e5e7eb] bg-white p-5 md:col-span-2">
+                <div className="flex min-h-[260px] flex-col rounded-[8px] border border-[#e5e7eb] bg-white p-5">
                   <SkeletonLine className="h-3.5 w-24" />
                   <SkeletonLine className="mt-1.5 h-3.5 w-32" />
                   <SkeletonLine className="mt-1.5 h-8 w-16" />
@@ -195,12 +199,11 @@ export default function Dashboard() {
                 <div className="flex flex-col gap-4">
                   <SkeletonBlock className="min-h-[86px] flex-1" />
                   <SkeletonBlock className="min-h-[86px] flex-1" />
-                  <SkeletonBlock className="min-h-[86px] flex-1" />
                 </div>
               </div>
             ) : (
               summary && (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 content-fade">
+                <div className="grid grid-cols-1 md:grid-cols-[3fr_2fr] gap-4 content-fade">
                   {/* Primary: arrivals — left, tall, 2px maroon left edge.
                       The whole card IS the link (content sat above the old
                       overlay link and swallowed every click). */}
@@ -208,19 +211,19 @@ export default function Dashboard() {
                     to="/admin/bookings?view=arrivals"
                     aria-label="Open arrivals in Reservations"
                     style={{ borderLeft: "2px solid #82285f" }}
-                    className="group flex flex-col rounded-[8px] border border-[#e5e7eb] bg-white p-5 transition-colors hover:border-[#82285f]/40 hover:bg-[#faf7f9] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#82285f]/50 focus-visible:ring-offset-2 md:col-span-2"
+                    className="group flex min-h-[260px] flex-col rounded-[8px] border border-[#e5e7eb] bg-white p-5 transition-colors hover:border-[#82285f]/40 hover:bg-[#faf7f9] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#82285f]/50 focus-visible:ring-offset-2"
                   >
                     <div className="flex flex-col min-h-0 flex-1">
                       <p className="text-[13px] text-[#6b7280]">Arrivals today</p>
-                      <p className="text-[13px] text-[#9ca3af] mb-1.5">Due to check in today</p>
-                      <p className="text-[32px] font-semibold leading-none text-[#1a1d26] tabular-nums">
+                      <p className="text-[13px] text-[#9ca3af] mb-1">Due to check in today</p>
+                      <p className="text-[28px] font-semibold leading-none text-[#1a1d26] tabular-nums">
                         {summary.arrivalsToday}
                       </p>
                       {hasArrivals ? (
-                        <div className="mt-4 min-h-0 flex-1 overflow-y-auto">
+                        <div className="mt-3 max-h-[340px] min-h-0 flex-1 overflow-y-auto">
                           <ul className="divide-y divide-[#f0f1f3]">
                             {arrivals.map((a) => (
-                              <li key={a.id} className="flex items-center justify-between gap-3 py-2.5">
+                              <li key={a.id} className="flex items-center justify-between gap-3 py-2">
                                 <div className="min-w-0">
                                   <p className="truncate text-[14px] font-medium text-[#1a1d26]">
                                     {a.guestName}
@@ -244,20 +247,19 @@ export default function Dashboard() {
                           </ul>
                         </div>
                       ) : (
-                        <p className="mt-3 text-[14px] text-[#6b7280]">No arrivals today.</p>
+                        <p className="mt-2 text-[14px] text-[#6b7280]">No arrivals today.</p>
                       )}
                     </div>
                   </Link>
 
-                  {/* Right column: three stacked secondaries.
-                      Unpaid + Extend requests replace Departures/Overdue —
-                      booking-ops signals, both already in DashboardSummary. */}
+                  {/* Right column: downpayment balances to collect on top,
+                      in-house occupancy underneath. */}
                   <div className="flex flex-col gap-4">
                     <StatCard
-                      label="Unpaid"
-                      caption="Awaiting payment"
-                      value={summary.pendingUnpaid}
-                      to="/admin/bookings?view=unpaid"
+                      label="Downpayment"
+                      caption={downCaption}
+                      value={downDue}
+                      to="/admin/bookings?view=downpayment"
                       className="min-h-[86px] flex-1"
                     />
                     <StatCard
@@ -265,13 +267,6 @@ export default function Dashboard() {
                       caption="Currently checked in"
                       value={summary.inHouse}
                       to="/admin/bookings?status=in-house"
-                      className="min-h-[86px] flex-1"
-                    />
-                    <StatCard
-                      label="Extend requests"
-                      caption="Pending stay extensions"
-                      value={summary.pendingExtendRequests}
-                      to="/admin/bookings?view=extending"
                       className="min-h-[86px] flex-1"
                     />
                   </div>

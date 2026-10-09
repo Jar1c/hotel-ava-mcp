@@ -14,7 +14,7 @@ import ReviewModal from "@/components/ReviewModal"
 import ReceiptDialog, { type ReceiptData } from "@/components/ReceiptDialog"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { usePolling } from "@/hooks/usePolling"
-import { formatPaymentMethod } from "@/lib/payment"
+import { formatPaymentMethod, downpaymentOnline } from "@/lib/payment"
 import { deriveArrival, canCancel, startMomentLabel, arrivalTimeLabel, checkoutMomentLabel } from "@/lib/arrival"
 import CancelReasonPicker, { composeCancelReason } from "@/components/CancelReasonPicker"
 import { Skeleton, SkeletonLine } from "@/components/ui/skeleton"
@@ -79,12 +79,26 @@ function orderBookings(list: UserBookingData[]): UserBookingData[] {
   const now = Date.now()
   const isUpcoming = (b: UserBookingData) =>
     (b.status === "pending" || b.status === "confirmed") && stayEndMs(b) >= now
+  // Fresh bookings (last 7 days) pin to the very top, newest first — they get
+  // the highlight treatment on the card so they can't be missed.
+  const fresh = list
+    .filter(isNewBooking)
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+  const rest = list.filter((b) => !isNewBooking(b))
   return [
-    ...list
+    ...fresh,
+    ...rest
       .filter(isUpcoming)
       .sort((a, b) => new Date(a.check_in).getTime() - new Date(b.check_in).getTime()),
-    ...list.filter((b) => !isUpcoming(b)).sort((a, b) => stayEndMs(b) - stayEndMs(a)),
+    ...rest.filter((b) => !isUpcoming(b)).sort((a, b) => stayEndMs(b) - stayEndMs(a)),
   ]
+}
+
+/** Bookings made in the last 7 days — pinned on top and highlighted. */
+const NEW_BOOKING_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
+function isNewBooking(b: UserBookingData): boolean {
+  const t = new Date(b.created_at || 0).getTime()
+  return Number.isFinite(t) && t > 0 && Date.now() - t <= NEW_BOOKING_WINDOW_MS
 }
 
 /** Cancelled-card refund line. The backend zeroes amount_paid once a refund is issued. */
@@ -93,7 +107,7 @@ function refundLine(b: UserBookingData): { text: string; cls: string } | null {
   const paid = Math.max(0, b.amount_paid ?? 0)
   if (b.refunded_at) {
     // amount_paid is zeroed on refund — fall back to what was collected.
-    const amount = paid > 0 ? paid : b.payment_mode === "downpayment" ? Math.round((b.total_price ?? 0) / 2) : b.total_price ?? 0
+    const amount = paid > 0 ? paid : b.payment_mode === "downpayment" ? downpaymentOnline(b.total_price ?? 0) : b.total_price ?? 0
     return { text: `Refunded ₱${amount.toLocaleString()}`, cls: "text-[#3D6B4F]" }
   }
   if (paid > 0) return { text: "No refund", cls: "text-muted" }
@@ -176,8 +190,8 @@ function receiptFor(b: BookingDetail): ReceiptData {
           ? "Cancelled"
           : down
             ? balanceDue > 0
-              ? "Partially paid"
-              : "Paid in full"
+              ? "Downpayment · balance due"
+              : "Downpayment · paid in full"
             : "Paid",
   }
 }
@@ -238,7 +252,7 @@ export default function MyBookings() {
   // Extend stay state
   const [extendDialog, setExtendDialog] = useState<{ id: string | null; hours: number }>({ id: null, hours: 1 })
   const [extending, setExtending] = useState<string | null>(null)
-  const [conflictDialog, setConflictDialog] = useState<{ open: boolean; error: string; next?: string; rooms: SuggestedRoom[] }>({ open: false, error: "", rooms: [] })
+  const [conflictDialog, setConflictDialog] = useState<{ open: boolean; error: string; next?: string; rooms: SuggestedRoom[]; prefill?: { start: string; hours: number; adults: number; children: number; pets: number } }>({ open: false, error: "", rooms: [] })
 
   const [loadError, setLoadError] = useState(false)
   const loadedRef = useRef(false)
@@ -273,12 +287,13 @@ export default function MyBookings() {
         }
       } catch (err) {
         if (err instanceof ApiError && err.status === 409) {
-          const body = err.body as { error?: string; next_booking_start?: string; suggested_rooms?: SuggestedRoom[] }
+          const body = err.body as { error?: string; next_booking_start?: string; suggested_rooms?: SuggestedRoom[]; extension_start?: string; extension_hours?: number }
           setConflictDialog({
             open: true,
             error: body.error || "Extending would conflict with another booking.",
             next: body.next_booking_start,
             rooms: body.suggested_rooms || [],
+            prefill: prefillFrom(body, extendPaid),
           })
         } else {
           toast({ title: "Extension failed", description: err instanceof Error ? err.message : "Could not confirm the extension.", variant: "error" })
@@ -425,6 +440,20 @@ export default function MyBookings() {
     }
   }
 
+  // Prefill for "Book" on a suggested room: the extra-hours window the guest
+  // tried to extend into, with their guest breakdown carried over.
+  const prefillFrom = (body: { extension_start?: string; extension_hours?: number }, id?: string | null) => {
+    if (!body.extension_start) return undefined
+    const bk = id ? bookings.find((x) => x.id === id) : undefined
+    return {
+      start: body.extension_start,
+      hours: body.extension_hours || extendDialog.hours,
+      adults: bk?.adults ?? bk?.guests ?? 2,
+      children: bk?.children ?? 0,
+      pets: bk?.pets ?? 0,
+    }
+  }
+
   const handleExtend = async () => {
     const id = extendDialog.id
     if (!id) return
@@ -436,12 +465,13 @@ export default function MyBookings() {
       }
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
-        const body = err.body as { error?: string; next_booking_start?: string; suggested_rooms?: SuggestedRoom[] }
+        const body = err.body as { error?: string; next_booking_start?: string; suggested_rooms?: SuggestedRoom[]; extension_start?: string; extension_hours?: number }
         setConflictDialog({
           open: true,
           error: body.error || "Extending would conflict with another booking.",
           next: body.next_booking_start,
           rooms: body.suggested_rooms || [],
+          prefill: prefillFrom(body, id),
         })
         setExtendDialog({ id: null, hours: 1 })
         setDetailOpen(false)
@@ -567,12 +597,18 @@ export default function MyBookings() {
               const rawStatus = booking.status.toLowerCase()
               const dimmed = rawStatus === "cancelled" || rawStatus === "completed" || rawStatus === "checked-out"
               const refund = refundLine(booking)
+              const isNew = isNewBooking(booking)
               const isFinished = rawStatus === "completed" || rawStatus === "checked-out"
               return (
                 <div
                   key={booking.id}
                   onClick={() => handleCardClick(booking)}
-                  className="bg-white border border-hairline rounded-[12px] overflow-hidden hover:shadow-[0_4px_14px_rgba(0,0,0,0.08)] hover:border-primary/25 transition-all duration-200 cursor-pointer group"
+                  className={cn(
+                    "bg-white border rounded-[12px] overflow-hidden hover:shadow-[0_4px_14px_rgba(0,0,0,0.08)] hover:border-primary/25 transition-all duration-200 cursor-pointer group",
+                    isNew
+                      ? "border-primary/45 bg-primary/[0.035] shadow-[0_2px_12px_rgba(130,40,95,0.10)]"
+                      : "border-hairline",
+                  )}
                 >
                   <div className="flex flex-col sm:flex-row">
                     {/* Room Image */}
@@ -599,9 +635,16 @@ export default function MyBookings() {
                             <h3 className="typo-title-md text-ink truncate">{booking.room_name}</h3>
                             <p className="typo-caption-sm text-muted">{booking.room_type}</p>
                           </div>
-                          <span className={cn("inline-flex items-center shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium leading-none", status.badgeCls)}>
-                            {status.label}
-                          </span>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {isNew && (
+                              <span className="rounded-full bg-primary px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide leading-none text-canvas">
+                                New
+                              </span>
+                            )}
+                            <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium leading-none", status.badgeCls)}>
+                              {status.label}
+                            </span>
+                          </div>
                         </div>
 
                         {/* Details Row */}
@@ -984,15 +1027,27 @@ export default function MyBookings() {
                       })()}
                     </span>
                   </div>
-                  {detailBooking.payment_mode === "downpayment" && (
+                  {detailBooking.payment_mode === "downpayment" && !detailBooking.refunded_at && (
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-muted">Paid online (50%)</span>
                       <span className="tabular-nums text-sm font-semibold text-ink">
-                        ₱{Math.max(0, detailBooking.amount_paid ?? 0).toLocaleString()}
+                        ₱{Math.min(Math.max(0, detailBooking.amount_paid ?? 0), downpaymentOnline(detailBooking.total_price ?? 0)).toLocaleString()}
                       </span>
                     </div>
                   )}
                   {detailBooking.payment_mode === "downpayment" &&
+                    !detailBooking.refunded_at &&
+                    detailBooking.status.toLowerCase() !== "cancelled" &&
+                    Math.max(0, (detailBooking.amount_paid ?? 0) - downpaymentOnline(detailBooking.total_price ?? 0)) > 0 && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-muted">Settled at the hotel</span>
+                      <span className="tabular-nums text-sm font-semibold text-ink">
+                        ₱{Math.max(0, (detailBooking.amount_paid ?? 0) - downpaymentOnline(detailBooking.total_price ?? 0)).toLocaleString()}
+                      </span>
+                    </div>
+                  )}
+                  {detailBooking.payment_mode === "downpayment" &&
+                    detailBooking.status.toLowerCase() !== "cancelled" &&
                     Math.max(0, (detailBooking.total_price ?? 0) - (detailBooking.amount_paid ?? 0)) > 0 && (
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-muted">Balance due at the hotel</span>
@@ -1208,9 +1263,30 @@ export default function MyBookings() {
                       variant="outline"
                       size="sm"
                       className="!rounded-[8px] shrink-0"
-                      onClick={() => { setConflictDialog({ open: false, error: "", rooms: [] }); navigate(`/rooms/${r.id}`) }}
+                      onClick={() => {
+                        setConflictDialog({ open: false, error: "", rooms: [] })
+                        const pf = conflictDialog.prefill
+                        if (!pf) {
+                          navigate(`/rooms/${r.id}`)
+                          return
+                        }
+                        const start = new Date(pf.start)
+                        const h12 = start.getHours() % 12 || 12
+                        const mm = String(start.getMinutes()).padStart(2, "0")
+                        const ap = start.getHours() < 12 ? "AM" : "PM"
+                        const qs = new URLSearchParams({
+                          stayType: "day",
+                          checkIn: pf.start.slice(0, 19),
+                          startTime: `${h12}:${mm} ${ap}`,
+                          duration: String(pf.hours),
+                          adults: String(pf.adults),
+                          children: String(pf.children),
+                          pets: String(pf.pets),
+                        })
+                        navigate(`/booking/${r.id}?${qs.toString()}`)
+                      }}
                     >
-                      View
+                      Book
                     </Button>
                   </div>
                 ))}

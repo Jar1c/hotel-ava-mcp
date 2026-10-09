@@ -1,6 +1,7 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Printer } from "lucide-react"
+import { downpaymentOnline } from "@/lib/payment"
 
 /**
  * Booking receipt, normalised from either shape:
@@ -97,12 +98,14 @@ export default function ReceiptDialog({ open, onClose, data }: ReceiptDialogProp
   const gross = data.gross && data.gross > 0 ? data.gross : net
   const discount = Math.max(0, gross - net)
 
-  // Downpayment bookings print what was handed over online and what is still
-  // owed at the front desk — the balance line disappears once it is settled.
+  // Downpayment bookings print what was handed over online and what went to
+  // the front desk — amount_paid is the sum, so split it back after a settle.
   const isDownpayment = data.paymentMode === "downpayment"
   const paid = isDownpayment ? Math.max(0, data.amountPaid ?? 0) : total
   const balance = isDownpayment ? Math.max(0, data.balanceDue ?? total - paid) : 0
   const partial = isDownpayment && balance > 0
+  const online = isDownpayment ? Math.min(paid, downpaymentOnline(total)) : total
+  const atHotel = isDownpayment ? Math.max(0, paid - online) : 0
 
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!next) onClose() }}>
@@ -170,10 +173,10 @@ export default function ReceiptDialog({ open, onClose, data }: ReceiptDialogProp
 
             {isDownpayment && (
               <>
-                <Row label="Paid online (50%)" value={amount(paid)} />
+                <Row label="Paid online (50%)" value={amount(online)} />
                 <Row
                   label={partial ? "Balance due at the hotel" : "Settled at the hotel"}
-                  value={amount(balance)}
+                  value={amount(partial ? balance : atHotel)}
                   bold={partial}
                   className={partial ? "text-[#b45309]" : ""}
                 />
@@ -184,7 +187,7 @@ export default function ReceiptDialog({ open, onClose, data }: ReceiptDialogProp
 
             <Row label="Payment method" value={data.paymentMethod || "N/A"} />
             {isDownpayment && (
-              <Row label="Payment terms" value={partial ? "Downpayment" : "Paid in full"} />
+              <Row label="Payment terms" value="Downpayment" />
             )}
             {data.refundedAt && (
               <Row
