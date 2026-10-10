@@ -1314,3 +1314,13 @@ export const devicesApi = {
   trust: (id: string) =>
     apiFetch<{ success: boolean }>(`/auth/devices/${id}/trust`, { method: "POST" }),
 }
+
+// ── Help Center (AI assistant) ────────────────────────────────────────────────
+
+export const helpApi = {
+  ask: (question: string) =>
+    apiFetch<{ answer: string }>("/help/ask", {
+      method: "POST",
+      body: JSON.stringify({ question }),
+    }),
+}

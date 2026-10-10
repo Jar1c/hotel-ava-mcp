@@ -1,6 +1,6 @@
 import { NavLink, Link, useLocation, useNavigate } from "react-router"
 import { useState, useCallback } from "react"
-import { User, LogOut, Settings, CalendarDays, ChevronDown, Bell, CheckCheck, Tag, Clock, Star, ShieldAlert } from "lucide-react"
+import { User, LogOut, Settings, CalendarDays, ChevronDown, Bell, CheckCheck, Tag, Clock, Star, ShieldAlert, LifeBuoy } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import {
@@ -327,6 +327,10 @@ export default function Header() {
                 <DropdownMenuItem onClick={() => navigate("/settings")} className="flex items-center gap-2.5 cursor-pointer">
                   <Settings className="size-4 text-muted" />
                   <span className="text-sm">Settings</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => navigate("/help")} className="flex items-center gap-2.5 cursor-pointer">
+                  <LifeBuoy className="size-4 text-muted" />
+                  <span className="text-sm">Help Center</span>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => setShowLogoutConfirm(true)} className="flex items-center gap-2.5 cursor-pointer">

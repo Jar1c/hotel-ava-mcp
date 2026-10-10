@@ -4,6 +4,7 @@ import Header from "@/components/layout/Header"
 import Footer from "@/components/layout/Footer"
 import BottomNav from "@/components/layout/BottomNav"
 import InactivityGuard from "@/components/InactivityGuard"
+import FloatingHelp from "@/components/FloatingHelp"
 import { useAuth } from "@/contexts/AuthContext"
 import { useToast } from "@/contexts/ToastContext"
 import { authApi } from "@/services/api"
@@ -107,6 +108,7 @@ export default function RootLayout() {
       </main>
       {!isAuthPage && <Footer />}
       {!isAuthPage && <BottomNav />}
+      {!isAuthPage && <FloatingHelp />}
       <InactivityGuard />
     </div>
   )

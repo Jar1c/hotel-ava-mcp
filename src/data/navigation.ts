@@ -18,6 +18,7 @@ export const publicNavItems: NavItem[] = [
   { label: "Rooms & Suites", path: "/rooms" },
   { label: "About", path: "#about" },
   { label: "Contact Us", path: "#contact" },
+  { label: "Help", path: "/help" },
 ]
 
 export const guestNavItems: NavItem[] = [
@@ -25,6 +26,7 @@ export const guestNavItems: NavItem[] = [
   { label: "Rooms & Suites", path: "/rooms" },
   { label: "About", path: "#about" },
   { label: "Contact Us", path: "#contact" },
+  { label: "Help", path: "/help" },
 ]
 
 export const adminNavItems: NavItem[] = [
@@ -44,6 +46,7 @@ export const footerLinkGroups: FooterLinkGroup[] = [
       { label: "Rooms & Suites", path: "/rooms" },
       { label: "About Us", path: "/#about" },
       { label: "Contact Us", path: "/#contact" },
+      { label: "Help Center", path: "/help" },
     ],
   },
   {
