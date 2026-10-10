@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, redirect
+from flask import Flask, request, jsonify
 from flask_cors import CORS
 from supabase import create_client, Client
 from config import SUPABASE_URL, SUPABASE_KEY, SUPABASE_SERVICE_KEY, PAYMONGO_SECRET_KEY, PAYMONGO_BASE_URL
@@ -921,7 +921,6 @@ def track_new_login(user_id):
     res = supabase_admin.table("user_devices").select("*") \
         .eq("user_id", user_id).eq("device_key", device_key).execute()
     device_id = None
-    is_new = False
     trusted = False
     if res.data:
         dev = res.data[0]
@@ -943,7 +942,6 @@ def track_new_login(user_id):
             new_dev["location"] = loc
         inserted = supabase_admin.table("user_devices").insert(new_dev).execute()
         device_id = inserted.data[0]["id"]
-        is_new = True
 
     if trusted:
         return device_id
@@ -1423,7 +1421,7 @@ def get_profile():
                 if not avatar_url:
                     avatar_url = user_meta.get("picture", "") or user_meta.get("avatar_url", "")
                     if avatar_url:
-                        print(f"[profile] found avatar from auth metadata")
+                        print("[profile] found avatar from auth metadata")
                         supabase.table("users").update({"avatar_url": avatar_url, "updated_at": "now()"}).eq("id", user_id).execute()
 
                 # Fill name ONLY when empty or corrupted — never overwrite a system name
@@ -1479,7 +1477,7 @@ def update_profile():
             user_record_check = supabase.table("users").select("name_changed_at").eq("id", user_id).single().execute()
             name_changed_at = (user_record_check.data or {}).get("name_changed_at")
             if name_changed_at:
-                from datetime import datetime, timezone, timedelta
+                from datetime import datetime, timezone
                 last_changed = datetime.fromisoformat(name_changed_at.replace("Z", "+00:00"))
                 now = datetime.now(timezone.utc)
                 days_remaining = 7 - (now - last_changed).days
@@ -2551,6 +2549,8 @@ def _upload_review_image(file_bytes: bytes, content_type: str, user_id: str, ext
             return f"{SUPABASE_URL}/storage/v1/object/public/{bucket}/{path}"
         except Exception as e:
             last_err = e
+    if last_err is None:
+        raise RuntimeError("Review image upload failed without a stored error")
     raise last_err
 
 
@@ -2712,8 +2712,7 @@ def get_rooms():
         rooms = rooms_res.data or []
 
         today = today_str()
-        bookings_res = supabase.table("bookings").select("room_id, status, total_price, check_in, check_out").execute()
-        bookings = bookings_res.data or []
+        bookings = _fetch_bookings_all("room_id, status, total_price, check_in, check_out", exclude_cancelled=False)
 
         room_bookings = {}
         for b in bookings:
@@ -3159,7 +3158,7 @@ def paymongo_refund(raw_payment_intent, amount_php, reason="others", note=None):
                         "amount": centavos,
                         "payment_id": pay_id,
                         "reason": reason,
-                        "notes": (note or f"Hotel Ava refund")[:255],
+                        "notes": (note or "Hotel Ava refund")[:255],
                     }
                 }
             },
@@ -4893,11 +4892,23 @@ def get_bookings():
 
     try:
         limit = request.args.get("limit", type=int)
-        query = supabase.table("bookings").select("*").order("created_at", desc=True)
         if limit:
-            query = query.limit(limit)
-        bookings_res = query.execute()
-        bookings = bookings_res.data or []
+            bookings = supabase.table("bookings").select("*") \
+                .order("created_at", desc=True).limit(limit).execute().data or []
+        else:
+            # Supabase caps a single select at 1000 rows and the admin list
+            # filters client-side — page through so every status tab and the
+            # "N bookings" total see the full history (table is past 1200).
+            bookings = []
+            offset = 0
+            while True:
+                chunk = supabase.table("bookings").select("*") \
+                    .order("created_at", desc=True) \
+                    .range(offset, offset + 999).execute().data or []
+                bookings.extend(chunk)
+                if len(chunk) < 1000:
+                    break
+                offset += 1000
 
         # Get all unique user_ids and room_ids to batch-fetch names
         user_ids = list({b["user_id"] for b in bookings if b.get("user_id")})
@@ -5967,7 +5978,7 @@ def get_guests():
                 print(f"[guests] list_users fallback error: {e}")
 
         # One bookings pass for stats (was two full scans + email scan)
-        bookings = supabase.table("bookings").select("user_id, email, total_price, check_out").execute().data or []
+        bookings = _fetch_bookings_all("user_id, email, total_price, check_out", exclude_cancelled=False)
 
         user_stats = {}
         booking_emails = {}
@@ -6043,7 +6054,7 @@ def _build_dashboard_stats():
 
     # 2 parallel-ish sequential queries (rooms is tiny); drop the wasted guests
     # count that was discarded and hard-coded to 0.
-    all_bookings = supabase_admin.table("bookings").select("status, total_price, check_in, check_out").execute().data or []
+    all_bookings = _fetch_bookings_all("status, total_price, check_in, check_out", exclude_cancelled=False, client=supabase_admin)
     all_rooms = supabase_admin.table("rooms").select("id, available").execute().data or []
 
     total_rooms = len(all_rooms) or 1
@@ -6289,7 +6300,7 @@ def get_monthly_revenue():
         return jsonify({"error": "Unauthorized"}), 401
 
     try:
-        bookings = supabase.table("bookings").select("total_price, check_in").execute().data or []
+        bookings = _fetch_bookings_all("total_price, check_in", exclude_cancelled=False)
         months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
         current_month = datetime.now().month
 
@@ -6313,7 +6324,7 @@ def get_occupancy_data():
         return jsonify({"error": "Unauthorized"}), 401
 
     try:
-        bookings = supabase.table("bookings").select("check_in, check_out, status").execute().data or []
+        bookings = _fetch_bookings_all("check_in, check_out, status", exclude_cancelled=False)
         months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
         now = datetime.now()
         current_month = now.month
@@ -6361,7 +6372,7 @@ def get_seasonal_data():
 
 
 def _build_seasonal_data():
-    bookings = supabase.table("bookings").select("total_price, check_in, status").neq("status", "cancelled").execute().data or []
+    bookings = _fetch_bookings_all("total_price, check_in, status")
     months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
     current_year = datetime.now().year
 
@@ -6395,7 +6406,7 @@ def get_room_performance():
 
 def _build_room_performance():
     rooms = supabase.table("rooms").select("id, type, price").execute().data or []
-    bookings = supabase.table("bookings").select("room_id, total_price, check_in, check_out, status").neq("status", "cancelled").execute().data or []
+    bookings = _fetch_bookings_all("room_id, total_price, check_in, check_out, status")
 
     rooms_by_id = {r["id"]: r for r in rooms}
     type_stats = {}
@@ -6439,7 +6450,7 @@ def get_insights():
 
 def _build_insights():
     rooms = supabase.table("rooms").select("id, type, price").execute().data or []
-    bookings = supabase.table("bookings").select("room_id, total_price, check_in, check_out, status").neq("status", "cancelled").execute().data or []
+    bookings = _fetch_bookings_all("room_id, total_price, check_in, check_out, status")
 
     rooms_by_id = {r["id"]: r for r in rooms}
     total_bookings = len(bookings)
@@ -7044,7 +7055,7 @@ def _build_demand_insights():
         from predictive_analytics import generate_demand_insights
 
         rooms = supabase.table("rooms").select("id, type, price").execute().data or []
-        bookings = supabase.table("bookings").select("room_id, check_in, check_out, status, total_price").neq("status", "cancelled").execute().data or []
+        bookings = _fetch_bookings_all("room_id, check_in, check_out, status, total_price")
 
         insights = generate_demand_insights(bookings, rooms, shared=True)
 
@@ -7172,10 +7183,6 @@ def paymongo_webhook():
         elif event_type == "payment.paid":
             attrs = payload["data"]["attributes"]
             payment_data = attrs.get("data", {}).get("attributes", {})
-
-            # Extract billing info to find the booking
-            billing = payment_data.get("billing", {})
-            billing_name = billing.get("name", "")
 
             # Try to find booking by description (format: "Booking: <booking_id>")
             description = payment_data.get("description", "")

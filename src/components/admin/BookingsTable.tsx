@@ -40,7 +40,7 @@ const statusConfig: Record<DisplayStatus, { label: string; dotColor: string; tex
   "in-house": { label: "In-house", dotColor: "bg-[#2f7d6d]", textColor: "text-[#2f7d6d]" },
 }
 
-const statusFilters: { label: string; value: DisplayStatus | "all" | "refunded" }[] = [
+const statusFilters: { label: string; value: DisplayStatus | "all" | "refunded" | "refunds" }[] = [
   { label: "All", value: "all" },
   { label: "Pending", value: "pending" },
   { label: "Confirmed", value: "confirmed" },
@@ -48,6 +48,7 @@ const statusFilters: { label: string; value: DisplayStatus | "all" | "refunded" 
   { label: "Completed", value: "completed" },
   { label: "Checked Out", value: "checked-out" },
   { label: "Cancelled", value: "cancelled" },
+  { label: "Refunds", value: "refunds" },
   { label: "Refunded", value: "refunded" },
 ]
 
@@ -474,6 +475,7 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
     completed: bookings.filter((b) => b.status === "completed").length,
     "checked-out": bookings.filter((b) => b.status === "checked-out").length,
     cancelled: bookings.filter((b) => b.status === "cancelled").length,
+    refunds: bookings.filter((b) => b.status === "cancelled" && (b.amount_paid ?? 0) > 0 && !b.refunded_at).length,
     refunded: bookings.filter((b) => Boolean(b.refunded_at)).length,
   }
 
@@ -549,7 +551,9 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
                   )}
                 </button>
               ))}
-              {isViewKey(filter) && (
+              {/* "refunds" now has its own tab above — the chip is only for
+                  deep-link views that aren't in the tab bar. */}
+              {isViewKey(filter) && filter !== "refunds" && (
                 <button
                   type="button"
                   onClick={() => setFilter(filter)}

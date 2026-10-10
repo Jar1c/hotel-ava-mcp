@@ -8,7 +8,6 @@ import hotelAvaLogo from "@/assets/images/Hotel Ava logo.png"
 const mainItems = [
   { label: "Dashboard", path: "/admin/dashboard" },
   { label: "Bookings", path: "/admin/bookings" },
-  { label: "Check-in", path: "/admin/bookings?view=arrivals" },
   { label: "Rooms", path: "/admin/rooms" },
   { label: "Guests", path: "/admin/guests" },
   { label: "Calendar", path: "/admin/calendar" },
@@ -39,22 +38,15 @@ export default function AdminSidebar({ onNavigate }: { onNavigate?: () => void }
   const { unreadBookingCount } = useNotifications()
   const navigate = useNavigate()
   const location = useLocation()
-  const view = new URLSearchParams(location.search).get("view")
 
   const handleLogout = async () => {
     await logout()
     navigate("/admin")
   }
 
-  // Query-string links need manual active state — NavLink only matches the path,
-  // which would light up Bookings and Check-in at the same time.
   const itemActive = (item: { path: string }) => {
     const basePath = item.path.split("?")[0]
-    if (location.pathname !== basePath && !location.pathname.startsWith(`${basePath}/`)) return false
-    if (basePath === "/admin/bookings") {
-      return item.path.includes("view=arrivals") ? view === "arrivals" : view !== "arrivals"
-    }
-    return true
+    return location.pathname === basePath || location.pathname.startsWith(`${basePath}/`)
   }
 
   const renderItems = (items: { label: string; path: string }[], withBadge = false) =>
