@@ -724,11 +724,12 @@ export interface WalkInBookingPayload {
   full_name: string
   /** Optional — only links the booking to an existing guest account. */
   email?: string
-  phone?: string
   adults?: number
   children?: number
+  /** Clamped to the room's pet limit (0 when the room isn't pet-friendly). */
+  pets?: number
   special_requests?: string
-  /** True = paid in full at the counter right now. */
+  /** Always true — walk-ins settle in full at the counter. */
   paid_now?: boolean
   payment_method?: string
 }

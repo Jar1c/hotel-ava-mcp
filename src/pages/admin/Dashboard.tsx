@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Link } from "react-router"
-import { ChevronRight, QrCode } from "lucide-react"
+import { ChevronRight, QrCode, UserPlus } from "lucide-react"
 import StatCard from "@/components/admin/StatCard"
 import DashboardInsightsRotator from "@/components/admin/DashboardInsightsRotator"
 import VerifyQrDialog from "@/components/admin/VerifyQrDialog"
+import WalkInBookingDialog from "@/components/admin/WalkInBookingDialog"
 import { Button } from "@/components/ui/button"
 import { SkeletonBlock, SkeletonLine, SkeletonRegion } from "@/components/ui/skeleton"
 import { useMinSkeleton } from "@/hooks/useMinSkeleton"
@@ -40,6 +41,7 @@ export default function Dashboard() {
   const [error, setError] = useState(false)
   const [retryToken, setRetryToken] = useState(0)
   const [verifyOpen, setVerifyOpen] = useState(false)
+  const [walkInOpen, setWalkInOpen] = useState(false)
   const hasDataRef = useRef(false)
 
   const load = useCallback(async () => {
@@ -143,6 +145,14 @@ export default function Dashboard() {
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
         <div className="flex items-center gap-3">
           <h1 className="text-[16px] font-semibold text-ink">Dashboard</h1>
+          <Button
+            type="button"
+            onClick={() => setWalkInOpen(true)}
+            className="!rounded-[8px] gap-2 bg-[#82285f] hover:bg-[#6b1f4b] text-white"
+          >
+            <UserPlus className="h-4 w-4" />
+            New Booking
+          </Button>
           <Button
             type="button"
             variant="outline"
@@ -376,6 +386,14 @@ export default function Dashboard() {
           setVerifyOpen(open)
           if (!open) void load()
         }}
+      />
+
+      {/* Front-desk encoding straight from the dashboard — closing after a
+          create re-reads the summary so arrivals/revenue reflect it. */}
+      <WalkInBookingDialog
+        open={walkInOpen}
+        onClose={() => setWalkInOpen(false)}
+        onCreated={() => void load()}
       />
     </div>
   )
