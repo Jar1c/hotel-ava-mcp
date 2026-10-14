@@ -1,0 +1,231 @@
+import { useEffect, useState } from "react"
+import { Link, useLocation } from "react-router"
+import { motion } from "motion/react"
+import { ArrowRight } from "lucide-react"
+import SearchBar from "@/components/home/SearchBar"
+import AboutSection from "@/components/home/AboutSection"
+import GuestReviews from "@/components/home/GuestReviews"
+import LocationSection from "@/components/home/LocationSection"
+import ImageWithPlaceholder from "@/components/ui/ImageWithPlaceholder"
+import { publicRoomsApi, type PublicRoomData } from "@/services/api"
+import { getCached, setCache } from "@/lib/cache"
+
+const fadeUp = {
+  hidden: { opacity: 0, y: 30 },
+  visible: (i: number) => ({
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.6, ease: [0.22, 1, 0.36, 1] as const, delay: i * 0.15 },
+  }),
+}
+
+const cardContainer = {
+  hidden: {},
+  visible: {
+    transition: { staggerChildren: 0.15 },
+  },
+}
+
+const cardItem = {
+  hidden: { opacity: 0, y: 40 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.5, ease: [0.22, 1, 0.36, 1] as const },
+  },
+}
+
+export default function Home() {
+  const { hash } = useLocation()
+  const [featuredRooms, setFeaturedRooms] = useState<PublicRoomData[]>([])
+  const [roomsLoading, setRoomsLoading] = useState(true)
+
+  useEffect(() => {
+    if (hash) {
+      const el = document.getElementById(hash.slice(1))
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth" })
+      }
+      return
+    }
+    window.scrollTo(0, 0)
+  }, [hash])
+
+  // Fetch rooms from database
+  useEffect(() => {
+    const cached = getCached<PublicRoomData[]>("home:featured-rooms")
+    if (cached) {
+      setFeaturedRooms(cached.slice(0, 3))
+      setRoomsLoading(false)
+      return
+    }
+    publicRoomsApi.getAll()
+      .then((rooms) => {
+        setCache("home:featured-rooms", rooms)
+        setFeaturedRooms(rooms.slice(0, 3))
+      })
+      .catch(() => {})
+      .finally(() => setRoomsLoading(false))
+  }, [])
+
+  return (
+    <div>
+      {/* Hero + Search */}
+      <section className="relative" style={{ marginLeft: "calc(-50vw + 50%)", marginRight: "calc(-50vw + 50%)", minHeight: "60vh" }}>
+        <div
+          className="absolute inset-0 bg-cover bg-center bg-no-repeat bg-linear-to-br from-primary to-secondary"
+          style={{
+            backgroundImage: "url('https://hotel-ava.com/wp-content/uploads/2025/07/HAMA-RM_19.png')",
+          }}
+        >
+          <div className="absolute inset-0 bg-scrim/60" />
+        </div>
+        <div className="relative px-base text-center flex items-center justify-center pb-16 md:pb-[120px]" style={{ paddingTop: "100px", minHeight: "60vh" }}>
+          <div className="max-w-container mx-auto">
+            <motion.p
+              className="typo-caption uppercase tracking-widest mb-md"
+              style={{ color: "#D4A853" }}
+              custom={0}
+              initial="hidden"
+              animate="visible"
+              variants={fadeUp}
+            >
+              Welcome to Hotel Ava
+            </motion.p>
+            <motion.h1
+              className="font-display font-bold mb-md max-w-3xl mx-auto"
+              style={{ fontSize: "clamp(3rem, 6.5vw, 5.5rem)", lineHeight: 1.1, letterSpacing: "-1px", fontStyle: "italic" }}
+              custom={1}
+              initial="hidden"
+              animate="visible"
+              variants={fadeUp}
+            >
+              <span className="text-on-primary">Dare To Be Different</span>{" "}
+              <span className="text-[#D4A853]">here</span>
+            </motion.h1>
+            <motion.p
+              className="text-on-primary/80 max-w-2xl mx-auto mb-lg typo-body-md"
+              custom={2}
+              initial="hidden"
+              animate="visible"
+              variants={fadeUp}
+            >
+              Your prime drive-in hotel in the heart of Malate, Manila. Experience unique open-door concepts with private porches, themed rooms, and warm Filipino hospitality.
+            </motion.p>
+          </div>
+        </div>
+        {/* SearchBar — overlaps hero bottom edge on md+; sits in normal flow on mobile */}
+        <div className="relative w-full px-base z-10 md:absolute md:bottom-0 md:left-1/2 md:-translate-x-1/2 md:translate-y-1/2">
+          <div className="mx-auto" style={{ maxWidth: "950px" }}>
+            <SearchBar />
+          </div>
+        </div>
+      </section>
+
+      {/* Featured Rooms */}
+      <section id="rooms" className="px-base pt-14 md:pt-[100px] pb-section">
+        <div className="mx-auto" style={{ maxWidth: "var(--container-max)" }}>
+          <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-md mb-xl">
+            <div>
+              <motion.p
+                className="typo-caption uppercase tracking-widest text-primary mb-sm"
+                initial={{ opacity: 0, y: 10 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.4 }}
+              >
+                Featured Rooms
+              </motion.p>
+              <motion.h2
+                className="font-display italic text-ink"
+                style={{ fontSize: "clamp(2rem, 3.5vw, 2.75rem)", fontWeight: 600, lineHeight: 1.15 }}
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.5, delay: 0.1 }}
+              >
+                Our Accommodations
+              </motion.h2>
+            </div>
+            <motion.div
+              initial={{ opacity: 0, x: 10 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.4, delay: 0.2 }}
+            >
+              <Link
+                to="/rooms"
+                className="group inline-flex items-center gap-1.5 text-muted hover:text-primary transition-colors uppercase typo-caption tracking-widest"
+              >
+                View All Rooms
+              </Link>
+            </motion.div>
+          </div>
+
+          {roomsLoading ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-xl">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="animate-pulse">
+                  <div className="aspect-[3/4] bg-gray-200 rounded-[10px] mb-base" />
+                  <div className="h-5 bg-gray-200 rounded w-3/4 mb-2" />
+                  <div className="h-3.5 bg-gray-200 rounded w-full mb-1.5" />
+                  <div className="h-3.5 bg-gray-200 rounded w-2/3 mb-3" />
+                  <div className="flex items-center justify-between">
+                    <div className="h-5 bg-gray-200 rounded w-24" />
+                    <div className="h-4 bg-gray-200 rounded w-4" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <motion.div
+              className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-xl"
+              variants={cardContainer}
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true, margin: "-100px" }}
+            >
+              {featuredRooms.map((room) => (
+                <motion.div key={room.id} variants={cardItem}>
+                  <Link to={`/rooms/${room.id}`} className="group block">
+                    <div className="relative aspect-[3/4] overflow-hidden rounded-[10px] mb-base">
+                      <ImageWithPlaceholder
+                        src={room.images?.[0] || ""}
+                        alt={room.name}
+                        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                      />
+                      {room.type === "suite" && (
+                        <span className="absolute top-3 left-3 bg-ink/60 backdrop-blur-sm text-on-primary typo-badge uppercase px-2 py-0.5 rounded-[4px]">
+                          Suite
+                        </span>
+                      )}
+                    </div>
+                    <h3 className="font-display italic text-ink group-hover:text-primary transition-colors mb-xs" style={{ fontSize: "1.25rem", fontWeight: 500 }}>
+                      {room.name}
+                    </h3>
+                    <p className="typo-body-sm text-muted mb-sm line-clamp-2">{room.description}</p>
+                    <div className="flex items-center justify-between">
+                      <p className="typo-title-md text-ink">
+                        ₱{room.price.toLocaleString()} <span className="typo-caption text-muted">/night</span>
+                      </p>
+                      <ArrowRight className="h-4 w-4 text-muted group-hover:text-primary transition-all group-hover:translate-x-1" />
+                    </div>
+                  </Link>
+                </motion.div>
+              ))}
+            </motion.div>
+          )}
+        </div>
+      </section>
+
+      {/* About Section */}
+      <AboutSection />
+
+      {/* Guest Reviews */}
+      <GuestReviews />
+
+      {/* Location */}
+      <LocationSection />
+    </div>
+  )
+}

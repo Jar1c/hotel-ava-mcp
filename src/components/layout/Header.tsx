@@ -1,0 +1,394 @@
+import { NavLink, Link, useLocation, useNavigate } from "react-router"
+import { useState, useCallback } from "react"
+import { User, LogOut, Settings, CalendarDays, ChevronDown, Bell, CheckCheck, Tag, Clock, Star, ShieldAlert, LifeBuoy } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { useAuth } from "@/contexts/AuthContext"
+import { useNotifications } from "@/contexts/NotificationContext"
+import { useToast } from "@/contexts/ToastContext"
+import { publicNavItems, guestNavItems } from "@/data/navigation"
+import hotelAvaLogo from "@/assets/images/Hotel Ava logo.png"
+import { formatDistanceToNow } from "date-fns"
+import GoogleSignInModal from "@/components/GoogleSignInModal"
+import { useBellRing } from "@/hooks/useBellRing"
+import { getDisplayAvatar } from "@/lib/avatar"
+
+const notifTypeStyles: Record<string, { bg: string; icon: React.ReactNode }> = {
+  booking: { bg: "bg-gray-100 dark:bg-surface-strong", icon: <CalendarDays className="size-4 text-ink" /> },
+  review: { bg: "bg-gray-100 dark:bg-surface-strong", icon: <Star className="size-4 text-star-rating" /> },
+  promo: { bg: "bg-gray-100 dark:bg-surface-strong", icon: <Tag className="size-4 text-ink" /> },
+  reminder: { bg: "bg-gray-100 dark:bg-surface-strong", icon: <Clock className="size-4 text-ink" /> },
+  system: { bg: "bg-gray-100 dark:bg-surface-strong", icon: <Settings className="size-4 text-ink" /> },
+}
+
+export default function Header() {
+  const { isAuthenticated, user, logout, isAdmin, loading: authLoading } = useAuth()
+  const { notifications, unreadCount, loading, fetchNotifications, markRead, markAllRead, trustDevice, openNewLoginDialog } = useNotifications()
+  const { toast } = useToast()
+  const location = useLocation()
+  const navigate = useNavigate()
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
+  const [isLoggingOut, setIsLoggingOut] = useState(false)
+  const [dropdownOpen, setDropdownOpen] = useState(false)
+  const [showGoogleModal, setShowGoogleModal] = useState(false)
+  useBellRing()
+
+  const handleDropdownOpenChange = useCallback((open: boolean) => {
+    setDropdownOpen(open)
+    if (open) {
+      fetchNotifications()
+    }
+  }, [fetchNotifications])
+
+  const handleNotifClick = useCallback((notif: typeof notifications[0]) => {
+    if (!notif.read) {
+      markRead(notif.id)
+    }
+    if (notif.type === "review") {
+      // "How was your stay?" → straight to the booking that needs a review
+      setDropdownOpen(false)
+      navigate(isAdmin ? "/admin/reviews" : "/my-bookings")
+      return
+    }
+    if (notif.booking_id || notif.type === "booking") {
+      setDropdownOpen(false)
+      navigate(isAdmin ? "/admin/bookings" : "/my-bookings")
+    }
+  }, [markRead, navigate, isAdmin])
+
+  const formatTime = (dateStr: string) => {
+    try {
+      return formatDistanceToNow(new Date(dateStr), { addSuffix: true })
+    } catch {
+      return "just now"
+    }
+  }
+
+  const handleSignOut = async () => {
+    setIsLoggingOut(true)
+    await logout()
+    setIsLoggingOut(false)
+    setShowLogoutConfirm(false)
+    toast({ title: "Signed out", description: "You have been logged out successfully.", variant: "success" })
+    navigate("/login")
+  }
+
+  const navItems = !isAuthenticated ? publicNavItems : guestNavItems
+
+  const handleAnchorClick = (e: React.MouseEvent<HTMLAnchorElement>, path: string) => {
+    e.preventDefault()
+    if (location.pathname === "/") {
+      const id = path.slice(1)
+      const el = document.getElementById(id)
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth" })
+      }
+      return
+    }
+    navigate("/" + path)
+  }
+
+  const handleHomeClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    if (location.pathname === "/") {
+      e.preventDefault()
+      window.scrollTo({ top: 0, behavior: "smooth" })
+    }
+  }
+
+  const displayName = (user?.name || "").trim()
+  const hasRealName = !!displayName && displayName.toLowerCase() !== "guest" && !displayName.includes("@")
+  const emailLocal = (user?.email || "").split("@")[0].trim()
+  // Prefer real name → email local → "Account". Never "…", never "Guest".
+  const identityLabel = hasRealName ? displayName : (emailLocal || (isAuthenticated ? "Account" : ""))
+  const canShowIdentity = hasRealName || !!(user?.email || "").trim()
+  // Skeleton only before we have anything to render — never once identity exists
+  const showAuthSkeleton = authLoading && !user && !canShowIdentity
+
+  return (
+    <header className="sticky top-[var(--capstone-h,0px)] z-50 w-full border-b border-hairline bg-white dark:bg-surface-soft dark:border-hairline/50">
+      <div className="flex h-16 md:h-[72px] w-full items-center px-5 md:px-8 gap-lg">
+        <Link to="/" className="flex items-center gap-2.5 mr-lg md:mr-xl flex-shrink-0">
+          <img src={hotelAvaLogo} alt="Hotel Ava" className="h-10 md:h-12 w-auto mix-blend-multiply dark:mix-blend-normal" />
+          <span className="font-display font-bold text-lg text-ink hidden sm:block">Hotel Ava</span>
+        </Link>
+
+        <nav className="hidden md:flex items-center justify-end flex-1 gap-lg">
+          {navItems.map((item) =>
+            item.path.startsWith("#") ? (
+              <a
+                key={item.path}
+                href={item.path}
+                onClick={(e) => handleAnchorClick(e, item.path)}
+                className="typo-nav-link relative px-xs py-sm text-ink hover:text-primary transition-colors duration-200 group"
+              >
+                {item.label}
+                <span className="absolute bottom-0 left-0 h-0.5 w-0 bg-primary transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:w-full" />
+              </a>
+            ) : (
+              <NavLink
+                key={item.path}
+                to={item.path}
+                onClick={item.path === "/" ? handleHomeClick : undefined}
+                className={({ isActive }) =>
+                  `typo-nav-link relative px-xs py-sm transition-colors duration-200 hover:text-primary group ${
+                    isActive ? "text-primary" : "text-ink"
+                  }`
+                }
+              >
+                {item.label}
+                <span className="absolute bottom-0 left-0 h-0.5 w-0 bg-primary transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:w-full" />
+              </NavLink>
+            )
+          )}
+        </nav>
+
+        <div className="flex items-center gap-sm ml-auto">
+                {showAuthSkeleton ? (
+            <div className="flex items-center gap-2.5 rounded-full bg-[#f0f1f3] dark:bg-surface-strong pl-1 pr-4 py-1">
+              <div className="size-9 rounded-full bg-gray-300 dark:bg-surface-strong animate-pulse" />
+              <div className="flex flex-col gap-1.5">
+                <div className="h-3.5 w-24 bg-gray-300 dark:bg-surface-strong rounded animate-pulse" />
+                <div className="h-2.5 w-28 bg-gray-300 dark:bg-surface-strong rounded animate-pulse" />
+              </div>
+            </div>
+          ) : !isAuthenticated ? (
+            <Button
+              onClick={() => setShowGoogleModal(true)}
+              variant="default"
+              className="bg-primary text-on-primary hover:bg-primary-active px-5 py-2.5 text-sm cursor-pointer"
+            >
+              Sign In
+            </Button>
+          ) : (
+            <>
+              {/* Notification bell */}
+              <DropdownMenu open={dropdownOpen} onOpenChange={handleDropdownOpenChange}>
+                <DropdownMenuTrigger data-notification-bell aria-label="Notifications" className="relative flex size-9 items-center justify-center rounded-full bg-[#f0f1f3] dark:bg-surface-strong hover:bg-[#e2e4e8] dark:hover:bg-surface-strong text-[#6b7280] dark:text-muted transition-all duration-200 cursor-pointer">
+                  <Bell className="size-[18px]" />
+                  {unreadCount > 0 && (
+                    <span data-notification-badge className="absolute -top-0.5 -right-0.5 flex items-center justify-center size-4 rounded-full bg-[#A4423A] text-white text-[10px] font-bold">
+                      {unreadCount > 9 ? "9+" : unreadCount}
+                    </span>
+                  )}
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" sideOffset={8} positionMethod="fixed" className="w-80 !rounded-[12px] p-0 overflow-hidden origin-top-right dark:bg-surface-soft dark:border-hairline/50">
+                  {/* Header */}
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-hairline/50">
+                    <span className="text-sm font-semibold text-ink dark:text-ink-dark">Notifications</span>
+                    {unreadCount > 0 && (
+                      <button onClick={() => markAllRead()} className="text-xs text-primary hover:text-primary-active cursor-pointer flex items-center gap-1">
+                        <CheckCheck className="size-3.5" />
+                        Mark all read
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Notification list */}
+                  <div className="max-h-80 overflow-y-auto overscroll-contain">
+                    {notifications.length === 0 && loading ? (
+                      <div className="divide-y divide-gray-50">
+                        {[1, 2, 3].map((i) => (
+                          <div key={i} className="flex items-start gap-3 px-4 py-3">
+                            <div className="shrink-0 w-9 h-9 rounded-full bg-gray-200 relative overflow-hidden">
+                              <div className="absolute inset-0 -translate-x-full animate-[shimmer_1.5s_infinite] bg-gradient-to-r from-transparent via-white/60 to-transparent" />
+                            </div>
+                            <div className="flex-1 space-y-2">
+                              <div className="h-3.5 w-24 rounded bg-gray-200 relative overflow-hidden">
+                                <div className="absolute inset-0 -translate-x-full animate-[shimmer_1.5s_infinite] bg-gradient-to-r from-transparent via-white/60 to-transparent" />
+                              </div>
+                              <div className="h-3 w-48 rounded bg-gray-200 relative overflow-hidden">
+                                <div className="absolute inset-0 -translate-x-full animate-[shimmer_1.5s_infinite] bg-gradient-to-r from-transparent via-white/60 to-transparent" style={{ animationDelay: "0.15s" }} />
+                              </div>
+                              <div className="h-2.5 w-16 rounded bg-gray-100 relative overflow-hidden">
+                                <div className="absolute inset-0 -translate-x-full animate-[shimmer_1.5s_infinite] bg-gradient-to-r from-transparent via-white/60 to-transparent" style={{ animationDelay: "0.3s" }} />
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : notifications.length === 0 ? (
+                      <div className="py-8 text-center text-sm text-muted">
+                        No notifications yet
+                      </div>
+                    ) : (
+                      notifications.map((notif) => (
+                        <div
+                          key={notif.id}
+                          onClick={() => handleNotifClick(notif)}
+                          className={`flex items-start gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-surface-strong transition-colors cursor-pointer border-b border-gray-50 dark:border-hairline/50 last:border-b-0 ${!notif.read ? "bg-primary/5" : ""}`}
+                        >
+                          {/* Type icon */}
+                          <div className={`shrink-0 w-9 h-9 rounded-full flex items-center justify-center ${notif.device_id ? "bg-[#A4423A]/10" : notifTypeStyles[notif.type]?.bg || "bg-gray-100"}`}>
+                            {notif.device_id ? (
+                              <ShieldAlert className="size-4 text-[#A4423A]" />
+                            ) : (
+                              notifTypeStyles[notif.type]?.icon || <Bell className="size-4 text-ink" />
+                            )}
+                          </div>
+
+                          {/* Content */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-medium text-ink truncate">{notif.title}</span>
+                              {!notif.read && (
+                                <span className="shrink-0 size-2 rounded-full bg-primary" />
+                              )}
+                            </div>
+                            <p className="text-xs text-muted mt-0.5">{notif.message}</p>
+                            <span className="text-[11px] text-muted-soft mt-1 block">{formatTime(notif.created_at)}</span>
+                            {notif.device_id && (
+                              <div className="flex items-center gap-2 mt-2" onClick={(e) => e.stopPropagation()}>
+                                <button
+                                  onClick={() => { void trustDevice(notif); setDropdownOpen(false) }}
+                                  className="rounded-[6px] bg-primary text-white px-2.5 py-1 text-xs font-medium hover:bg-primary-active transition-colors cursor-pointer"
+                                >
+                                  This was me
+                                </button>
+                                <button
+                                  onClick={() => { markRead(notif.id); setDropdownOpen(false); openNewLoginDialog(notif) }}
+                                  className="rounded-[6px] border border-hairline px-2.5 py-1 text-xs font-medium text-ink hover:bg-gray-50 transition-colors cursor-pointer"
+                                >
+                                  Not you?
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  {/* Footer */}
+                  <div className="border-t border-gray-100 dark:border-hairline/50 px-4 py-2.5">
+                    <button
+                      onClick={() => { setDropdownOpen(false); navigate(isAdmin ? "/admin/bookings" : "/my-bookings") }}
+                      className="w-full text-center text-xs text-primary hover:text-primary-active font-medium cursor-pointer"
+                    >
+                      View all notifications
+                    </button>
+                  </div>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+            <DropdownMenu modal={false}>
+              <DropdownMenuTrigger className="flex items-center gap-2.5 rounded-full bg-[#f0f1f3] dark:bg-surface-strong pl-1 pr-3 py-1 cursor-pointer hover:bg-[#e2e4e8] dark:hover:bg-surface-strong transition-all duration-200">
+          {showAuthSkeleton ? (
+                  <>
+                    <div className="size-9 rounded-full bg-gray-200 dark:bg-surface-strong animate-pulse" />
+                    <div className="flex flex-col items-start gap-1.5">
+                      <div className="h-3.5 w-24 bg-gray-200 dark:bg-surface-strong rounded animate-pulse" />
+                      <div className="h-2.5 w-28 bg-gray-200 dark:bg-surface-strong rounded animate-pulse" />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <Avatar className="size-9">
+                      <AvatarImage src={getDisplayAvatar(user?.avatar, user?.email || "user") || undefined} />
+                      <AvatarFallback className="bg-gray-200">
+                        <svg className="size-full text-gray-400" viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+                        </svg>
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex flex-col items-start">
+                      <div className="flex items-center gap-1">
+                        <span className="text-sm font-semibold text-ink leading-tight">{identityLabel || "Account"}</span>
+                        <ChevronDown className="size-3.5 text-muted" />
+                      </div>
+                      <span className="text-[11px] text-muted leading-tight">{user?.email || ""}</span>
+                    </div>
+                  </>
+                )}
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="center" className="w-60 !rounded-[6px] dark:bg-surface-soft dark:border-hairline/50" positionMethod="fixed" style={{ transform: "translateX(-70px)" }}>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => navigate("/profile")} className="flex items-center gap-2.5 cursor-pointer">
+                  <User className="size-4 text-muted" />
+                  <span className="text-sm">Profile</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => navigate("/my-bookings")} className="flex items-center gap-2.5 cursor-pointer">
+                  <CalendarDays className="size-4 text-muted" />
+                  <span className="text-sm">My Bookings</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => navigate(isAdmin ? "/admin/reviews" : "/my-reviews")}
+                  className="flex items-center gap-2.5 cursor-pointer"
+                >
+                  <Star className="size-4 text-muted" />
+                  <span className="text-sm">{isAdmin ? "Reviews" : "My Reviews"}</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => navigate("/settings")} className="flex items-center gap-2.5 cursor-pointer">
+                  <Settings className="size-4 text-muted" />
+                  <span className="text-sm">Settings</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => navigate("/help")} className="flex items-center gap-2.5 cursor-pointer">
+                  <LifeBuoy className="size-4 text-muted" />
+                  <span className="text-sm">Help Center</span>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setShowLogoutConfirm(true)} className="flex items-center gap-2.5 cursor-pointer">
+                  <LogOut className="size-4 text-muted" />
+                  <span className="text-sm">Sign Out</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Logout Confirmation Modal */}
+      {showLogoutConfirm && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 animate-fade-in" onClick={() => !isLoggingOut && setShowLogoutConfirm(false)}>
+          <div
+            className="bg-white dark:bg-surface-soft rounded-[16px] shadow-lg p-8 text-center animate-scale-in relative overflow-visible"
+            style={{ width: "100%", maxWidth: "360px" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Close X button */}
+            <button
+              type="button"
+              onClick={() => !isLoggingOut && setShowLogoutConfirm(false)}
+              aria-label="Close"
+              className="absolute top-3 right-3 w-8 h-8 flex items-center justify-center rounded-full text-muted hover:text-ink hover:bg-gray-100 dark:hover:bg-surface transition-colors cursor-pointer z-10"
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+
+            <h2 className="text-lg font-semibold text-ink mb-2 mt-2">Sign Out</h2>
+            <p className="text-sm text-muted mb-7">Are you sure you want to sign out? You'll be redirected to the login page.</p>
+
+            <div className="flex gap-3">
+              <Button
+                onClick={() => setShowLogoutConfirm(false)}
+                disabled={isLoggingOut}
+                className="flex-1 py-2.5 text-sm font-medium !rounded-[8px] bg-gray-100 dark:bg-surface-strong text-ink hover:bg-gray-200 dark:hover:bg-surface-strong cursor-pointer"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSignOut}
+                disabled={isLoggingOut}
+                className="flex-1 py-2.5 text-sm font-medium !rounded-[8px] bg-primary text-on-primary hover:bg-primary-active cursor-pointer"
+              >
+                {isLoggingOut ? "Signing out…" : "Sign Out"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <GoogleSignInModal open={showGoogleModal} onClose={() => setShowGoogleModal(false)} />
+    </header>
+  )
+}

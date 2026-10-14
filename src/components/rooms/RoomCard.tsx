@@ -1,0 +1,239 @@
+import { Link } from "react-router"
+import { Star, Users, Wifi, Wind, Wine, ConciergeBell, Building2, BedDouble, TreePine, Coffee, Tv, Monitor, Waves, Fence, Bath, CookingPot, Sofa, UtensilsCrossed, Mountain, Sunrise, Shirt, Sunset, UserCheck, Eye, Lock, Baby, Sparkles, Music, Droplets, Tag, Car } from "lucide-react"
+import type { Room } from "@/data/rooms"
+import ImageWithPlaceholder from "@/components/ui/ImageWithPlaceholder"
+import { getRoomDiscount, type DiscountRoom } from "@/lib/discountEngine"
+import { reasonWithUntil } from "@/services/discountService"
+import { DAY_USE_DURATIONS, dayUseRate } from "@/lib/roomPricing"
+import { formatRoomCapacity } from "@/lib/capacity"
+import type { RoomQuote } from "@/services/api"
+
+interface RoomFilters {
+  stayType?: string
+  checkIn?: string
+  checkOut?: string
+  startTime?: string
+  duration?: string
+  adults?: number
+  children?: number
+  pets?: number
+}
+
+/** A scheduled offer the admin switched on, resolved for one room. */
+export interface RoomOfferDiscount {
+  percent: number
+  price: number
+  original: number
+  /** Offer display name (e.g. "November Deluxe Promo"). */
+  reason?: string
+  /** Offer validity end - drives the "until Nov 30" suffix. */
+  validTo?: string
+}
+
+interface RoomCardProps {
+  room: Room
+  filters?: RoomFilters
+  discountRooms?: DiscountRoom[]
+  isApproved?: (eventRoomTypeKey: string) => boolean
+  /** Active scheduled offer - shown without the holiday approval gate. */
+  offerDiscount?: RoomOfferDiscount | null
+  /** Server-computed price for the current search dates. When present it is
+   *  the single source of truth (offer, approved holiday, or full rate). */
+  quote?: RoomQuote | null
+}
+
+const amenityIcons: Record<string, React.ReactNode> = {
+  "Free WiFi": <Wifi className="h-3 w-3" />,
+  "Air Conditioning": <Wind className="h-3 w-3" />,
+  "Mini Bar": <Wine className="h-3 w-3" />,
+  "Room Service": <ConciergeBell className="h-3 w-3" />,
+  "City View": <Building2 className="h-3 w-3" />,
+  "King Bed": <BedDouble className="h-3 w-3" />,
+  "Queen Bed": <BedDouble className="h-3 w-3" />,
+  "Extra Bed": <BedDouble className="h-3 w-3" />,
+  "Garden View": <TreePine className="h-3 w-3" />,
+  "Coffee Maker": <Coffee className="h-3 w-3" />,
+  "Breakfast": <Coffee className="h-3 w-3" />,
+  "Flat-screen TV": <Tv className="h-3 w-3" />,
+  "Smart TV": <Tv className="h-3 w-3" />,
+  "Work Desk": <Monitor className="h-3 w-3" />,
+  "Ocean View": <Waves className="h-3 w-3" />,
+  "Pool": <Waves className="h-3 w-3" />,
+  "Private Pool": <Waves className="h-3 w-3" />,
+  "Beach Access": <Waves className="h-3 w-3" />,
+  "Private Terrace": <Fence className="h-3 w-3" />,
+  "Private Balcony": <Fence className="h-3 w-3" />,
+  "Jacuzzi": <Bath className="h-3 w-3" />,
+  "Premium Toiletries": <Bath className="h-3 w-3" />,
+  "Marble Bathroom": <Bath className="h-3 w-3" />,
+  "Kitchenette": <CookingPot className="h-3 w-3" />,
+  "Living Area": <Sofa className="h-3 w-3" />,
+  "Dining Table": <UtensilsCrossed className="h-3 w-3" />,
+  "Mountain View": <Mountain className="h-3 w-3" />,
+  "Natural Light": <Sunrise className="h-3 w-3" />,
+  "Walk-in Closet": <Shirt className="h-3 w-3" />,
+  "Laundry": <Shirt className="h-3 w-3" />,
+  "Rooftop Terrace": <Sunset className="h-3 w-3" />,
+  "Butler": <UserCheck className="h-3 w-3" />,
+  "Panoramic View": <Eye className="h-3 w-3" />,
+  "Personal Safe": <Lock className="h-3 w-3" />,
+  "Baby Cot": <Baby className="h-3 w-3" />,
+  "Concierge": <ConciergeBell className="h-3 w-3" />,
+  "Spa Access": <Sparkles className="h-3 w-3" />,
+  "Hot & Cold Shower": <Droplets className="h-3 w-3" />,
+  "Hairdryer": <Wind className="h-3 w-3" />,
+  "Personal Care Kit": <Sparkles className="h-3 w-3" />,
+  "Private Garage": <Building2 className="h-3 w-3" />,
+  "Parking": <Car className="h-3 w-3" />,
+  "KTV": <Music className="h-3 w-3" />,
+  "Cable TV": <Tv className="h-3 w-3" />,
+}
+
+export default function RoomCard({ room, filters, discountRooms, isApproved, offerDiscount, quote }: RoomCardProps) {
+  const discount = getRoomDiscount(discountRooms || [], room.id)
+  // The server quote wins when we have one: it already resolved live offer vs
+  // approved holiday vs full rate for the search dates, in the same math
+  // create_booking charges. Without a quote (still loading, or fetch failed)
+  // fall back to the client-side paths: an activated scheduled offer counts
+  // as the approval, so it does not need the holiday-promo approval gate.
+  const showDiscount = quote
+    ? quote.discount
+      ? {
+          discountPercent: quote.discount.percent,
+          discountedPrice: quote.rate,
+          originalPrice: quote.base_rate,
+          reason: quote.discount.name || "Limited-time offer",
+          validTo: quote.discount.validTo ?? undefined,
+        }
+      : null
+    : offerDiscount
+      ? {
+          discountPercent: offerDiscount.percent,
+          discountedPrice: offerDiscount.price,
+          originalPrice: offerDiscount.original,
+          reason: offerDiscount.reason || "Limited-time offer",
+          validTo: offerDiscount.validTo,
+        }
+      : discount && isApproved && isApproved(discount.eventRoomTypeKey)
+        ? discount
+        : null
+
+  const detailUrl = (() => {
+    const params = new URLSearchParams()
+    if (filters?.stayType) params.set("stayType", filters.stayType)
+    if (filters?.checkIn) params.set("checkIn", filters.checkIn)
+    if (filters?.checkOut) params.set("checkOut", filters.checkOut)
+    if (filters?.startTime) params.set("startTime", filters.startTime)
+    if (filters?.duration) params.set("duration", filters.duration)
+    if (filters?.adults && filters.adults > 0) params.set("adults", String(filters.adults))
+    if (filters?.children && filters.children > 0) params.set("children", String(filters.children))
+    if (filters?.pets && filters.pets > 0) params.set("pets", String(filters.pets))
+    const qs = params.toString()
+    return `/rooms/${room.id}${qs ? `?${qs}` : ""}`
+  })()
+
+  return (
+    <Link to={detailUrl} className="group block h-full">
+      <div className="bg-canvas rounded-lg hover:shadow-card-hover transition-all overflow-hidden flex flex-col h-full">
+        <div className="relative overflow-hidden aspect-[16/9]">
+          <ImageWithPlaceholder
+            src={room.images[0]}
+            alt={room.name}
+            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+          />
+          {room.featured && (
+            <span className="absolute top-3 left-3 bg-secondary/80 backdrop-blur-sm text-on-primary typo-badge uppercase px-2 py-0.5 rounded-[4px] tracking-wide">
+              Featured
+            </span>
+          )}
+          {showDiscount && (
+            <span className="absolute top-3 left-3 bg-[#A4423A] backdrop-blur-sm text-white typo-badge uppercase px-2 py-0.5 rounded-[4px] tracking-wide flex items-center gap-1">
+              <Tag className="h-3 w-3" />
+              {showDiscount.discountPercent}% OFF
+            </span>
+          )}
+          {room.rating != null && (
+            <div className="absolute bottom-3 right-3 bg-canvas/80 backdrop-blur-sm px-2.5 py-1 rounded-full flex items-center gap-1 shadow-sm">
+              <Star className="h-3 w-3 fill-star-rating text-star-rating" />
+              <span className="typo-caption-sm text-ink font-semibold">{room.rating}</span>
+              {room.reviews != null && (
+                <span className="typo-caption-sm text-muted">({room.reviews})</span>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="p-3 flex flex-col gap-1.5 flex-1">
+          {/* Name stays on one line; the capacity chip drops to its own row
+              when it no longer fits beside the name. */}
+          <div className="flex flex-wrap items-start justify-between gap-x-2 gap-y-0.5">
+            <h3 className="typo-title-md font-bold text-ink leading-tight group-hover:text-primary transition-colors whitespace-nowrap">
+              {room.name}
+            </h3>
+            {(() => {
+              const capacity = formatRoomCapacity(room)
+              if (!capacity) return null
+              return (
+                <div className="flex items-start gap-1 text-muted">
+                  <Users className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                  <span className="typo-caption-sm font-medium">{capacity}</span>
+                </div>
+              )
+            })()}
+          </div>
+
+          <p className="typo-caption-sm uppercase tracking-wider text-muted">
+            {room.type}
+          </p>
+
+          <div className="flex flex-col gap-0.5 mt-auto pt-1 mb-2">
+            {(() => {
+              const visible = room.amenities.slice(0, 5)
+              const remainder = room.amenities.length > 5 ? room.amenities.length - 5 : 0
+              const rows = [
+                { items: visible.slice(0, 2), align: "justify-start" as const },
+                { items: visible.slice(2, 4), align: "justify-start" as const },
+                { items: visible.slice(4, 5), align: "justify-start" as const },
+              ]
+              return rows.map((row, ri) =>
+                row.items.length > 0 ? (
+                  <div key={ri} className={`flex items-center gap-1 ${row.align}`}>
+                    {row.items.map((amenity) => (
+                      <span key={amenity} className="inline-flex items-center gap-1 bg-surface-soft px-1.5 py-0.5 rounded-full text-[11px] text-body leading-none">
+                        {amenityIcons[amenity] || <Sparkles className="h-2.5 w-2.5" />}
+                        <span>{amenity}</span>
+                      </span>
+                    ))}
+                    {ri === 2 && remainder > 0 && (
+                      <span className="text-[11px] text-muted leading-none ml-0.5">+{remainder}</span>
+                    )}
+                  </div>
+                ) : null
+              )
+            })()}
+          </div>
+
+          <div className="flex items-baseline gap-1">
+            {showDiscount ? (
+              <>
+                <span className="text-[#A4423A] font-bold typo-display-sm">&#x20B1;{showDiscount.discountedPrice.toLocaleString()}</span>
+                <span className="typo-caption-sm text-muted line-through">&#x20B1;{room.price.toLocaleString()}</span>
+              </>
+            ) : (
+              <span className="text-secondary font-bold typo-display-sm">&#x20B1;{room.price.toLocaleString()}</span>
+            )}
+            <span className="typo-caption-sm text-muted">/ night</span>
+          </div>
+          <p className="typo-caption-sm text-muted tabular-nums">
+            Day use: {DAY_USE_DURATIONS
+              .map((h) => `${h}h ₱${dayUseRate(room, h, showDiscount?.discountedPrice).toLocaleString()}`)
+              .join(" · ")}
+          </p>
+          {showDiscount?.reason && (
+            <p className="typo-caption-sm text-muted">{reasonWithUntil(showDiscount.reason, showDiscount.validTo)}</p>
+          )}
+        </div>
+      </div>
+    </Link>
+  )
+}

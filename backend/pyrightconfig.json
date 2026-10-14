@@ -1,0 +1,18 @@
+{
+  "typeCheckingMode": "basic",
+  "reportMissingTypeStubs": "none",
+
+  // Supabase/DB responses are untyped JSON, so pyright cannot narrow
+  // row.get(...) / row["id"] unions — these fire thousands of false
+  // positives and drown real issues. Syntax + import checks stay on.
+  "reportAttributeAccessIssue": "none",
+  "reportIndexIssue": "none",
+  "reportArgumentType": "none",
+  "reportOptionalMemberAccess": "none",
+  "reportOptionalSubscript": "none",
+  "reportCallIssue": "none",
+  "reportOperatorIssue": "none",
+  "reportUnhashable": "none",
+  "reportOptionalOperand": "none",
+  "reportGeneralTypeIssues": "none"
+}

@@ -1,0 +1,1375 @@
+import type { ArrivalState } from "@/lib/arrival"
+import { API_BASE } from "@/lib/apiBase"
+import { getAccessToken, getRefreshToken, setAccess, setRefresh } from "@/lib/tokenStore"
+
+/** Flag to prevent multiple concurrent refresh attempts */
+let isRefreshing = false
+let refreshPromise: Promise<boolean> | null = null
+
+/**
+ * Tell the backend the NEW pair after a client-side rotation so
+ * user_sessions hashes stay accurate (device list, logout revocation,
+ * remote-logout realtime match). Fail-open — a sync hiccup must never
+ * invalidate a perfectly good refresh. Returns false ONLY when the
+ * backend says this session was revoked elsewhere.
+ *
+ * Also used as a revocation GATE on mount and after TOKEN_REFRESHED:
+ * the backend matches this device's session ROW (not just the token
+ * hash), so it catches sessions revoked on another device even after
+ * the access token rotated past the hash-based check.
+ */
+export async function syncSessionHashes(accessToken: string, refreshToken: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE}/auth/session-sync`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+      // Never hang auth restore on a slow network — fail-open after 4s
+      signal: AbortSignal.timeout(4000),
+    })
+    if (res.status === 401) {
+      const body = await res.json().catch(() => ({}) as { error?: string })
+      if (body?.error === "Session revoked") {
+        window.dispatchEvent(new Event("hotelava:session-revoked"))
+        return false
+      }
+    }
+    return true
+  } catch {
+    return true
+  }
+}
+
+/**
+ * Try to refresh the access_token. Returns true if refresh succeeded.
+ *
+ * The browser Supabase session is the CANONICAL rotator. The old code
+ * rotated through Flask with the sessionStorage copy while the client
+ * rotated the same chain in the background — the second rotation used a
+ * spent refresh token, GoTrue's reuse detection revoked the whole family,
+ * and everyone got signed out "for no reason". One chain, one rotator:
+ * the client refreshes (or adopts its fresh pair), sessionStorage mirrors
+ * it, and session-sync keeps the backend's hashes in step.
+ */
+async function tryRefreshToken(): Promise<boolean> {
+  // If already refreshing, wait for the in-flight attempt
+  if (isRefreshing && refreshPromise) return refreshPromise
+
+  isRefreshing = true
+  refreshPromise = (async () => {
+    try {
+      const { supabase } = await import("@/lib/supabase")
+      const { data: sessData } = await supabase.auth.getSession()
+      const current = sessData.session
+
+      if (current?.access_token) {
+        const stored = getAccessToken()
+        if (current.access_token !== stored) {
+          // Client already holds a newer pair (auto-refresh rotated it while
+          // we were idle) — adopt it instead of burning another rotation.
+          setAccess(current.access_token)
+          setRefresh(current.refresh_token || "")
+          return await syncSessionHashes(current.access_token, current.refresh_token || "")
+        }
+        // Stored pair IS the client's pair and the backend rejected it
+        // (expired) — force one client-side rotation.
+        const { data, error } = await supabase.auth.refreshSession()
+        const rotated = data.session
+        if (rotated && !error) {
+          setAccess(rotated.access_token)
+          setRefresh(rotated.refresh_token || "")
+          return await syncSessionHashes(rotated.access_token, rotated.refresh_token || "")
+        }
+      }
+
+      // No browser session (legacy backend-only login) — rotate via Flask.
+      const refreshToken = getRefreshToken()
+      if (!refreshToken) return false
+
+      const res = await fetch(`${API_BASE}/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      })
+
+      if (!res.ok) {
+        // Remote logout detected — tell the app so the user sees why
+        if (res.status === 401) {
+          const body = await res.json().catch(() => ({}) as { error?: string })
+          if (body?.error === "Session revoked") {
+            window.dispatchEvent(new Event("hotelava:session-revoked"))
+          }
+        }
+        return false
+      }
+
+      const data = await res.json()
+      setAccess(data.access_token)
+      setRefresh(data.refresh_token)
+      return true
+    } catch {
+      return false
+    } finally {
+      isRefreshing = false
+      refreshPromise = null
+    }
+  })()
+
+  return refreshPromise
+}
+
+/**
+ * Device model for new-login alerts ("Samsung Galaxy S23" instead of just
+ * "Android"). Chrome exposes it via User-Agent client hints; iOS Safari has
+ * no model in its UA, so fall back to the platform name.
+ */
+let modelPromise: Promise<string> | null = null
+function deviceModel(): Promise<string> {
+  if (!modelPromise) {
+    modelPromise = (async () => {
+      try {
+        const uad = (navigator as Navigator & {
+          userAgentData?: { getHighEntropyValues?: (h: string[]) => Promise<{ model?: string }> }
+        }).userAgentData
+        if (uad?.getHighEntropyValues) {
+          const v = await uad.getHighEntropyValues(["model"])
+          if (v.model) return v.model
+        }
+      } catch { /* fall through */ }
+      const ua = navigator.userAgent
+      if (/iPad/.test(ua)) return "iPad"
+      if (/iPhone|iPod/.test(ua)) return "iPhone"
+      return ""
+    })()
+  }
+  return modelPromise
+}
+
+async function apiFetch<T>(path: string, options: RequestInit = {}, _isRetry = false): Promise<T> {
+  const token = getAccessToken()
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(options.headers as Record<string, string> || {}),
+  }
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`
+  }
+  const model = await deviceModel()
+  if (model) {
+    headers["X-Device-Model"] = model
+  }
+
+  const res = await fetch(`${API_BASE}${path}`, { ...options, headers })
+
+  // On 401 (expired token), try to refresh and retry once
+  if (res.status === 401 && !_isRetry) {
+    const refreshed = await tryRefreshToken()
+    if (refreshed) {
+      return apiFetch<T>(path, options, true)
+    }
+    // Refresh failed — throw error but DON'T clear tokens here
+    // AuthContext handles token cleanup based on the error
+    throw new Error("Unauthorized")
+  }
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new ApiError(body.error || `API error ${res.status}`, res.status, body)
+  }
+
+  return res.json()
+}
+
+export class ApiError extends Error {
+  status: number
+  body: Record<string, unknown>
+  constructor(message: string, status: number, body: Record<string, unknown>) {
+    super(message)
+    this.name = "ApiError"
+    this.status = status
+    this.body = body
+  }
+}
+
+// ── Auth ───────────────────────────────────────────────────────────────────────
+
+export interface AuthUser {
+  id: string
+  email: string
+  name: string
+  role: string
+  avatar_url?: string
+  name_changed_at?: string
+  deletion_requested_at?: string | null
+  scheduled_deletion_at?: string | null
+}
+
+export interface LoginResponse {
+  access_token: string
+  refresh_token: string
+  user: AuthUser
+}
+
+/** Step-up challenge — login accepted the credentials but wants an email code. */
+export interface LoginChallenge {
+  challenge: "otp"
+  challenge_id: string
+  email_masked: string
+  reason: string
+}
+
+export type LoginOrChallenge = LoginResponse | LoginChallenge
+
+export class LoginChallengeError extends Error {
+  challenge: LoginChallenge
+  constructor(challenge: LoginChallenge) {
+    super("Verification code required")
+    this.name = "LoginChallengeError"
+    this.challenge = challenge
+  }
+}
+
+export interface TrackLoginResult {
+  success?: boolean
+  verification_required?: boolean
+  challenge_id?: string
+  email_masked?: string
+  reason?: string
+}
+
+export const authApi = {
+  register: (data: { email: string; password: string; name: string }) =>
+    apiFetch<{ user: AuthUser }>("/auth/register", { method: "POST", body: JSON.stringify(data) }),
+
+  login: async (data: { email: string; password: string }) => {
+    const res = await apiFetch<LoginOrChallenge>("/auth/login", {
+      method: "POST",
+      body: JSON.stringify(data),
+    })
+    if ((res as LoginChallenge).challenge === "otp") {
+      throw new LoginChallengeError(res as LoginChallenge)
+    }
+    return res as LoginResponse
+  },
+
+  /** Complete a step-up challenge with the emailed one-time code. */
+  verifyLoginChallenge: (data: { challenge_id: string; code: string }) =>
+    apiFetch<LoginResponse>("/auth/login/verify", { method: "POST", body: JSON.stringify(data) }),
+
+  resendLoginChallenge: (challenge_id: string) =>
+    apiFetch<{ message: string }>("/auth/login/resend", {
+      method: "POST",
+      body: JSON.stringify({ challenge_id }),
+    }),
+
+  getProfile: () => apiFetch<AuthUser>("/auth/profile"),
+
+  updateProfile: (data: { name?: string; avatar_url?: string; phone?: string }) =>
+    apiFetch<AuthUser>("/auth/profile", { method: "PUT", body: JSON.stringify(data) }),
+
+  logout: () => apiFetch("/auth/logout", { method: "POST" }),
+
+  /** Device tracking for OAuth (Google) sign-ins — also returns the step-up
+   *  challenge when the device/location is unfamiliar. */
+  trackLogin: (): Promise<TrackLoginResult> =>
+    apiFetch<TrackLoginResult>("/auth/track-login", {
+      method: "POST",
+      body: JSON.stringify({ refresh_token: getRefreshToken() || "" }),
+    }),
+
+  uploadAvatar: async (file: File): Promise<{ avatar_url: string }> => {
+    const token = getAccessToken()
+    const form = new FormData()
+    form.append("file", file)
+
+    const res = await fetch(`${API_BASE}/auth/avatar`, {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: form,
+    })
+
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      throw new Error(body.error || `Upload failed ${res.status}`)
+    }
+    return res.json()
+  },
+
+  changePassword: (data: { new_password: string }) =>
+    apiFetch<{ message: string }>("/auth/password", { method: "PUT", body: JSON.stringify(data) }),
+
+  forgotPassword: (email: string) =>
+    apiFetch<{ message: string }>("/auth/forgot-password", { method: "POST", body: JSON.stringify({ email }) }),
+
+  resetPassword: (data: { access_token: string; refresh_token: string; new_password: string }) =>
+    apiFetch<{ message: string }>("/auth/reset-password", { method: "POST", body: JSON.stringify(data) }),
+
+  /** Schedule account deletion (30-day grace). Server re-verifies the re-auth
+   *  (password grant or fresh Google sign-in) — the typed confirm alone is not enough. */
+  deleteRequest: (data: { typed_confirm: string; password?: string; reauth?: "google" }) =>
+    apiFetch<{ success: boolean; scheduled_deletion_at: string }>("/auth/delete-request", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  /** Cancel a pending deletion (any time before the scheduled date). */
+  deleteCancel: () =>
+    apiFetch<{ success: boolean; cleared: boolean }>("/auth/delete-cancel", { method: "POST" }),
+
+  /** Self-scoped purge check — only ever touches the caller's own account. */
+  deletionCheck: () =>
+    apiFetch<{ deleted: boolean }>("/auth/deletion-check", { method: "POST" }),
+
+  refreshTokens: (refreshToken: string) =>
+    fetch(`${API_BASE}/auth/refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    }).then(r => {
+      if (!r.ok) throw new Error("Refresh failed")
+      return r.json() as Promise<LoginResponse>
+    }),
+}
+
+// ── Devices & activity (sessions) ─────────────────────────────────────────────
+
+export interface SessionInfo {
+  id: string
+  device_name: string
+  ip: string | null
+  location: string | null
+  user_agent: string | null
+  created_at: string
+  last_used: string
+  is_current: boolean
+}
+
+export const sessionsApi = {
+  list: () => apiFetch<SessionInfo[]>("/auth/sessions"),
+  revoke: (id: string) =>
+    apiFetch<{ success: boolean; self?: boolean }>(`/auth/sessions/${id}/revoke`, { method: "POST" }),
+  revokeOthers: () =>
+    apiFetch<{ success: boolean; revoked: number }>("/auth/sessions/revoke-others", { method: "POST" }),
+}
+
+// ── Quick Sign-In (Roblox-style cross-device approval) ────────────────────────
+
+export interface QuickSigninStatus {
+  status: "waiting" | "approved" | "consumed" | "expired" | "invalid"
+  seconds_left?: number
+  access_token?: string
+  refresh_token?: string
+  user?: AuthUser
+}
+
+export const quickSigninApi = {
+  /** Device A generates a fresh 8-character code (invalidates its old one). */
+  request: () =>
+    apiFetch<{ code: string; expires_at: string }>("/auth/quick-signin/request", {
+      method: "POST",
+    }),
+  /** Device A polls; on approval the response carries the new session. */
+  status: (code: string) =>
+    apiFetch<QuickSigninStatus>(`/auth/quick-signin/status?code=${encodeURIComponent(code)}`),
+  /** Device B (signed in) approves a code shown elsewhere. */
+  approve: (code: string) =>
+    apiFetch<{ success: boolean }>("/auth/quick-signin/approve", {
+      method: "POST",
+      body: JSON.stringify({ code }),
+    }),
+}
+
+// ── Public Rooms (no auth required) ───────────────────────────────────────────
+
+export interface PublicRoomData {
+  id: string
+  name: string
+  type: string
+  description: string
+  price: number
+  capacity: number
+  max_adults: number
+  max_children: number
+  allows_children: boolean
+  amenities: string[]
+  images: string[]
+  /** Live average from guest reviews — null when the room has none yet */
+  rating?: number | null
+  reviews?: number
+  /** Admin-set day-use rates; null = auto pro-rata from the nightly price. */
+  day_use_3h?: number | null
+  day_use_6h?: number | null
+  day_use_8h?: number | null
+  day_use_12h?: number | null
+}
+
+export const publicRoomsApi = {
+  getAll: () => apiFetch<PublicRoomData[]>("/rooms/public"),
+  getById: (id: string) => apiFetch<PublicRoomData>(`/rooms/public/${id}`),
+  checkAvailability: (payload: {
+    room_id: string
+    check_in: string
+    check_out?: string
+    stay_type?: string
+    start_time?: string
+    duration?: number
+  }) =>
+    apiFetch<{
+      available: boolean
+      room_id: string
+      check_in: string
+      check_out: string
+      stay_type: string
+    }>("/rooms/check-availability", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  /** Backend-computed prices (same math create_booking charges) for the Rooms
+   *  grid, room detail and checkout. Omit room_ids to quote every room. */
+  quote: (payload: {
+    room_ids?: string[]
+    check_in?: string
+    check_out?: string
+    stay_type?: "overnight" | "day"
+    duration?: number
+  }) =>
+    apiFetch<RoomQuote[]>("/rooms/quotes", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+}
+
+// ── Upload ────────────────────────────────────────────────────────────────────
+
+export const uploadApi = {
+  image: async (file: File): Promise<{ url: string; path: string }> => {
+    const token = getAccessToken()
+    const form = new FormData()
+    form.append("file", file)
+
+    const res = await fetch(`${API_BASE}/upload`, {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: form,
+    })
+
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      throw new Error(body.error || `Upload failed ${res.status}`)
+    }
+    return res.json()
+  },
+
+  delete: (path: string) =>
+    apiFetch("/upload", {
+      method: "DELETE",
+      body: JSON.stringify({ path }),
+    }),
+}
+
+// ── Rooms (admin) ─────────────────────────────────────────────────────────────
+
+export interface RoomData {
+  id: string
+  name: string
+  type: string
+  price: number
+  capacity: number
+  max_adults: number
+  max_children: number
+  allows_children: boolean
+  amenities: string[]
+  images: string[]
+  description: string
+  status: "available" | "occupied" | "maintenance"
+  bookings: number
+  revenue: number
+  /** Admin-set day-use rates; null = auto pro-rata from the nightly price. */
+  day_use_3h?: number | null
+  day_use_6h?: number | null
+  day_use_8h?: number | null
+  day_use_12h?: number | null
+}
+
+export const roomsApi = {
+  getAll: () => apiFetch<RoomData[]>("/rooms"),
+
+  add: (room: Omit<RoomData, "id" | "bookings" | "revenue">) =>
+    apiFetch<RoomData>("/rooms", { method: "POST", body: JSON.stringify(room) }),
+
+  update: (id: string, room: Omit<RoomData, "id" | "bookings" | "revenue">) =>
+    apiFetch<RoomData>(`/rooms/${id}`, { method: "PUT", body: JSON.stringify(room) }),
+
+  delete: (id: string) =>
+    apiFetch(`/rooms/${id}`, { method: "DELETE" }),
+}
+
+// ── Bookings (user) ────────────────────────────────────────────────────────────
+
+export interface CreateBookingPayload {
+  room_id: string
+  check_in: string
+  check_out: string
+  guests: number
+  /** Guest breakdown — nullable until migrate-guest-breakdown.sql runs */
+  adults?: number
+  children?: number
+  pets?: number
+  full_name: string
+  email: string
+  phone: string
+  special_requests?: string
+  payment_method: string
+  total_price: number
+  /** "full" = paid online in full, "downpayment" = 50% online + balance at hotel */
+  payment_mode?: "full" | "downpayment"
+}
+
+export interface BookingResponse {
+  booking_id: string
+  checkout_url?: string
+  status: string
+}
+
+export interface UserBookingData {
+  id: string
+  room_id: string
+  room_name: string
+  room_type: string
+  room_image: string
+  check_in: string
+  check_out: string
+  nights: number
+  guests: number
+  /** Guest breakdown — null/absent on bookings made before the migration */
+  adults?: number | null
+  children?: number | null
+  pets?: number | null
+  total_price: number
+  status: string
+  payment_method: string
+  /** "full" = paid online in full, "downpayment" = 50% online + balance at hotel */
+  payment_mode?: "full" | "downpayment"
+  /** Collected online so far; balance = total_price − amount_paid */
+  amount_paid?: number
+  /** PayMongo payment-intent id (refund reference) — "" when none */
+  payment_intent?: string
+  /** Server-derived — the frontend only maps it to a label */
+  payment_status?: "unpaid" | "partial" | "paid" | "refunded"
+  /** Check-in QR payload — present only when confirmed AND paid */
+  qr_data?: string | null
+  /** Front-desk check-in stamp. null = the guest has not arrived yet. */
+  checked_in_at?: string | null
+  refunded_at?: string | null
+  /** Why the booking was cancelled — shown to the guest and the admin. */
+  cancellation_reason?: string | null
+  /** Derived from the clock — never stored. See ArrivalState. */
+  arrival_state?: ArrivalState
+  created_at: string
+  stay_type?: string
+  stays?: string
+  duration?: number
+  start_time?: string
+  end_time?: string | null
+  room_price?: number
+  room_day_use?: Record<string, number>
+  /** True once the guest has reviewed this stay */
+  reviewed?: boolean
+  rating?: number | null
+  /** Paid stay extensions — 0/absent = never extended. */
+  extended_hours?: number
+  extended_at?: string | null
+}
+
+export interface ExtendStartResponse {
+  checkout_url: string
+  hours: number
+  price: number
+  new_end: string
+}
+
+export interface ExtendConfirmResponse {
+  status: "extended" | "pending_payment" | "none"
+  hours?: number
+  payment_method?: string
+  stays?: string
+  duration?: number
+  end_time?: string
+}
+
+export const userBookingsApi = {
+  create: (payload: CreateBookingPayload) =>
+    apiFetch<BookingResponse>("/bookings", { method: "POST", body: JSON.stringify(payload) }),
+
+  getMine: () => apiFetch<UserBookingData[]>("/bookings/mine"),
+
+  getOne: (id: string) => apiFetch<UserBookingData & { full_name: string; email: string; phone: string; special_requests: string }>(`/bookings/${id}`),
+
+  cancel: (id: string, reason?: string) =>
+    apiFetch<{ status: string; refunded?: boolean; refund_amount?: number; message?: string }>(
+      `/bookings/${id}/cancel`,
+      { method: "POST", body: JSON.stringify(reason ? { reason } : {}) },
+    ),
+
+  retryPay: (id: string) =>
+    apiFetch<{ checkout_url: string }>(`/bookings/${id}/pay`, { method: "POST" }),
+
+  extend: (id: string, hours: number) =>
+    apiFetch<ExtendStartResponse>(`/bookings/${id}/extend`, { method: "POST", body: JSON.stringify({ hours }) }),
+
+  extendConfirm: (id: string) =>
+    apiFetch<ExtendConfirmResponse>(`/bookings/${id}/extend/confirm`, { method: "POST" }),
+
+  /** Non-blocking: does this guest's own active booking overlap a NEW stay in
+   *  a different room? Back-to-back stays never conflict (strict datetime). */
+  checkConflict: (payload: {
+    room_id: string
+    check_in: string
+    check_out?: string
+    stay_type?: string
+    start_time?: string
+    duration?: number
+  }) =>
+    apiFetch<{ conflict: boolean; room_name?: string; range?: string }>("/bookings/check-conflict", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+}
+
+// ── Booking verification (public — the QR code a guest shows at check-in) ────
+
+export interface VerifyBookingData {
+  id: string
+  reference: string
+  status: string
+  guest_name?: string
+  user_id?: string | null
+  room_name: string
+  room_type: string
+  room_image?: string
+  check_in: string
+  check_out: string
+  stay_type: string
+  start_time?: string | null
+  duration?: number | null
+  guests: number
+  adults?: number | null
+  children?: number | null
+  pets?: number | null
+  email?: string
+  phone?: string
+  total_price?: number
+  payment_method?: string
+  payment_mode?: string
+  amount_paid?: number
+  checked_in_at?: string | null
+  refunded_at?: string | null
+  arrival_state?: ArrivalState
+  created_at?: string
+}
+
+export const verifyApi = {
+  /** Accepts the full UUID or the short #ABC12345 code. */
+  get: (code: string) =>
+    apiFetch<VerifyBookingData>(`/bookings/verify/${encodeURIComponent(code)}`),
+}
+
+// ── Bookings (admin) ──────────────────────────────────────────────────────────
+
+export interface BookingData {
+  id: string
+  fullId?: string
+  guestName: string
+  guestEmail: string
+  guestAvatar?: string
+  guestId?: string
+  roomType: string
+  roomNumber: string
+  roomImage?: string
+  checkIn: string
+  checkOut: string
+  nights: number
+  amount: number
+  status: string
+  guests?: number
+  phone?: string
+  specialRequests?: string
+  stay_type?: string
+  duration?: number
+  start_time?: string
+  createdAt?: string
+  payment_method?: string
+  payment_mode?: string
+  amount_paid?: number
+  checked_in_at?: string | null
+  refunded_at?: string | null
+  /** Why the booking was cancelled — shown to the guest and the admin. */
+  cancellation_reason?: string | null
+  /** Derived from the clock — never stored. See ArrivalState. */
+  arrival_state?: ArrivalState
+  /** Paid stay extensions — 0/absent = never extended. */
+  extended_hours?: number
+  extended_at?: string | null
+}
+
+/** Front-desk walk-in encoding — the admin books on behalf of a hotel guest. */
+export interface WalkInBookingPayload {
+  room_id: string
+  check_in: string
+  /** Required for overnight stays; derived server-side for day use. */
+  check_out?: string
+  stay_type?: "overnight" | "day"
+  start_time?: string
+  duration?: number
+  full_name: string
+  /** Optional — only links the booking to an existing guest account. */
+  email?: string
+  phone?: string
+  adults?: number
+  children?: number
+  special_requests?: string
+  /** True = paid in full at the counter right now. */
+  paid_now?: boolean
+  payment_method?: string
+}
+
+export const bookingsApi = {
+  getAll: (limit?: number) => {
+    const params = limit ? `?limit=${limit}` : ""
+    return apiFetch<BookingData[]>(`/bookings${params}`)
+  },
+  updateStatus: (bookingId: string, status: string, reason?: string) =>
+    apiFetch<{ message: string; status: string }>(`/bookings/${bookingId}/status`, {
+      method: "PUT",
+      body: JSON.stringify(reason ? { status, reason } : { status }),
+    }),
+  autoComplete: () =>
+    apiFetch<{ completed: number; ids: string[] }>("/bookings/auto-complete", { method: "POST" }),
+  /** Front desk: record the remaining downpayment balance as paid at the hotel. */
+  settleBalance: (bookingId: string) =>
+    apiFetch<{ booking_id: string; amount_paid: number; balance_due: number; status?: string }>(
+      `/bookings/${bookingId}/settle-balance`,
+      { method: "POST" },
+    ),
+  /** Front desk: encode a walk-in booking (admin-only, no online payment). */
+  createWalkIn: (payload: WalkInBookingPayload) =>
+    apiFetch<{
+      booking_id: string
+      status: string
+      total_price: number
+      amount_paid: number
+      linked_account: boolean
+    }>("/admin/bookings", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  /**
+   * Front desk: push a refund-pending booking to Refunded. `auto` retries the
+   * PayMongo refund; `manual` records money already returned outside the
+   * system (PayMongo dashboard, GCash, cash at the counter).
+   */
+  refund: (bookingId: string, mode: "auto" | "manual") =>
+    apiFetch<{ booking_id: string; refunded: boolean; mode: string; refunded_at: string }>(
+      `/bookings/${bookingId}/refund`,
+      { method: "POST", body: JSON.stringify({ mode }) },
+    ),
+  /**
+   * Front desk: stamp the guest's arrival after scanning their QR code.
+   * The stamp does not start the stay — `arrival_state` decides that from the
+   * clock, so an early scan stays "early" until the booked time arrives.
+   */
+  checkIn: (bookingId: string) =>
+    apiFetch<{
+      booking_id: string
+      checked_in_at: string
+      arrival_state: ArrivalState
+      start_at?: string
+    }>(`/bookings/${bookingId}/check-in`, { method: "POST" }),
+}
+
+// ── Guests ─────────────────────────────────────────────────────────────────────
+
+export interface GuestData {
+  id: string
+  name: string
+  email: string
+  phone: string
+  totalBookings: number
+  totalSpent: number
+  lastStay: string
+  status: "VIP" | "Regular" | "New"
+  avatar_url: string
+  created_at: string
+}
+
+export const guestsApi = {
+  getAll: () => apiFetch<GuestData[]>("/guests"),
+}
+
+// ── Dashboard ──────────────────────────────────────────────────────────────────
+
+export interface DashboardStats {
+  totalBookings: number
+  monthlyRevenue: number
+  occupancyRate: number
+  confirmedBookings: number
+  pendingBookings: number
+  cancelledBookings: number
+  totalGuests: number
+  activeGuests: number
+}
+
+/** One row of the dashboard's arrivals list. */
+export interface DashboardArrival {
+  id: string
+  guestName: string
+  roomName: string
+  /** Day-use start time, or "Today" when the stay has no set hour. */
+  time: string
+  /** Arrival time passed without a check-in stamp — renders a gray "Late". */
+  late?: boolean
+}
+
+/** A single day of paid revenue (Manila calendar day). */
+export interface RevenuePoint {
+  date: string
+  amount: number
+}
+
+/** Exact admin counts from GET /api/admin/dashboard-summary (Asia/Manila). */
+export interface DashboardSummary {
+  arrivalsToday: number
+  departuresToday: number
+  inHouse: number
+  overdueCheckouts: number
+      pendingUnpaid: number
+      /** Downpayment bookings (confirmed/completed) with a balance still owed. */
+      downpaymentDue?: number
+      /** Total outstanding balance across those downpayment bookings. */
+      downpaymentDueAmount?: number
+  pendingExtendRequests: number
+  pendingRefunds: number
+  /** Total amount_paid sitting in the refund queue (sum of refund-pending rows). */
+  pendingRefundsAmount?: number
+  monthlyRevenue: number
+  occupancyRate: number
+  /** e.g. "Oct 1 to Oct 31, 2026" — the month these numbers cover. */
+  periodLabel?: string
+  /** Manila wall-clock the payload was computed, e.g. "5:22 PM". */
+  updatedAt?: string
+  /** Rooms excluding available=false — occupancy denominator. */
+  totalRooms?: number
+  /** Non-cancelled amount_paid, stay dates from the 1st through today. */
+  monthToDateRevenue?: number
+  /** Same formula over the SAME days of the previous month (delta baseline). */
+  prevMonthSameDaysRevenue?: number
+  arrivals?: DashboardArrival[]
+  /** Last 30 Manila days, oldest first. */
+  revenueSeries?: RevenuePoint[]
+}
+
+export interface MonthlyRevenue {
+  month: string
+  revenue: number
+}
+
+export interface OccupancyData {
+  month: string
+  rate: number
+  bookings: number
+}
+
+export const dashboardApi = {
+  getStats: () => apiFetch<DashboardStats>("/dashboard/stats"),
+  getSummary: () => apiFetch<DashboardSummary>("/admin/dashboard-summary"),
+  getMonthlyRevenue: () => apiFetch<MonthlyRevenue[]>("/dashboard/monthly-revenue"),
+  getOccupancy: () => apiFetch<OccupancyData[]>("/dashboard/occupancy"),
+}
+
+// ── Analytics ──────────────────────────────────────────────────────────────────
+
+export interface SeasonalData {
+  month: string
+  bookings: number
+  revenue: number
+  isPeak: boolean
+}
+
+export interface RoomPerformanceData {
+  room: string
+  revenue: number
+  avgPerNight: number
+  occupancy: number
+}
+
+export interface Insight {
+  label: string
+  value: string
+  detail: string
+}
+
+export interface ForecastPoint {
+  month: string
+  actual: number | null
+  predicted: number
+}
+
+export interface ForecastAccuracyMetrics {
+  mae: number
+  rmse: number
+  /** null when every backtested month had zero actuals (undefined there) */
+  mape: number | null
+  smape: number | null
+  /** 100 − SMAPE — headline score per the stated grade scale */
+  accuracyPct: number | null
+  r2: number | null
+  bias: number
+  sampleSize: number
+  coveragePct: number
+  points: ForecastAccuracyPoint[]
+}
+
+export interface ForecastAccuracyPoint {
+  month: string
+  predicted: number
+  actual: number
+  error: number
+  absError: number
+}
+
+export interface ForecastAccuracyData {
+  occupancy: ForecastAccuracyMetrics | null
+  revenue: ForecastAccuracyMetrics | null
+  generatedAt: string
+  method: string
+  dataFreshness: {
+    lastBookingCheckIn: string | null
+    totalRooms: number
+    totalBookings: number
+  }
+  iso25059: {
+    accuracy: string
+    completeness: string
+    precision: string
+    credibility: string
+    currentness: string
+    gradeScale?: string
+  }
+}
+
+export interface DemandInsightData {
+  id: string
+  period: string
+  predictedOccupancy: number
+  reason: string
+  recommendation: string
+  discountPercent: number
+  affectedRooms: string[]
+  confidence: number
+  projectedImpact: string
+  applied: boolean
+  dismissed?: boolean
+  method?: string
+}
+
+/** Date-gated offer state (Asia/Manila): live today, scheduled in the future,
+ *  off by admin switch, expired once the window ended. */
+export type DiscountOfferStatus = "live" | "scheduled" | "off" | "expired"
+
+export interface DiscountOfferData {
+  id: string
+  roomType: string
+  discountPercent: number
+  validFrom: string
+  validTo: string
+  baseRate: number
+  discountedRate: number
+  projectedBookings: number | null
+  projectedRevenue: number | null
+  status: DiscountOfferStatus
+  /** Promo name shared by the offers of one promo, e.g. "November promo". */
+  name?: string
+  /** "ai" generated, "admin" manual, "holiday" approved suggestion. */
+  source?: string
+  enabled?: boolean
+  method?: string
+  confidence?: number
+}
+
+export interface DiscountSuggestionRoomType {
+  roomType: string
+  percent: number
+  baseRate: number
+  discountedRate: number
+}
+
+/** One AI holiday promo proposal: window, forecast-based reasoning, estimate. */
+export interface DiscountSuggestion {
+  event: string
+  validFrom: string
+  validTo: string
+  phase: "live" | "upcoming"
+  daysUntilStart: number
+  reasoning: string
+  estimatedImpact: string | null
+  roomTypes: DiscountSuggestionRoomType[]
+  percentRange: [number, number]
+  state: "pending" | "approved" | "dismissed"
+}
+
+export interface DiscountRules {
+  maxPercent: number
+  minPrice: number
+}
+
+export interface RoomDemandData {
+  roomType: string
+  totalRooms: number
+  upcomingBookings: number
+  bookedNights: number
+  capacity: number
+  occupancy: number
+  historicalOccupancy: number
+  trend: "up" | "down" | "stable"
+  baseRate: number
+  suggestedDiscount: number | null
+  discountedRate: number
+  reason: string
+}
+
+export interface DiscountAuditEntry {
+  action: "create" | "activate" | "deactivate"
+  offer_id: string
+  promo: string
+  room_type: string
+  discount_percent: number
+  valid_from: string
+  valid_to: string
+  actor_id: string | null
+  actor_email: string | null
+  details?: Record<string, unknown>
+  created_at: string
+}
+
+export interface QuoteDiscount {
+  source: "offer" | "holiday"
+  name: string
+  percent: number
+  validFrom?: string | null
+  validTo?: string | null
+}
+
+/** Server-computed price for one room — the same math create_booking charges. */
+export interface RoomQuote {
+  room_id: string
+  room_type: string
+  stay_type: "overnight" | "day"
+  check_in: string
+  check_out: string | null
+  nights: number | null
+  hours: number | null
+  base_rate: number
+  rate: number
+  discount: QuoteDiscount | null
+  subtotal: number
+  tax: number
+  total: number
+  day_rates: Record<string, number> | null
+}
+
+export interface AIRecommendation {
+  id: string
+  title: string
+  description: string
+  priority: "high" | "medium" | "low"
+  action: string
+}
+
+export interface RecommendationsData {
+  next30DaysOccupancy: number
+  occupancyTrend: "up" | "down" | "stable"
+  projectedRevenue: number
+  revenueGrowth: number
+  activeDiscounts: number
+  bestDiscountPeriod?: string
+  confidence: number
+  /** Non-cancelled bookings the forecast was built from — hides thin-data forecasts. */
+  bookingsAnalyzed?: number
+  /** Bookings touching the next-30-day window; thin windows read as -99% / 1%. */
+  forecastBookings?: number
+  recommendations: AIRecommendation[]
+}
+
+export const analyticsApi = {
+  getSeasonal: () => apiFetch<SeasonalData[]>("/analytics/seasonal"),
+  getRoomPerformance: () => apiFetch<RoomPerformanceData[]>("/analytics/room-performance"),
+  getInsights: () => apiFetch<Insight[]>("/analytics/insights"),
+  getOccupancyForecast: () => apiFetch<ForecastPoint[]>("/analytics/forecast/occupancy"),
+  getRevenueForecast: () => apiFetch<ForecastPoint[]>("/analytics/forecast/revenue"),
+  getDemandInsights: () => apiFetch<DemandInsightData[]>("/analytics/demand-insights"),
+  setDemandInsightStatus: (id: string, action: "accept" | "dismiss" | "edit", discountPercent?: number) =>
+    apiFetch<{ ok: boolean }>("/analytics/demand-insights/status", {
+      method: "POST",
+      body: JSON.stringify({ id, action, ...(discountPercent == null ? {} : { discountPercent }) }),
+    }),
+  getDiscountOffers: () => apiFetch<DiscountOfferData[]>("/analytics/discount-offers"),
+  setDiscountOfferStatus: (payload: {
+    id?: string
+    ids?: string[]
+    enabled?: boolean
+    discountPercent?: number
+  }) =>
+    apiFetch<{ ok: boolean; statuses?: Record<string, DiscountOfferStatus> }>(
+      "/analytics/discount-offers/status",
+      { method: "POST", body: JSON.stringify(payload) },
+    ),
+  getDiscountRules: () => apiFetch<DiscountRules>("/discounts/rules"),
+  getDiscountSuggestions: () => apiFetch<DiscountSuggestion[]>("/discounts/suggestions"),
+  applyDiscountSuggestion: (event: string, action: "approve" | "dismiss") =>
+    apiFetch<{ ok: boolean; state: string; offers?: DiscountOfferData[] }>("/discounts/suggestions", {
+      method: "POST",
+      body: JSON.stringify({ event, action }),
+    }),
+  createDiscountOffer: (payload: {
+    roomType: string
+    validFrom: string
+    validTo: string
+    name?: string
+    discountPercent: number
+  }) =>
+    apiFetch<DiscountOfferData>("/analytics/discount-offers", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  getDiscountAudit: () => apiFetch<DiscountAuditEntry[]>("/discounts/audit"),
+  getAIRecommendations: () => apiFetch<RecommendationsData>("/analytics/ai-recommendations"),
+  getForecastAccuracy: () => apiFetch<ForecastAccuracyData>("/analytics/forecast/accuracy"),
+  getRoomDemand: () => apiFetch<RoomDemandData[]>("/analytics/room-demand"),
+}
+
+// ── Reviews ────────────────────────────────────────────────────────────────────
+
+export interface RoomReview {
+  id: string
+  rating: number
+  comment: string
+  images: string[]
+  admin_reply: string
+  admin_replied_at: string | null
+  guest_name: string
+  guest_avatar?: string
+  created_at: string
+}
+
+export interface RoomReviewsResponse {
+  room_id: string
+  average: number
+  count: number
+  /** {"5": n, "4": n, …, "1": n} across every review of the room */
+  distribution: Record<string, number>
+  reviews: RoomReview[]
+}
+
+export interface AdminReview {
+  id: string
+  booking_id: string | null
+  room_id: string | null
+  room_name: string
+  room_type: string
+  guest_name: string
+  guest_email: string
+  guest_avatar?: string
+  rating: number
+  comment: string
+  images: string[]
+  admin_reply: string
+  admin_replied_at: string | null
+  check_in: string | null
+  check_out: string | null
+  created_at: string
+}
+
+export interface RoomRatingStat {
+  room_id: string
+  room_name: string
+  room_type: string
+  rating: number | null
+  reviews: number
+}
+
+export interface AdminReviewsResponse {
+  reviews: AdminReview[]
+  stats: RoomRatingStat[]
+  totals: { reviews: number; average: number }
+}
+
+/** A review written by the signed-in guest, with the stay it belongs to */
+export interface MyReview {
+  id: string
+  booking_id: string | null
+  room_id: string | null
+  room_name: string
+  room_type: string
+  room_image: string
+  rating: number
+  comment: string
+  images: string[]
+  admin_reply: string
+  admin_replied_at: string | null
+  check_in: string | null
+  check_out: string | null
+  created_at: string
+}
+
+export interface MyReviewsResponse {
+  reviews: MyReview[]
+  count: number
+  average: number
+}
+
+/** A positive review featured on the home page */
+export interface FeaturedReview {
+  id: string
+  rating: number
+  comment: string
+  created_at: string
+  guest_name: string
+  guest_avatar?: string
+  room_name: string
+}
+
+export interface FeaturedReviewsResponse {
+  reviews: FeaturedReview[]
+  summary: { average: number; count: number }
+}
+
+export const reviewsApi = {
+  /** Public — the latest 4★+ reviews for the home page (no auth) */
+  featured: () => apiFetch<FeaturedReviewsResponse>("/reviews/featured"),
+
+  /** Guest submits a review for a completed booking (one per booking, ≤5 photos) */
+  create: async (payload: { booking_id: string; rating: number; comment: string; images?: File[] }): Promise<{ id: string }> => {
+    const token = getAccessToken()
+    const form = new FormData()
+    form.append("booking_id", payload.booking_id)
+    form.append("rating", String(payload.rating))
+    form.append("comment", payload.comment)
+    ;(payload.images || []).forEach((file) => form.append("images", file))
+
+    const res = await fetch(`${API_BASE}/reviews`, {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: form,
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      if (res.status === 401) throw new Error("Unauthorized")
+      throw new ApiError(body.error || `API error ${res.status}`, res.status, body)
+    }
+    return res.json()
+  },
+
+  /** Guest — the reviews they wrote, with the stay they came from */
+  mine: () => apiFetch<MyReviewsResponse>("/reviews/mine"),
+
+  /** Guest edits their own review: kept photo URLs stay, new Files are uploaded */
+  update: async (
+    id: string,
+    payload: { rating: number; comment: string; images?: File[]; keepImages?: string[] },
+  ): Promise<MyReview> => {
+    const token = getAccessToken()
+    const form = new FormData()
+    form.append("rating", String(payload.rating))
+    form.append("comment", payload.comment)
+    form.append("keep_images", JSON.stringify(payload.keepImages || []))
+    ;(payload.images || []).forEach((file) => form.append("images", file))
+
+    const res = await fetch(`${API_BASE}/reviews/${id}`, {
+      method: "PUT",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: form,
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      if (res.status === 401) throw new Error("Unauthorized")
+      throw new ApiError(body.error || `API error ${res.status}`, res.status, body)
+    }
+    return res.json()
+  },
+
+  /** Public — shown inside the room page */
+  getRoom: (roomId: string) => apiFetch<RoomReviewsResponse>(`/reviews/room/${roomId}`),
+
+  /** Admin — full list + per-room stats */
+  getAll: (roomId?: string) =>
+    apiFetch<AdminReviewsResponse>(`/reviews${roomId ? `?room_id=${encodeURIComponent(roomId)}` : ""}`),
+
+  /** Guest — removes their own review (admins cannot delete reviews) */
+  remove: (id: string) => apiFetch<{ message: string }>(`/reviews/${id}`, { method: "DELETE" }),
+
+  /** Admin — public reply/feedback under a review */
+  reply: (id: string, reply: string) =>
+    apiFetch<AdminReview>(`/reviews/${id}/reply`, { method: "POST", body: JSON.stringify({ reply }) }),
+
+  /** Admin — clear a reply */
+  removeReply: (id: string) => apiFetch<AdminReview>(`/reviews/${id}/reply`, { method: "DELETE" }),
+}
+
+// ── Notifications ──────────────────────────────────────────────────────────────
+
+export interface NotificationData {
+  id: string
+  user_id: string
+  type: "booking" | "promo" | "reminder" | "system" | "review"
+  title: string
+  message: string
+  read: boolean
+  booking_id: string | null
+  /** Set on "New login to your account" alerts — links to user_devices.id */
+  device_id?: string | null
+  created_at: string
+}
+
+export const notificationsApi = {
+  getAll: (limit = 30) => apiFetch<NotificationData[]>(`/notifications?limit=${limit}`),
+
+  getUnreadCount: () => apiFetch<{ count: number }>("/notifications/unread-count"),
+
+  markRead: (id: string) =>
+    apiFetch(`/notifications/${id}/read`, { method: "PUT" }),
+
+  markAllRead: () =>
+    apiFetch("/notifications/read-all", { method: "PUT" }),
+
+  delete: (id: string) =>
+    apiFetch(`/notifications/${id}`, { method: "DELETE" }),
+}
+
+// ── Devices (new-login security) ───────────────────────────────────────────────
+
+export interface DeviceInfo {
+  id: string
+  device_name: string
+  ip: string | null
+  trusted: boolean
+  first_seen: string
+  last_seen: string
+  current: boolean
+}
+
+export const devicesApi = {
+  list: () => apiFetch<DeviceInfo[]>("/auth/devices"),
+
+  trust: (id: string) =>
+    apiFetch<{ success: boolean }>(`/auth/devices/${id}/trust`, { method: "POST" }),
+}
+
+// ── Help Center (AI assistant) ────────────────────────────────────────────────
+
+export const helpApi = {
+  ask: (question: string) =>
+    apiFetch<{ answer: string }>("/help/ask", {
+      method: "POST",
+      body: JSON.stringify({ question }),
+    }),
+}

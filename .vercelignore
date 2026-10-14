@@ -1,0 +1,15 @@
+# Keep the uploaded build workspace (and therefore each Function bundle in
+# Functions Storage) down to what Vercel actually needs.
+# git-tracked but never needed at build time:
+.opencode/
+*.md
+
+# Local artifacts that can sneak in when deploying from a dirty tree:
+.playwright-mcp/
+.playwright-tests/
+.preview_log.txt
+preview_log.txt
+backend/err.log
+backend/out.log
+backend/.seed_ids.json
+backend/.seed_review_ids.json

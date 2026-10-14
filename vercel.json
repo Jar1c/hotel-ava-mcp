@@ -1,0 +1,11 @@
+{
+  "buildCommand": "vite build",
+  "outputDirectory": "dist",
+  "installCommand": "npm install && pip install --break-system-packages -r api/requirements.txt",
+  "routes": [
+    { "src": "/api/(.*)", "dest": "/api/index.py" }
+  ],
+  "rewrites": [
+    { "source": "/((?!assets/|api/).*)", "destination": "/index.html" }
+  ]
+}
