@@ -183,7 +183,7 @@ table(
         ["**Person 1** \u2014 Panimula", "_________________", "Overview, problem \u2192 solution, bridge", "2\u20133 min"],
         ["**Person 2** \u2014 User Side", "_________________", "Guest flow: home \u2192 booking \u2192 Ask Ava", "5\u20136 min"],
         ["**Person 3** \u2014 Admin Side", "_________________", "Dashboard, walk-in, double-booking guard", "6 min"],
-        ["**Person 4** \u2014 Tech + Q&A", "_________________", "Architecture, AI, security, Q&A", "3\u20134 min"],
+        ["**Person 4** \u2014 Paano Gumagana + Q&A", "_________________", "System flow, AI features, Q&A", "3\u20134 min"],
         ["**TOTAL", "", "Buong demo + Q&A", "**~18\u201320 min"],
     ],
     widths=[1.9, 1.6, 2.5, 0.9],
@@ -191,8 +191,9 @@ table(
 
 h2("Checklist \u2014 BAGO Magsimula ang Demo")
 steps([
-    "Sa terminal sa `D:\\HotelAva`, patakbuhin ang **`npm run dev`** \u2014 sabay ang Flask (`:5000`) at Vite (`:5173`). Hintayin ang **\u201cVITE ready\u201d** at **\u201cDebugger is active\u201d**.",
-    "Browser \u2192 `http://localhost:5173` \u2014 **hard refresh** (Ctrl+Shift+R).",
+    "I-set up ang system **bago pa magsimula** \u2014 dapat **bukas na at gumagana** ang app sa browser. "
+    "Walang aayusin o iia-launch sa harap ng panel.",
+    "Buksan ang app sa browser: `http://localhost:5173` \u2014 **hard refresh** (Ctrl+Shift+R) para fresh ang lahat.",
     "**Mag-login NA BAGO ang demo**: Tab 1 = Guest account (User side), Tab 2 = Admin sa `/admin`. "
     "Kapag bagong device nag-login ang guest, hihingan siya ng **OTP** \u2014 kaya i-prepare nang maaga, huwag na live sa harap ng audience.",
     "I-fullscreen ang browser (F11), zoom ~110%, isara ang ibang tabs.",
@@ -226,13 +227,17 @@ gd("s", "\u201cAng problema sa mga hotel ngayon: **manual logbook**, **double bo
         "naka-check-in. Ang solusyon namin: isang **web system** na real-time ang availability, online ang "
         "booking, at may **AI** na tumutulong sa guest at sa management.\u201d")
 
-h3("Ano ang Technology sa Likod (sabihin nang mabilis)")
+h3("Ano ang Kaya ng System (sabihin nang mabilis)")
 bullets([
-    "**Frontend:** React + TypeScript + Tailwind CSS \u2014 mabilis, moderno, responsive sa phone.",
-    "**Backend:** Python (Flask) REST API \u2014 lahat ng booking logic dito.",
-    "**Database:** Supabase PostgreSQL na naka-cloud \u2014 ligtas at laging updated.",
-    "**Payments:** PayMongo para sa online payment at refund.",
-    "**AI:** Ask Ava chat, revenue forecast, at room recommendations.",
+    "**Real-time na availability** \u2014 kapag okupado na ang room sa isang petsa/oras, hindi na ito "
+    "mabook ulit \u2014 **double booking-proof**.",
+    "**Dalawang paraan ng booking:** online (guest) at **walk-in** (admin sa counter) \u2014 sakop ang "
+    "**overnight** at ang **day use** (per-oras).",
+    "**Online payment** via PayMongo \u2014 full payment o 50% downpayment, at **automatic refund** kapag "
+    "nagkansela nang maaga.",
+    "**QR check-in** para sa online bookings at **auto in-house** sa walk-in \u2014 mabilis sa front desk.",
+    "**Admin dashboard** \u2014 bookings, rooms, guests, reviews, at analytics sa isang tingin.",
+    "**AI:** Ask Ava chat, revenue forecast, at room recommendations \u2014 batay sa totoong datos.",
 ])
 
 h3("Overview ng Ipapakita (read-through lang)")
@@ -241,7 +246,7 @@ bullets([
     "\u2192 price breakdown \u2192 My Bookings + QR \u2192 Ask Ava AI.",
     "**Admin side (Person 3):** dashboard at analytics \u2192 bookings table \u2192 **walk-in booking** "
     "\u2192 **double-booking guard**.",
-    "**Tech (Person 4):** architecture, AI, at seguridad \u2192 Q&A.",
+    "**Person 4:** paano gumagana ang buong system, AI features, at Q&A.",
 ])
 
 gd("s", "\u201cSimulan natin sa panig ng guest \u2014 kay **[Person 2]**.\u201d")
@@ -364,19 +369,30 @@ bullets([
     "**Settings** \u2014 configuration ng hotel.",
 ])
 
-gd("s", "\u201cSa huli, ipapakita ni **[Person 4]** ang teknolohiya sa likod ng lahat ng ito.\u201d")
+gd("s", "\u201cSa huli, ipapakita ni **[Person 4]** kung paano gumagana ang buong system at ang AI nito.\u201d")
 
 page_break()
 
 # ---------------------------------------------------------------- person 4
-h1("Person 4 \u2014 Tech, AI at Q&A (3\u20134 min)")
+h1("Person 4 \u2014 Paano Gumagana, AI at Q&A (3\u20134 min)")
 
-h2("Architecture (sabihin nang confident)")
+h2("Paano Gumagana ang System (buong daloy \u2014 sabihin nang confident)")
 bullets([
-    "**React SPA** \u2192 **Flask REST API** \u2192 **Supabase PostgreSQL** \u2014 malinis na tatlong layer.",
-    "**Auth:** Supabase JWT \u2014 email verification, at **OTP step-up kapag bagong device** ang login.",
-    "**Payments:** PayMongo \u2014 full payment, downpayment, at **automatic refund** sa cancellation.",
-    "**Data:** ~**1,300+ booking** na ang naka-process nito \u2014 may server-side pagination at exact counts.",
+    "**Booking lifecycle:** mag-search ng room \u2192 piliin ang **petsa/o oras** \u2192 tingnan ang "
+    "**price breakdown** \u2192 bayad (full o 50% downpayment) \u2192 confirmation + **QR code** \u2192 "
+    "**check-in** \u2192 stay \u2192 **review** ng guest.",
+    "**Availability guard:** bawat booking ay may **time window** \u2014 laging tsek bago ang bawat bagong "
+    "booking, kaya **impossible ang double booking** \u2014 overnight man o day-use. Kanina ito napatunayan "
+    "nang live: **BLOCKED** ang parehong room.",
+    "**Walk-in flow:** ginagawa ng admin sa counter \u2192 **Cash** ang bayad \u2192 **auto in-house** "
+    "agad \u2014 hindi na kailangang i-scan pa ang QR kasi nasa harap na ang guest.",
+    "**Cancellation:** guest lang ang makakansela (**24-hour rule**) \u2192 **automatic ang refund** sa "
+    "original payment (7\u201314 banking days). Ang admin: check-in, complete, manage \u2014 walang "
+    "pwersahang cancel.",
+    "**Seguridad:** email verification, **OTP kapag bagong device** mag-login, at hiwalay na kapangyarihan "
+    "ng **guest** at **admin**.",
+    "**AI:** sumasagot at nagre-recommend batay sa **totoong datos ng hotel** \u2014 bookings, presyo, at "
+    "occupancy \u2014 hindi canned answers.",
 ])
 
 h2("Ang Mga Tanong na Tiyak na Itatanong (handa ang sagot)")
@@ -387,9 +403,10 @@ table(
          "Ang **All** ay kasama ang **201 cancelled**. Ang AI stats ay **active bookings lang** \u2014 para tama "
          "ang revenue forecast, occupancy, at room ranking."],
         ["**\u201cPaano niyo pinipigilan ang double booking kahit sabay ang dalawa?\u201d**",
-         "Sa **database mismo**: PostgreSQL **exclusion constraint** (`bookings_no_overlap`) gamit ang time range "
-         "(`booking_window()`), sakop ang **overnight at day-use**. Kahit100 sabay na request, isang lang ang "
-         "pwedeng pumasok sa parehong window \u2014 race-proof."],
+         "Sa **sistema mismo**, hindi lang sa screen: bago ang bawat booking, tinitsek ang **time window** "
+         "ng room \u2014 kapag may naunang booking sa parehong araw/oras, **talagang tinatanggihan** ito. "
+         "May **guard sa database** kaya kahit sabay pang dalawang device ang mag-submit, **isang lang** ang "
+         "papapasukin. Sakop ang **overnight at day-use** \u2014 at kanina ninyo itong napatunayan nang live."],
         ["**\u201cAno ba talaga ang AI dito?\u201d**",
          "**Ask Ava** (chat sa totoong data), **revenue/occupancy forecast**, **dynamic discounts** (15%), at "
          "**room recommendations** \u2014 lahat batay sa historical bookings, hindi canned answers."],
@@ -397,8 +414,8 @@ table(
          "PayMongo ang nagpoproseso \u2014 walang card data na humihawak ang system. Refund logic awtomatiko "
          "(24h policy, 7\u201314 banking days)."],
         ["**\u201cPaano kung magulo ang datos sa dami?\u201d**",
-         "Server-side pagination + exact counts (na-bypass ang **1,000-row cap** ng Supabase), at may short "
-         "server cache (30\u201360s) para mabilis ang dashboard."],
+         "Bawat listahan ay **naka-load nang maayos at tama** kahit libo-libong booking \u2014 tamang bilang "
+         "ang bawat count at walang nawawalang record, kaya mabilis at mapagkakatiwalaan ang dashboard."],
     ],
     widths=[2.6, 4.4],
 )
@@ -422,17 +439,20 @@ h1("Troubleshooting Habang Naka-Demo")
 table(
     ["Nangyari", "Gawin agad"],
     [
-        ["**Puti / error ang page**", "Tingnan kung buhay ang `npm run dev` → **hard refresh** (Ctrl+Shift+R)."],
-        ["**Na-logout sa gitna**", "Token expires ~1 oras \u2014 mag-login nang **bago** ang demo. Kung na-lock, "
-                                   "gamitin ang fallback admin account."],
+        ["**Puti / error ang page**", "Siguraduhing naka-set up at gumagana na ang system **bago** ang demo → "
+                                      "**hard refresh** (Ctrl+Shift+R)."],
+        ["**Na-logout sa gitna**", "Mag-login nang **bago** ang demo (may nag-e-expire na session kapag "
+                                   "matagal na nakabukas). Kung na-lock, gamitin ang fallback admin account."],
         ["**OTP prompt sa guest login**", "New device verification \u2014 **huwag** mag-login live; gamitin ang "
                                           "pre-logged na Tab 1."],
-        ["**Hindi agad nagbabago ang stats**", "May **30\u201360s server cache** \u2014 normal. Hintayin lang o "
+        ["**Hindi agad nagbabago ang stats**", "Minsan may maunting delay bago mag-update ang mga numero \u2014 "
+                                               "normal. Hintayin lang o "
                                                "galawin ang filter."],
         ["**\u201cRoom not available\u201d sa walk-in test**", "May totoong booking doon \u2014 pumili ng ibang "
                                                               "room o petsa."],
         ["**\u201cRoom is not available\u201d sa conflict demo**", "**YAN ANG DEMO \u2014 inaasahan iyan!** "
-                                                                   "Ipaliwanag na galing sa DB ang block. "],
+                                                                   "Ipaliwanag na ang **sistema mismo** ang "
+                                                                   "pumipigil, hindi lang ang screen. "],
         ["**Lumabas ang PayMongo page**", "I-cancel \u2192 balik sa My Bookings. **Walang totoong bayad** sa demo."],
         ["**May ginawang demo booking pagkatapos**", "I-record ang room/petsa \u2014 ipa-delete/ cancelled pagkatapos "
                                                      "ng demo (probe cleanup)."],
@@ -442,12 +462,12 @@ table(
 
 h2("10-Second Refresher Bago ang Demo (basahin nang malakas)")
 steps([
-    "**Person 1:** problema \u2192 solusyon \u2192 stack \u2192 bridge kay Person 2.",
+    "**Person 1:** problema \u2192 solusyon \u2192 kaya ng system \u2192 bridge kay Person 2.",
     "**Person 2:** Home \u2192 Rooms \u2192 Detail \u2192 **Booking breakdown** (huwag magbayad!) \u2192 "
     "My Bookings + QR \u2192 **Ask Ava**.",
     "**Person 3:** Dashboard \u2192 Bookings \u2192 **Walk-in (cash + AUTO IN-HOUSE)** \u2192 "
     "**CONFLICT = BLOCKED** \u2192 ibang pahina.",
-    "**Person 4:** architecture \u2192 AI \u2192 **1,305 vs 1,104 at double-booking sagot** \u2192 Q&A.",
+    "**Person 4:** paano gumagana ang system \u2192 AI \u2192 **1,305 vs 1,104 at double-booking sagot** \u2192 Q&A.",
 ])
 
 doc.add_paragraph()
