@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import {
-  UserPlus, Bed, CalendarDays, Clock, Users, Mail, Banknote, Wallet, PawPrint,
+  UserPlus, Bed, CalendarDays, Clock, Users, Mail, Banknote, PawPrint,
 } from "lucide-react"
 import LoadingDots from "@/components/LoadingDots"
 import { getRooms } from "@/services/adminService"
@@ -89,7 +89,6 @@ interface WalkInForm {
   children: number
   pets: number
   specialRequests: string
-  paymentMethod: string
 }
 
 function emptyForm(): WalkInForm {
@@ -107,7 +106,6 @@ function emptyForm(): WalkInForm {
     children: 0,
     pets: 0,
     specialRequests: "",
-    paymentMethod: "cash",
   }
 }
 
@@ -344,7 +342,6 @@ export default function WalkInBookingDialog({ open, onClose, onCreated }: WalkIn
       children: form.children,
       pets: form.pets,
       paid_now: true,
-      payment_method: form.paymentMethod,
     }
     if (form.stayType === "overnight") payload.check_out = form.checkOut
     else {
@@ -356,9 +353,12 @@ export default function WalkInBookingDialog({ open, onClose, onCreated }: WalkIn
 
     try {
       const res = await bookingsApi.createWalkIn(payload)
+      // Stays starting today are stamped checked-in on arrival at the counter
+      // (backend mirrors the QR check-in) — no scan needed for walk-ins.
+      const startsToday = form.checkIn === new Date().toLocaleDateString("en-CA")
       toast({
         title: "Walk-in booking created",
-        description: `${form.fullName} — confirmed${res.linked_account ? " · linked to their account" : ""} · ₱${res.total_price.toLocaleString()}`,
+        description: `${form.fullName} — ${startsToday ? "checked in · in-house" : "confirmed"}${res.linked_account ? " · linked to their account" : ""} · ₱${res.total_price.toLocaleString()}`,
         variant: "success",
       })
       onCreated()
@@ -848,24 +848,9 @@ export default function WalkInBookingDialog({ open, onClose, onCreated }: WalkIn
 
               <div>
                 <label className={label}>Payment Method</label>
-                <div className="relative">
-                  <div className="absolute left-3 top-1/2 -translate-y-1/2 text-black">
-                    {form.paymentMethod === "cash"
-                      ? <Banknote className="size-3.5" />
-                      : <Wallet className="size-3.5" />}
-                  </div>
-                  <select
-                    value={form.paymentMethod}
-                    onChange={(e) => setForm((f) => ({ ...f, paymentMethod: e.target.value }))}
-                    className={`${field} pl-9 pr-8 appearance-none`}
-                  >
-                    <option value="cash">Cash</option>
-                    <option value="gcash">GCash</option>
-                    <option value="card">Card</option>
-                  </select>
-                  <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-[#9ca3af]">
-                    <svg className="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
-                  </div>
+                <div className={`${field} flex items-center gap-2 bg-[#f5f6f8]`}>
+                  <Banknote className="size-3.5 text-[#1f8a5b] shrink-0" />
+                  <span className="text-[#6b7280]">Cash — settled at the counter</span>
                 </div>
               </div>
 

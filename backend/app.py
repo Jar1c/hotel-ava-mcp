@@ -4822,12 +4822,18 @@ def admin_create_booking():
         elif start_time:
             booking_insert["start_time"] = start_time
 
+        # Walk-in guests are standing at the counter — stamp the arrival now so
+        # the booking lands In-house (the same clock the QR scan would stamp).
+        # A future-dated walk-in waits for the real check-in on arrival day.
+        if check_in == hotel_now().date().isoformat():
+            booking_insert["checked_in_at"] = hotel_now().isoformat()
+
         # Same drop-and-retry as create_booking for optional columns, plus:
         # - bookings_no_overlap can still fire on a race — surface it as a 409.
         # - user_id NULL falls back to the admin's own id when the account
         #   deletion migration hasn't made the column nullable yet (the
         #   walk-in's name/email/phone still ride on the row itself).
-        optional_cols = ("payment_mode", "amount_paid", "adults", "children", "pets")
+        optional_cols = ("payment_mode", "amount_paid", "adults", "children", "pets", "checked_in_at")
         booking_res = None
         for _ in range(len(optional_cols) + 3):
             try:

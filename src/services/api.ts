@@ -731,7 +731,6 @@ export interface WalkInBookingPayload {
   special_requests?: string
   /** Always true — walk-ins settle in full at the counter. */
   paid_now?: boolean
-  payment_method?: string
 }
 
 export const bookingsApi = {
