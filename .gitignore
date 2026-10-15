@@ -66,6 +66,9 @@ backend/.seed_review_ids.json
 ai-forecast-shared
 dash-ai-cards
 
+# Word lock/temp files
+~$*
+
 # Root screenshots / debug artifacts (test captures, never source)
 /*.png
 login-page.yml
