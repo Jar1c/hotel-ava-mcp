@@ -221,7 +221,9 @@ export default function RoomDemandInsights() {
               <div className="mb-3">
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-[11px] text-[#6b7280]">Next 30 days</span>
-                  <span className="text-[12px] font-bold text-[#1a1d26]">{row.occupancy}%</span>
+                  <span className="text-[12px] font-bold text-[#1a1d26]">
+                    {row.bookedNights} of {row.capacity} nights booked
+                  </span>
                 </div>
                 <div className="h-2 rounded-full bg-[#f3f4f6] overflow-hidden">
                   <div
