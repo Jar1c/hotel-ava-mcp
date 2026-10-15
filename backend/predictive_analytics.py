@@ -25,6 +25,9 @@ MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
 MODEL_DIR = os.path.join(os.path.dirname(__file__), "ml_models")
+if os.environ.get("VERCEL") == "1":
+    # Vercel's bundle directory is read-only; /tmp is the only writable path.
+    MODEL_DIR = "/tmp/ml_models"
 os.makedirs(MODEL_DIR, exist_ok=True)
 
 
