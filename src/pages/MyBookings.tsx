@@ -77,16 +77,16 @@ function stayEndMs(b: UserBookingData): number {
 }
 
 /** Upcoming stays first (soonest check-in first), then past/cancelled by most recent. */
-function orderBookings(list: UserBookingData[]): UserBookingData[] {
+function orderBookings(list: UserBookingData[], seen: Record<string, number>): UserBookingData[] {
   const now = Date.now()
   const isUpcoming = (b: UserBookingData) =>
     (b.status === "pending" || b.status === "confirmed") && stayEndMs(b) >= now
-  // Fresh bookings (last 48 hours) pin to the very top, newest first — they get
-  // the NEW badge so they can't be missed.
+  // Fresh bookings (last 48 hours, not yet opened) pin to the very top, newest
+  // first — they get the NEW badge so they can't be missed.
   const fresh = list
-    .filter(isNewBooking)
+    .filter((b) => isNewBooking(b, seen))
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-  const rest = list.filter((b) => !isNewBooking(b))
+  const rest = list.filter((b) => !isNewBooking(b, seen))
   return [
     ...fresh,
     ...rest
@@ -96,9 +96,34 @@ function orderBookings(list: UserBookingData[]): UserBookingData[] {
   ]
 }
 
-/** Bookings made in the last 48 hours — pinned on top and badged NEW. */
+/** Bookings made in the last 48 hours — pinned on top and badged NEW, but only
+ * until the guest opens them once. Seen ids are remembered per device so the
+ * badge never comes back after the booking has been viewed. */
 const NEW_BOOKING_WINDOW_MS = 48 * 60 * 60 * 1000
-function isNewBooking(b: UserBookingData): boolean {
+const SEEN_BOOKINGS_KEY = "ava:seen-bookings"
+
+function readSeenBookings(): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(SEEN_BOOKINGS_KEY)
+    const parsed = raw ? JSON.parse(raw) : {}
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, number>) : {}
+  } catch {
+    return {}
+  }
+}
+
+function markBookingSeen(id: string) {
+  try {
+    const seen = readSeenBookings()
+    seen[id] = Date.now()
+    localStorage.setItem(SEEN_BOOKINGS_KEY, JSON.stringify(seen))
+  } catch {
+    // localStorage unavailable (private mode / quota) — badge just stays time-based
+  }
+}
+
+function isNewBooking(b: UserBookingData, seen: Record<string, number>): boolean {
+  if (seen[b.id]) return false
   const t = new Date(b.created_at || 0).getTime()
   return Number.isFinite(t) && t > 0 && Date.now() - t <= NEW_BOOKING_WINDOW_MS
 }
@@ -226,6 +251,9 @@ export default function MyBookings() {
   const { logout } = useAuth()
   const { unreadBookingCount, markBookingNotificationsRead } = useNotifications()
   const [bookings, setBookings] = useState<UserBookingData[]>([])
+  // Ids the guest has already opened — remembered per device so the NEW badge
+  // clears permanently once a booking is viewed (not just for 48h).
+  const [seenBookings, setSeenBookings] = useState<Record<string, number>>(() => readSeenBookings())
   const [loading, setLoading] = useState(true)
   const [cancelling, setCancelling] = useState<string | null>(null)
   const [paying, setPaying] = useState<string | null>(null)
@@ -383,7 +411,7 @@ export default function MyBookings() {
     if (unreadBookingCount > 0) void markBookingNotificationsRead()
   }, [unreadBookingCount, markBookingNotificationsRead])
 
-  const orderedBookings = orderBookings(bookings)
+  const orderedBookings = orderBookings(bookings, seenBookings)
 
   const filteredBookings = activeTab === "all"
     ? orderedBookings
@@ -402,6 +430,9 @@ export default function MyBookings() {
   const pagedBookings = filteredBookings.slice((page - 1) * PER_PAGE, page * PER_PAGE)
 
   const handleCardClick = useCallback(async (booking: UserBookingData) => {
+    // Opening a booking once retires its NEW badge for good on this device.
+    markBookingSeen(booking.id)
+    setSeenBookings((prev) => (prev[booking.id] ? prev : { ...prev, [booking.id]: Date.now() }))
     setDetailOpen(true)
     setDetailLoading(true)
     try {
@@ -610,7 +641,7 @@ export default function MyBookings() {
               const rawStatus = booking.status.toLowerCase()
               const dimmed = rawStatus === "cancelled" || rawStatus === "completed" || rawStatus === "checked-out"
               const refund = refundLine(booking)
-              const isNew = isNewBooking(booking)
+              const isNew = isNewBooking(booking, seenBookings)
               const isFinished = rawStatus === "completed" || rawStatus === "checked-out"
               return (
                 <div
