@@ -2804,7 +2804,7 @@ def get_rooms():
         rooms = rooms_res.data or []
 
         today = today_str()
-        bookings = _fetch_bookings_all("room_id, status, total_price, check_in, check_out", exclude_cancelled=False)
+        bookings = _fetch_bookings_all("room_id, status, total_price, check_in, check_out", exclude_cancelled=False, client=supabase_admin)
 
         room_bookings = {}
         for b in bookings:
@@ -6260,7 +6260,7 @@ def get_guests():
                 print(f"[guests] list_users fallback error: {e}")
 
         # One bookings pass for stats (was two full scans + email scan)
-        bookings = _fetch_bookings_all("user_id, email, total_price, check_out", exclude_cancelled=False)
+        bookings = _fetch_bookings_all("user_id, email, total_price, check_out", exclude_cancelled=False, client=supabase_admin)
 
         user_stats = {}
         booking_emails = {}
@@ -6582,7 +6582,7 @@ def get_monthly_revenue():
         return jsonify({"error": "Unauthorized"}), 401
 
     try:
-        bookings = _fetch_bookings_all("total_price, check_in", exclude_cancelled=False)
+        bookings = _fetch_bookings_all("total_price, check_in", exclude_cancelled=False, client=supabase_admin)
         months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
         current_month = datetime.now().month
 
@@ -6606,7 +6606,7 @@ def get_occupancy_data():
         return jsonify({"error": "Unauthorized"}), 401
 
     try:
-        bookings = _fetch_bookings_all("check_in, check_out, status", exclude_cancelled=False)
+        bookings = _fetch_bookings_all("check_in, check_out, status", exclude_cancelled=False, client=supabase_admin)
         months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
         now = datetime.now()
         current_month = now.month
@@ -6654,7 +6654,7 @@ def get_seasonal_data():
 
 
 def _build_seasonal_data():
-    bookings = _fetch_bookings_all("total_price, check_in, status")
+    bookings = _fetch_bookings_all("total_price, check_in, status", client=supabase_admin)
     months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
     current_year = datetime.now().year
 
@@ -6688,7 +6688,7 @@ def get_room_performance():
 
 def _build_room_performance():
     rooms = _sb().table("rooms").select("id, type, price").execute().data or []
-    bookings = _fetch_bookings_all("room_id, total_price, check_in, check_out, status")
+    bookings = _fetch_bookings_all("room_id, total_price, check_in, check_out, status", client=supabase_admin)
 
     rooms_by_id = {r["id"]: r for r in rooms}
     type_stats = {}
@@ -6732,7 +6732,7 @@ def get_insights():
 
 def _build_insights():
     rooms = _sb().table("rooms").select("id, type, price").execute().data or []
-    bookings = _fetch_bookings_all("room_id, total_price, check_in, check_out, status")
+    bookings = _fetch_bookings_all("room_id, total_price, check_in, check_out, status", client=supabase_admin)
 
     rooms_by_id = {r["id"]: r for r in rooms}
     total_bookings = len(bookings)
@@ -6802,7 +6802,7 @@ def _fetch_bookings_all(columns: str, exclude_cancelled: bool = True, client=Non
 def _build_occupancy_forecast():
     # Cancelled bookings must not count as occupancy; history panel uses the
     # standard room-nights formula (see forecast_model.build_history).
-    bookings = _fetch_bookings_all("check_in, check_out, status, total_price")
+    bookings = _fetch_bookings_all("check_in, check_out, status, total_price", client=supabase_admin)
     rooms = _sb().table("rooms").select("id").execute().data or []
     from forecast_model import MONTH_NAMES, build_history, predict_year
 
@@ -6839,7 +6839,7 @@ def get_revenue_forecast():
 def _build_revenue_forecast():
     # Year-filtered via the history panel — the old bucket summed check-ins
     # from every year into one month slot (Oct 2025 + Oct 2026, etc.).
-    bookings = _fetch_bookings_all("check_in, check_out, status, total_price")
+    bookings = _fetch_bookings_all("check_in, check_out, status, total_price", client=supabase_admin)
     rooms = _sb().table("rooms").select("id").execute().data or []
     from forecast_model import MONTH_NAMES, build_history, predict_year
 
@@ -6940,7 +6940,7 @@ def _backtest(points: list[dict]) -> dict | None:
 
 
 def _build_forecast_accuracy():
-    bookings = _fetch_bookings_all("check_in, check_out, status, total_price")
+    bookings = _fetch_bookings_all("check_in, check_out, status, total_price", client=supabase_admin)
     rooms = _sb().table("rooms").select("id").execute().data or []
     from forecast_model import MIN_TRAIN_ROWS, backtest, build_history
 
@@ -7624,7 +7624,7 @@ def _build_demand_insights():
         from predictive_analytics import generate_demand_insights
 
         rooms = _sb().table("rooms").select("id, type, price").execute().data or []
-        bookings = _fetch_bookings_all("room_id, check_in, check_out, status, total_price")
+        bookings = _fetch_bookings_all("room_id, check_in, check_out, status, total_price", client=supabase_admin)
 
         insights = generate_demand_insights(bookings, rooms, shared=True)
 
