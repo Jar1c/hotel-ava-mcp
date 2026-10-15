@@ -602,7 +602,7 @@ export async function getDiscountSuggestions(): Promise<DiscountSuggestion[]> {
 
 export async function applyDiscountSuggestion(
   event: string,
-  action: "approve" | "dismiss",
+  action: "approve" | "dismiss" | "cancel",
 ): Promise<{ ok: boolean; state: string; offers?: DiscountOfferData[] }> {
   const res = await analyticsApi.applyDiscountSuggestion(event, action)
   clearCache("analytics-discounts")

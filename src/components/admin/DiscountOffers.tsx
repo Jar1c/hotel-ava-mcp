@@ -71,16 +71,20 @@ export default function DiscountOffers({ loading }: DiscountOffersProps) {
   const runDialogAction = async () => {
     if (!dialog) return
     setDialogBusy(true)
-    // "cancel" reuses the dismiss endpoint — the backend also turns off the
-    // offers the promo created, so the discount stops applying immediately.
-    const action = dialog.kind === "approve" ? "approve" : "dismiss"
+    // "cancel" turns off the offers the promo created but returns the
+    // suggestion to pending, so the card stays visible and can be re-approved.
+    const action = dialog.kind === "approve" ? "approve" : dialog.kind === "cancel" ? "cancel" : "dismiss"
     try {
       await applyDiscountSuggestion(dialog.suggestion.event, action)
       // Update local state directly - no re-fetch needed
       setSuggestions((prev) =>
         prev.map((s) =>
           s.event === dialog.suggestion.event
-            ? { ...s, state: dialog.kind === "approve" ? "approved" : "dismissed" }
+            ? {
+                ...s,
+                state:
+                  dialog.kind === "approve" ? "approved" : dialog.kind === "cancel" ? "pending" : "dismissed",
+              }
             : s,
         ),
       )
@@ -95,7 +99,7 @@ export default function DiscountOffers({ loading }: DiscountOffersProps) {
           dialog.kind === "approve"
             ? `${dialog.suggestion.event} offers were created.`
             : dialog.kind === "cancel"
-              ? `${dialog.suggestion.event} offers were turned off.`
+              ? `${dialog.suggestion.event} offers were turned off and it is pending again.`
               : `${dialog.suggestion.event} was removed from suggestions.`,
         variant: "success",
       })
@@ -262,7 +266,7 @@ export default function DiscountOffers({ loading }: DiscountOffersProps) {
           dialog?.kind === "approve"
             ? `Creates ${dialog.suggestion.roomTypes.length} offer${dialog.suggestion.roomTypes.length === 1 ? "" : "s"} for ${shortDate(dialog.suggestion.validFrom)} to ${longDate(dialog.suggestion.validTo)}. Guests only see the discount when the dates are live, and you can switch it off anytime.`
             : dialog?.kind === "cancel"
-              ? "Turns off the offers this promo created and hides it from suggestions. Guests stop seeing the discount immediately."
+              ? "Turns off the offers this promo created. Guests stop seeing the discount immediately, and the suggestion goes back to pending so you can approve it again."
               : "Hides this suggestion and removes any existing approval for it. No offers are created."
         }
         confirmLabel={dialog?.kind === "approve" ? "Approve" : dialog?.kind === "cancel" ? "Cancel promo" : "Dismiss"}

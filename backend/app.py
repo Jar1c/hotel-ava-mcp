@@ -8549,9 +8549,11 @@ def get_discount_suggestions():
 def apply_discount_suggestion():
     """Approve creates one offer per concrete room type (enabled, so its status
     is Scheduled for a future window or Live for a current one) after the same
-    cap/overlap checks as manual activation; Dismiss hides the suggestion and
-    drops any legacy engine approval for that promo. The admin stays in control
-    either way — created offers can be switched off, and every change is audited."""
+    cap/overlap checks as manual activation; Cancel turns those offers back off
+    and returns the suggestion to pending so it stays visible; Dismiss hides the
+    suggestion and drops any legacy engine approval for that promo. The admin
+    stays in control either way — created offers can be switched off, and every
+    change is audited."""
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
     actor_id, actor_email, err = _admin_gate(token)
     if err:
@@ -8560,8 +8562,8 @@ def apply_discount_suggestion():
     data = request.get_json() or {}
     event_name = str(data.get("event") or "").strip()
     action = data.get("action")
-    if not event_name or action not in ("approve", "dismiss"):
-        return jsonify({"error": "event and action (approve|dismiss) required"}), 400
+    if not event_name or action not in ("approve", "dismiss", "cancel"):
+        return jsonify({"error": "event and action (approve|dismiss|cancel) required"}), 400
     ev = next((e for e in _HOLIDAY_EVENTS if e["name"] == event_name), None)
     if not ev:
         return jsonify({"error": f"unknown event: {event_name}"}), 404
@@ -8569,13 +8571,15 @@ def apply_discount_suggestion():
     saved = _offer_store()
     states = saved.get(_SUGGESTIONS_KEY) or {}
 
-    if action == "dismiss":
-        states[event_name] = "dismissed"
+    if action in ("dismiss", "cancel"):
+        # Cancel revokes the approval but keeps the suggestion at pending so the
+        # card stays on screen; dismiss hides it for good. Both paths turn off
+        # only the offers THIS suggestion created (tracked by source "holiday"
+        # + admin_approved at creation), so a Holiday promo cancel never kills
+        # Room-Demand "AI boost" offers or manual Scheduled Offers. Records stay
+        # in the store for the audit trail.
+        states[event_name] = "dismissed" if action == "dismiss" else "pending"
         saved[_SUGGESTIONS_KEY] = states
-        # Cancel path: turn off only the offers THIS suggestion created (tracked
-        # by source "holiday" + admin_approved at creation), so dismissing a
-        # Holiday promo never kills Room-Demand "AI boost" offers or manual
-        # Scheduled Offers. Records stay in the store for the audit trail.
         cancelled = []
         offers = saved.get(_OFFERS_KEY) or {}
         for rec in offers.values():
@@ -8593,7 +8597,7 @@ def apply_discount_suggestion():
             return jsonify({"error": "Could not save"}), 500
         for rec in cancelled:
             _audit_discount("deactivate", actor_id, actor_email, rec,
-                            {"event": event_name, "via": "suggestion dismiss"})
+                            {"event": event_name, "via": f"suggestion {action}"})
         # Best-effort cleanup of the legacy engine approval for this promo.
         try:
             stale = {k for k in _approved_discount_keys() if k.startswith(event_name + "-")}
@@ -8609,7 +8613,7 @@ def apply_discount_suggestion():
             print(f"suggest dismiss key cleanup skipped: {e}")
         invalidate_cache("discount-suggestions")
         invalidate_cache("analytics-discounts")
-        return jsonify({"ok": True, "state": "dismissed"}), 200
+        return jsonify({"ok": True, "state": states[event_name]}), 200
 
     # approve — validate every room type first, then write once.
     today = hotel_now().date()

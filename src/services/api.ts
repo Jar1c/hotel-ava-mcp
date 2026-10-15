@@ -1125,7 +1125,7 @@ export const analyticsApi = {
     ),
   getDiscountRules: () => apiFetch<DiscountRules>("/discounts/rules"),
   getDiscountSuggestions: () => apiFetch<DiscountSuggestion[]>("/discounts/suggestions"),
-  applyDiscountSuggestion: (event: string, action: "approve" | "dismiss") =>
+  applyDiscountSuggestion: (event: string, action: "approve" | "dismiss" | "cancel") =>
     apiFetch<{ ok: boolean; state: string; offers?: DiscountOfferData[] }>("/discounts/suggestions", {
       method: "POST",
       body: JSON.stringify({ event, action }),
