@@ -523,6 +523,9 @@ export interface CreateBookingPayload {
   total_price: number
   /** "full" = paid online in full, "downpayment" = 50% online + balance at hotel */
   payment_mode?: "full" | "downpayment"
+  /** Guest-entered promo code (Shopee-style, e.g. from an NFC card) —
+   *  validated and applied server-side. */
+  promo_code?: string
 }
 
 export interface BookingResponse {
@@ -1145,6 +1148,59 @@ export const analyticsApi = {
   getAIRecommendations: () => apiFetch<RecommendationsData>("/analytics/ai-recommendations"),
   getForecastAccuracy: () => apiFetch<ForecastAccuracyData>("/analytics/forecast/accuracy"),
   getRoomDemand: () => apiFetch<RoomDemandData[]>("/analytics/room-demand"),
+}
+
+// ── Promo codes (guest-entered, admin-managed) ────────────────────────────────
+
+export interface PromoCodeData {
+  id: string
+  code: string
+  label: string
+  discount_type: "percent" | "fixed"
+  value: number
+  valid_from?: string | null
+  valid_to?: string | null
+  max_uses?: number | null
+  /** When true (default) each account redeems the code at most once. */
+  one_per_guest?: boolean
+  used_count: number
+  active: boolean
+  created_at: string
+  created_by_email?: string
+}
+
+/** Fields the admin can send when creating/updating a code. */
+export type PromoCodeInput = Omit<PromoCodeData, "id" | "used_count" | "created_at">
+
+export interface PromoValidateResult {
+  code: string
+  label: string
+  discount_type: "percent" | "fixed"
+  value: number
+  discount_amount: number
+  /** Booking total after the promo discount. */
+  total: number
+}
+
+export const promoApi = {
+  /** Guest: check a code against a booking context. */
+  validate: (payload: {
+    code: string
+    room_id: string
+    check_in: string
+    check_out?: string
+    stay_type?: string
+    duration?: number
+  }) => apiFetch<PromoValidateResult>("/promos/validate", { method: "POST", body: JSON.stringify(payload) }),
+
+  // Admin CRUD
+  list: () => apiFetch<PromoCodeData[]>("/discounts/promo-codes"),
+  create: (payload: PromoCodeInput) =>
+    apiFetch<PromoCodeData>("/discounts/promo-codes", { method: "POST", body: JSON.stringify(payload) }),
+  update: (id: string, payload: PromoCodeInput) =>
+    apiFetch<PromoCodeData>(`/discounts/promo-codes/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
+  remove: (id: string) =>
+    apiFetch<{ ok: boolean }>(`/discounts/promo-codes/${id}`, { method: "DELETE" }),
 }
 
 // ── Reviews ────────────────────────────────────────────────────────────────────

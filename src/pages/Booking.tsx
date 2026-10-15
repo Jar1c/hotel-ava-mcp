@@ -1,9 +1,9 @@
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useRef } from "react"
 import { useParams, useNavigate, useSearchParams, Link } from "react-router"
-import { ArrowLeft, Calendar, Check, CreditCard, AlertCircle, Clock, Mail, Wallet, Landmark, X, QrCode } from "lucide-react"
+import { ArrowLeft, Calendar, Check, CreditCard, AlertCircle, Clock, Mail, Tag, Wallet, Landmark, X, QrCode } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
-import { publicRoomsApi, userBookingsApi, type PublicRoomData, type RoomQuote } from "@/services/api"
+import { publicRoomsApi, userBookingsApi, promoApi, ApiError, type PublicRoomData, type RoomQuote, type PromoValidateResult } from "@/services/api"
 import ConfirmDialog from "@/components/ui/confirm-dialog"
 import { rooms as fallbackRooms, type Room } from "@/data/rooms"
 import { getCached, setCache } from "@/lib/cache"
@@ -94,6 +94,12 @@ useEffect(() => {
     return () => window.removeEventListener("keydown", onKey)
   }, [showSignInModal])
   const [paymentMode, setPaymentMode] = useState<"full" | "downpayment">("full")
+  // Shopee-style promo code — the guest types a code, we validate it server
+  // side against the live quote and show the new total before paying.
+  const [promoInput, setPromoInput] = useState("")
+  const [promoApplied, setPromoApplied] = useState<PromoValidateResult | null>(null)
+  const [promoBusy, setPromoBusy] = useState(false)
+  const [promoError, setPromoError] = useState("")
   const { rooms: discountRooms } = useDiscountRooms()
   const { isApproved } = useDiscountApproval()
   const [activeOffers, setActiveOffers] = useState<ActiveOffer[]>([])
@@ -245,10 +251,65 @@ useEffect(() => {
   const savedAmount = originalSubtotal - subtotal
   const taxes = activeQuote ? activeQuote.tax : Math.round(subtotal * 0.12)
   const total = activeQuote ? activeQuote.total : subtotal + taxes
-  const amountDue = paymentMode === "downpayment" ? Math.round(total / 2) : total
-  const balanceDue = total - amountDue
+  // Promo code discount sits on top of the quoted total (server re-applies
+  // the same math at booking time — this is only the display).
+  const promoDiscount = promoApplied ? Math.min(promoApplied.discount_amount, Math.max(0, total - 1)) : 0
+  const totalWithPromo = total - promoDiscount
+  const amountDue = paymentMode === "downpayment" ? Math.round(totalWithPromo / 2) : totalWithPromo
+  const balanceDue = totalWithPromo - amountDue
 
   const canSubmit = hasDate && validNights && !submitting && agreedToPolicy && (isOvernight || !!startTime)
+
+  // Validate a promo code against the live quote. The server prices the
+  // discount off the same total it will charge at booking time. An optional
+  // override carries a code handed over from the room page's promo panel.
+  const applyPromo = async (codeOverride?: string) => {
+    const code = (codeOverride ?? promoInput).trim()
+    if (!code || !room || !checkIn || promoBusy) return
+    setPromoBusy(true)
+    setPromoError("")
+    try {
+      const result = await promoApi.validate({
+        code,
+        room_id: room.id,
+        check_in: toISODate(checkIn),
+        check_out: isOvernight && checkOut ? toISODate(checkOut) : undefined,
+        stay_type: stayType,
+        duration: isOvernight ? undefined : dayDuration,
+      })
+      setPromoApplied(result)
+      setPromoInput("")
+    } catch (err) {
+      setPromoError(err instanceof ApiError && err.message ? err.message : "Couldn't apply the promo code.")
+    } finally {
+      setPromoBusy(false)
+    }
+  }
+
+  const removePromo = () => {
+    setPromoApplied(null)
+    setPromoError("")
+  }
+
+  // A different stay = a different total, so a previously applied code has to
+  // be re-checked. Clear it whenever the stay params change.
+  useEffect(() => {
+    setPromoApplied(null)
+    setPromoError("")
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams.toString()])
+
+  // A promo code carried over from the room page (?promo=) is applied once
+  // the quote context is ready. The server re-validates it here, so an
+  // expired or already-used code shows its message instead of silently failing.
+  const promoPrefilled = useRef(false)
+  const promoParam = searchParams.get("promo")
+  useEffect(() => {
+    if (promoPrefilled.current || !promoParam || !room || !checkIn) return
+    promoPrefilled.current = true
+    void applyPromo(promoParam)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [promoParam, room, checkIn])
 
   const handleSubmit = () => void runCreate()
 
@@ -329,6 +390,7 @@ useEffect(() => {
           full_name: user.name,
           email: user.email,
           payment_mode: paymentMode,
+          ...(promoApplied ? { promo_code: promoApplied.code } : {}),
         }),
       })
 
@@ -506,8 +568,8 @@ useEffect(() => {
               </h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {([
-                  { key: "full", title: "Full payment", Icon: CreditCard, due: total, note: "Nothing left to pay" },
-                  { key: "downpayment", title: "Downpayment", Icon: Landmark, due: Math.round(total / 2), note: "Pay the balance at the hotel" },
+                  { key: "full", title: "Full payment", Icon: CreditCard, due: totalWithPromo, note: "Nothing left to pay" },
+                  { key: "downpayment", title: "Downpayment", Icon: Landmark, due: Math.round(totalWithPromo / 2), note: "Pay the balance at the hotel" },
                 ] as const).map(({ key, title, Icon, due, note }) => {
                   const active = paymentMode === key
                   return (
@@ -593,10 +655,63 @@ useEffect(() => {
                       <span className="text-muted">Taxes & fees (12%)</span>
                       <span className="text-ink">₱{taxes.toLocaleString()}</span>
                     </div>
+
+                    {/* Promo code — Shopee-style input in the checkout summary */}
+                    {promoApplied ? (
+                      <div className="flex items-center justify-between gap-2 rounded-[10px] border border-emerald-200 bg-emerald-50 px-3 py-2">
+                        <span className="flex items-center gap-1.5 min-w-0">
+                          <Tag className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                          <span className="typo-body-sm font-semibold text-emerald-700 font-mono truncate">{promoApplied.code}</span>
+                          <span className="typo-caption-sm text-emerald-600 shrink-0">−₱{promoDiscount.toLocaleString()}</span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={removePromo}
+                          aria-label="Remove promo code"
+                          className="text-muted hover:text-ink cursor-pointer shrink-0"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex gap-2 pt-0.5">
+                        <input
+                          value={promoInput}
+                          onChange={(e) => {
+                            setPromoInput(e.target.value.toUpperCase())
+                            setPromoError("")
+                          }}
+                          placeholder="Promo code"
+                          maxLength={32}
+                          disabled={!room || !hasDate}
+                          aria-label="Promo code"
+                          className="flex-1 min-w-0 rounded-[10px] border border-hairline px-3 py-2 typo-body-sm font-mono text-ink placeholder:font-sans placeholder:text-muted focus:outline-none focus:border-primary disabled:opacity-50"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => void applyPromo()}
+                          disabled={promoBusy || !promoInput.trim() || !room || !hasDate}
+                          className="rounded-[10px] bg-primary px-4 py-2 typo-body-sm font-semibold text-white disabled:opacity-50 cursor-pointer"
+                        >
+                          {promoBusy ? "..." : "Apply"}
+                        </button>
+                      </div>
+                    )}
+                    {promoError && (
+                      <p className="typo-caption-sm text-[#A4423A]">{promoError}</p>
+                    )}
+
                     <div className="flex justify-between font-semibold pt-sm border-t border-hairline">
                       <span className="typo-body-md text-ink">Total</span>
                       <span className={`typo-body-md ${validNights ? "text-primary" : "text-muted"}`}>
-                        {validNights ? `₱${total.toLocaleString()}` : "—"}
+                        {validNights ? (
+                          <>
+                            {promoDiscount > 0 && (
+                              <s className="text-muted mr-1.5 font-normal">₱{total.toLocaleString()}</s>
+                            )}
+                            ₱{totalWithPromo.toLocaleString()}
+                          </>
+                        ) : "—"}
                       </span>
                     </div>
                     {paymentMode === "downpayment" && validNights && (

@@ -20,7 +20,7 @@ import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import DateInput from "@/components/ui/date-input"
 import GuestSelector, { type GuestCount } from "@/components/ui/guest-selector"
-import { publicRoomsApi, reviewsApi, type PublicRoomData, type RoomReviewsResponse, type RoomQuote } from "@/services/api"
+import { ApiError, publicRoomsApi, promoApi, reviewsApi, type PromoValidateResult, type PublicRoomData, type RoomReviewsResponse, type RoomQuote } from "@/services/api"
 import { getAmenityIcon, rooms as fallbackRooms, type Room } from "@/data/rooms"
 import { nearbyPlaces, travelLabel, type NearbyCategory } from "@/data/nearbyPlaces"
 import { getCached, setCache } from "@/lib/cache"
@@ -174,6 +174,20 @@ export default function RoomDetail() {
   const [showAuthModal, setShowAuthModal] = useState(false)
   const [authModalMode, setAuthModalMode] = useState<"default" | "quick">("default")
   const [lastUsed, setLastUsed] = useState<LastSignIn | null>(null)
+  // Guest promo code, applied right here in the booking panel. The applied
+  // code rides along as a ?promo= param so checkout re-validates it.
+  const [promoInput, setPromoInput] = useState("")
+  const [promoApplied, setPromoApplied] = useState<PromoValidateResult | null>(null)
+  const [promoBusy, setPromoBusy] = useState(false)
+  const [promoError, setPromoError] = useState("")
+
+  // A different stay = a different total, so a previously applied promo code
+  // has to be re-checked. Clear it whenever the stay params change.
+  useEffect(() => {
+    setPromoApplied(null)
+    setPromoError("")
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stayType, checkIn?.toString(), checkOut?.toString(), dayDuration])
 
   useEffect(() => {
     if (showAuthModal) setLastUsed(getLastSignIn())
@@ -511,6 +525,36 @@ export default function RoomDetail() {
   const totalPrice = quote
     ? quote.total
     : displaySubtotal + Math.round(displaySubtotal * 0.12)
+  // Guest promo code sits on top of the quoted total — the server re-applies
+  // the same math at booking time; this drives the panel display and the
+  // ?promo= handoff to checkout.
+  const promoDiscount = promoApplied
+    ? Math.min(promoApplied.discount_amount, Math.max(0, totalPrice - 1))
+    : 0
+  const totalPriceWithPromo = totalPrice - promoDiscount
+
+  const applyPromo = async () => {
+    const code = promoInput.trim()
+    if (!code || !id || !checkIn || promoBusy) return
+    setPromoBusy(true)
+    setPromoError("")
+    try {
+      const result = await promoApi.validate({
+        code,
+        room_id: id,
+        check_in: toISODate(checkIn),
+        check_out: stayType === "overnight" && checkOut ? toISODate(checkOut) : undefined,
+        stay_type: stayType,
+        duration: stayType === "day" ? dayDuration : undefined,
+      })
+      setPromoApplied(result)
+      setPromoInput("")
+    } catch (err) {
+      setPromoError(err instanceof ApiError && err.message ? err.message : "Couldn't apply the promo code.")
+    } finally {
+      setPromoBusy(false)
+    }
+  }
 
   // Prefer the live review aggregate; fall back to the value shipped with the room
   const avgRating = reviewSummary && reviewSummary.count > 0 ? reviewSummary.average : room.rating
@@ -1361,9 +1405,68 @@ export default function RoomDetail() {
                   <span className="typo-body-sm text-muted">Taxes & fees</span>
                   <span className="typo-body-sm text-ink">&#x20B1;{Math.round(displaySubtotal * 0.12).toLocaleString()}</span>
                 </div>
+                <div className="mb-sm">
+                  {promoApplied ? (
+                    <div className="flex items-center justify-between gap-2 rounded-[8px] bg-[#82285f]/5 px-3 py-2">
+                      <span className="inline-flex min-w-0 items-center gap-1.5 text-[13px] font-semibold text-[#82285f]">
+                        <Tag className="h-3.5 w-3.5 shrink-0" />
+                        <span className="truncate">{promoApplied.code}</span>
+                        <span className="font-medium text-[#A4423A]">&#x2212;&#x20B1;{promoDiscount.toLocaleString()}</span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPromoApplied(null)
+                          setPromoError("")
+                        }}
+                        aria-label="Remove promo code"
+                        className="cursor-pointer text-muted transition-colors hover:text-ink"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <input
+                        value={promoInput}
+                        onChange={(e) => {
+                          setPromoInput(e.target.value)
+                          setPromoError("")
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") void applyPromo()
+                        }}
+                        placeholder="Promo code"
+                        maxLength={32}
+                        aria-label="Promo code"
+                        className="min-w-0 flex-1 rounded-[8px] border border-hairline bg-white px-3 py-2 text-[13px] text-ink outline-none transition-colors focus:border-primary"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!checkIn) {
+                            setPromoError("Select your check-in date first, then apply the code.")
+                            return
+                          }
+                          void applyPromo()
+                        }}
+                        disabled={promoBusy || !promoInput.trim()}
+                        className="cursor-pointer rounded-[8px] bg-primary px-3 py-2 text-[12px] font-semibold text-on-primary transition-colors hover:bg-primary-active disabled:opacity-50"
+                      >
+                        {promoBusy ? "Applying..." : "Apply"}
+                      </button>
+                    </div>
+                  )}
+                  {promoError && <p className="mt-1 text-[12px] text-red-600">{promoError}</p>}
+                </div>
                 <div className="flex justify-between font-medium pt-sm border-t border-hairline">
                   <span className="typo-body-md text-ink">Total</span>
-                  <span className="typo-body-md text-ink">&#x20B1;{totalPrice.toLocaleString()}</span>
+                  <span className="typo-body-md text-ink">
+                    {promoApplied && (
+                      <span className="mr-2 font-normal text-muted line-through">&#x20B1;{totalPrice.toLocaleString()}</span>
+                    )}
+                    &#x20B1;{totalPriceWithPromo.toLocaleString()}
+                  </span>
                 </div>
               </div>
 
@@ -1422,6 +1525,7 @@ export default function RoomDetail() {
                               }
                               params.set("adults", String(guests.adults))
                               params.set("children", String(guests.children))
+                              if (promoApplied) params.set("promo", promoApplied.code)
                               navigate(`/booking/${id}?${params.toString()}`)
                             }
                           }}

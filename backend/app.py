@@ -3946,6 +3946,21 @@ def create_booking():
 
         # Server-authoritative price — client totals are never trusted.
         total_price = _compute_booking_total(room, stay_type, duration, check_in, check_out)
+
+        # Guest promo code (Shopee-style, e.g. printed on an NFC card) —
+        # validated and applied server-side. The booking row records the code
+        # and discount (columns added by migrate-promo-codes.sql; the insert
+        # retry below drops them if the migration hasn't run yet).
+        promo = None
+        promo_discount = 0
+        promo_code = str(data.get("promo_code") or "").strip()
+        if promo_code:
+            promo, promo_err = _validate_promo_for_booking(promo_code, user_id)
+            if promo_err:
+                return jsonify({"error": promo_err}), 400
+            promo_discount = _promo_discount_amount(total_price, promo)
+            total_price = max(1, total_price - promo_discount)
+
         # Downpayment: charge half now, the rest is settled at the hotel.
         # total_price stays the full amount so revenue reports stay correct.
         amount_due = max(1, round(total_price / 2)) if payment_mode == "downpayment" else total_price
@@ -3989,6 +4004,9 @@ def create_booking():
             "payment_mode": payment_mode,
             "amount_paid": 0,
         }
+        if promo:
+            booking_insert["promo_code"] = promo.get("code")
+            booking_insert["promo_discount"] = promo_discount
         if adults is not None:
             booking_insert["adults"] = adults
         if children is not None:
@@ -4006,7 +4024,8 @@ def create_booking():
         # payment_mode / amount_paid need migrate-payment-mode.sql and the
         # guest breakdown needs migrate-guest-breakdown.sql; drop whichever
         # columns the error names and retry (PostgREST reports one at a time).
-        optional_cols = ("payment_mode", "amount_paid", "adults", "children", "pets")
+        optional_cols = ("payment_mode", "amount_paid", "adults", "children", "pets",
+                         "promo_code", "promo_discount")
         booking_res = None
         for _ in range(len(optional_cols) + 1):
             try:
@@ -4025,6 +4044,11 @@ def create_booking():
 
         booking = booking_res.data[0]
         booking_id = booking["id"]
+
+        # Count the promo redemption (best-effort — a failed count never
+        # blocks the booking it belongs to).
+        if promo:
+            _record_promo_use(promo["id"], user_id)
 
         # Create PayMongo checkout session
         checkout_url, session_id = create_paymongo_checkout(
@@ -7306,6 +7330,108 @@ def _save_offer_store(store: dict) -> bool:
     return False
 
 
+# ── Promo codes (guest-entered, admin-managed) ─────────────────────────────
+# Stored in the SAME Supabase discount_state row as the offers (key
+# "promo_codes") — a list of records:
+#   {id, code, label, discount_type: "percent"|"fixed", value,
+#    valid_from, valid_to, max_uses, used_count, active, created_at,
+#    one_per_guest, used_by}
+# Guests type the code at checkout (e.g. printed on an NFC card); the
+# one_per_guest flag (default on) lets each account redeem a code once —
+# used_by holds the user ids that already did; the
+# discount is applied server-side in create_booking. Codes are
+# case-insensitive on input; the stored form is uppercase.
+
+_PROMO_KEY = "promo_codes"
+_PROMO_CODE_RE = re.compile(r"^[A-Z0-9][A-Z0-9_-]{2,31}$")
+
+
+def _promo_list(store: dict) -> list:
+    codes = store.get(_PROMO_KEY)
+    return codes if isinstance(codes, list) else []
+
+
+def _find_promo(store: dict, code: str):
+    wanted = str(code or "").strip().upper()
+    return next((p for p in _promo_list(store)
+                 if str(p.get("code") or "").strip().upper() == wanted), None)
+
+
+def _promo_status(promo: dict) -> str:
+    """live | scheduled | expired | redeemed | off — shared by guest
+    validation and the admin card badges so both always agree."""
+    if not promo.get("active", True):
+        return "off"
+    today = hotel_now().date()
+    start, end = _parse_day(promo.get("valid_from")), _parse_day(promo.get("valid_to"))
+    if end and today > end:
+        return "expired"
+    max_uses = promo.get("max_uses")
+    if max_uses and int(promo.get("used_count") or 0) >= int(max_uses):
+        return "redeemed"
+    if start and today < start:
+        return "scheduled"
+    return "live"
+
+
+def _validate_promo_for_booking(code, user_id=None):
+    """Guest-side check: exists, active, inside its window, not fully used,
+    and (unless the admin allows repeats) not already redeemed by this
+    account. Returns (promo, error) — exactly one is set."""
+    store = _offer_store()
+    promo = _find_promo(store, code)
+    if not promo:
+        return None, "Promo code not found. Check the code and try again."
+    status = _promo_status(promo)
+    if status == "off":
+        return None, "This promo code is not active."
+    if status == "expired":
+        return None, "This promo code has expired."
+    if status == "redeemed":
+        return None, "This promo code has been fully redeemed."
+    if status == "scheduled":
+        return None, ("This promo code is not active yet — it starts on "
+                      f"{_parse_day(promo.get('valid_from')).strftime('%B %d, %Y')}.")
+    if promo.get("one_per_guest", True) and user_id and str(user_id) in {
+        str(u) for u in (promo.get("used_by") or [])
+    }:
+        return None, "You've already used this code. Each account can redeem a promo code once."
+    return promo, None
+
+
+def _promo_discount_amount(total, promo) -> int:
+    """Discount in pesos for a booking total: percent of the total or a fixed
+    amount, capped so the total never drops below 1."""
+    total = int(total)
+    if promo.get("discount_type") == "fixed":
+        amount = int(round(float(promo.get("value") or 0)))
+    else:
+        amount = int(round(total * float(promo.get("value") or 0) / 100))
+    return max(0, min(amount, total - 1)) if total > 1 else 0
+
+
+def _record_promo_use(promo_id, user_id=None):
+    """Count a redemption and remember which account did it (capped by
+    max_uses elsewhere). Best-effort — a failed count never blocks the
+    booking it belongs to."""
+    try:
+        store = _offer_store()
+        for p in _promo_list(store):
+            if p.get("id") == promo_id:
+                p["used_count"] = int(p.get("used_count") or 0) + 1
+                if user_id is not None:
+                    used_by = p.get("used_by")
+                    if not isinstance(used_by, list):
+                        used_by = []
+                    if str(user_id) not in {str(u) for u in used_by}:
+                        used_by.append(str(user_id))
+                    p["used_by"] = used_by
+                _save_offer_store(store)
+                return
+    except Exception as e:
+        print(f"promo used_count update failed: {e}")
+
+
 def _parse_day(value):
     try:
         return datetime.strptime(str(value)[:10], "%Y-%m-%d").date()
@@ -7450,6 +7576,178 @@ def _audit_discount(action, actor_id, actor_email, offer, details=None):
         threading.Thread(target=_audit_discount_flush, args=(entry,), daemon=True).start()
     else:
         _audit_discount_flush(entry)
+
+
+@app.route("/api/discounts/promo-codes", methods=["GET", "POST"])
+def admin_promo_codes():
+    """Admin CRUD for guest promo codes (Shopee-style: the guest types a code
+    at checkout). Stored in the Supabase offer store, so no migration is
+    needed to start using it."""
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    actor_id, actor_email, err = _admin_gate(token)
+    if err:
+        return err
+
+    if request.method == "GET":
+        return jsonify(_promo_list(_offer_store())), 200
+
+    data = request.get_json() or {}
+    fields, ferr = _promo_from_payload(data)
+    if ferr:
+        return jsonify({"error": ferr}), 400
+    store = _offer_store()
+    if _find_promo(store, fields["code"]):
+        return jsonify({"error": f"Code {fields['code']} already exists."}), 409
+    promo = {
+        "id": f"PC-{uuid.uuid4().hex[:8].upper()}",
+        **fields,
+        "used_count": 0,
+        "created_at": hotel_now().isoformat(),
+        "created_by": actor_id,
+        "created_by_email": actor_email,
+    }
+    codes = _promo_list(store)
+    codes.append(promo)
+    store[_PROMO_KEY] = codes
+    if not _save_offer_store(store):
+        return jsonify({"error": "Could not save the promo code."}), 500
+    _audit_discount("create", actor_id, actor_email,
+                    {"id": promo["id"], "name": promo["code"], "roomType": "All rooms",
+                     "discountPercent": promo["value"] if promo["discount_type"] == "percent" else None,
+                     "validFrom": promo["valid_from"], "validTo": promo["valid_to"]},
+                    {"via": "promo code", "kind": "guest_promo"})
+    return jsonify(promo), 201
+
+
+@app.route("/api/discounts/promo-codes/<promo_id>", methods=["PUT", "DELETE"])
+def admin_promo_code_detail(promo_id):
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    actor_id, actor_email, err = _admin_gate(token)
+    if err:
+        return err
+
+    store = _offer_store()
+    codes = _promo_list(store)
+    promo = next((p for p in codes if p.get("id") == promo_id), None)
+    if not promo:
+        return jsonify({"error": "Promo code not found"}), 404
+
+    if request.method == "DELETE":
+        codes = [p for p in codes if p.get("id") != promo_id]
+        store[_PROMO_KEY] = codes
+        if not _save_offer_store(store):
+            return jsonify({"error": "Could not delete the promo code."}), 500
+        _audit_discount("deactivate", actor_id, actor_email,
+                        {"id": promo_id, "name": promo.get("code"), "roomType": "All rooms"},
+                        {"via": "promo code delete", "kind": "guest_promo"})
+        return jsonify({"ok": True}), 200
+
+    data = request.get_json() or {}
+    fields, ferr = _promo_from_payload({**promo, **data})
+    if ferr:
+        return jsonify({"error": ferr}), 400
+    if fields["code"] != promo.get("code") and _find_promo(store, fields["code"]):
+        return jsonify({"error": f"Code {fields['code']} already exists."}), 409
+    was_active = bool(promo.get("active", True))
+    promo.update(fields)
+    if not _save_offer_store(store):
+        return jsonify({"error": "Could not save the promo code."}), 500
+    if promo.get("active", True) != was_active:
+        _audit_discount("activate" if promo.get("active", True) else "deactivate",
+                        actor_id, actor_email,
+                        {"id": promo_id, "name": promo.get("code"), "roomType": "All rooms",
+                         "discountPercent": promo.get("value") if promo.get("discount_type") == "percent" else None,
+                         "validFrom": promo.get("valid_from"), "validTo": promo.get("valid_to")},
+                        {"via": "promo code edit", "kind": "guest_promo"})
+    return jsonify(promo), 200
+
+
+@app.route("/api/promos/validate", methods=["POST"])
+def validate_promo_code():
+    """Logged-in guest: check a promo code against the current booking
+    context and return the exact discount it would apply, so the checkout
+    screen can show the new total before paying."""
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    set_auth(token)
+    user_id = get_user_from_token(token)
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.get_json() or {}
+    promo, perr = _validate_promo_for_booking(data.get("code"), user_id)
+    if perr:
+        return jsonify({"error": perr}), 400
+
+    room_id = data.get("room_id")
+    check_in = data.get("check_in")
+    if not room_id or not check_in:
+        return jsonify({"error": "room_id and check_in are required"}), 400
+    stay_type = data.get("stay_type", "overnight")
+    check_out = data.get("check_out")
+    if stay_type == "day" and not check_out:
+        check_out = (datetime.strptime(check_in, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+
+    room_res = supabase_admin.table("rooms").select("*").eq("id", room_id).execute()
+    if not room_res.data:
+        return jsonify({"error": "Room not found"}), 404
+
+    total = _compute_booking_total(room_res.data[0], stay_type, data.get("duration"), check_in, check_out)
+    discount = _promo_discount_amount(total, promo)
+    return jsonify({
+        "code": promo.get("code"),
+        "label": promo.get("label") or "",
+        "discount_type": promo.get("discount_type"),
+        "value": promo.get("value"),
+        "discount_amount": discount,
+        "total": max(1, total - discount),
+    }), 200
+
+
+def _promo_from_payload(data):
+    """Validate admin-provided promo fields. Returns (fields, error)."""
+    code = str(data.get("code") or "").strip().upper()
+    if not _PROMO_CODE_RE.match(code):
+        return None, "Code must be 3-32 characters: letters, numbers, - or _."
+    label = str(data.get("label") or "").strip()[:80]
+    dtype = data.get("discount_type")
+    if dtype not in ("percent", "fixed"):
+        return None, "discount_type must be 'percent' or 'fixed'."
+    try:
+        value = float(data.get("value"))
+    except (TypeError, ValueError):
+        return None, "value must be a number."
+    if value <= 0 or (dtype == "percent" and value > 100):
+        return None, "value must be more than 0 (and at most 100 for percent)."
+    start = str(data.get("valid_from") or "").strip() or None
+    end = str(data.get("valid_to") or "").strip() or None
+    if (start and not _parse_day(start)) or (end and not _parse_day(end)):
+        return None, "Dates must be YYYY-MM-DD."
+    if start and end and _parse_day(end) < _parse_day(start):
+        return None, "valid_to must be on or after valid_from."
+    max_uses = data.get("max_uses")
+    if max_uses in ("", None):
+        max_uses = None
+    else:
+        try:
+            max_uses = int(max_uses)
+            if max_uses < 1:
+                raise ValueError
+        except (TypeError, ValueError):
+            return None, "max_uses must be a positive number."
+    one_per_guest = data.get("one_per_guest", True)
+    if isinstance(one_per_guest, str):
+        one_per_guest = one_per_guest.strip().lower() not in ("", "0", "false", "no", "off")
+    return {
+        "code": code,
+        "label": label,
+        "discount_type": dtype,
+        "value": round(value, 2),
+        "valid_from": start,
+        "valid_to": end,
+        "max_uses": max_uses,
+        "one_per_guest": bool(one_per_guest),
+        "active": bool(data.get("active", True)),
+    }, None
 
 
 @app.route("/api/analytics/demand-insights/status", methods=["POST"])

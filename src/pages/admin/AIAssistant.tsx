@@ -10,6 +10,7 @@ import RoomPerformance from "@/components/admin/RoomPerformance"
 import InsightCard from "@/components/admin/InsightCard"
 import AIInsightCards from "@/components/admin/AIInsightCards"
 import RoomDemandInsights from "@/components/admin/RoomDemandInsights"
+import PromoCodesManager from "@/components/admin/PromoCodesManager"
 import {
   getSeasonalData,
   getRoomPerformance,
@@ -98,7 +99,7 @@ export default function AIAssistant() {
   const [discError, setDiscError] = useState(false)
   const [discountOffers, setDiscountOffers] = useState<DiscountOfferData[]>([])
   const [adminRooms, setAdminRooms] = useState<AdminRoom[]>([])
-  const [discountSubTab, setDiscountSubTab] = useState<"roomdemand" | "holiday">("roomdemand")
+  const [discountSubTab, setDiscountSubTab] = useState<"roomdemand" | "holiday" | "promocodes">("roomdemand")
 
   const [perfLoading, setPerfLoading] = useState(false)
   const [perfError, setPerfError] = useState(false)
@@ -249,6 +250,7 @@ export default function AIAssistant() {
             {([
               { id: "roomdemand", label: "Room Demand" },
               { id: "holiday", label: "Holiday Discounts" },
+              { id: "promocodes", label: "Promo Codes" },
             ] as const).map((mt) => (
               <button
                 key={mt.id}
@@ -333,6 +335,8 @@ export default function AIAssistant() {
               <DiscountOffers offers={discountOffers} rooms={discountRooms} loading={showDisc} />
             )
           )}
+
+          {discountSubTab === "promocodes" && <PromoCodesManager />}
         </div>
       )}
 
