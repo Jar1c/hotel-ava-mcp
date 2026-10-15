@@ -25,12 +25,6 @@ function occColor(occ: number): string {
   return "bg-emerald-500"
 }
 
-function occLabel(occ: number): string {
-  if (occ < 20) return "Critical"
-  if (occ < 40) return "Low"
-  return "Healthy"
-}
-
 // Local calendar day (Manila) — toISOString() is UTC, which is *yesterday*
 // between midnight and 8 AM here and pushed the offer window a day off.
 const isoDayLocal = (d: Date) =>
@@ -196,9 +190,6 @@ export default function RoomDemandInsights() {
               {needsBoost.length} room type{needsBoost.length !== 1 ? "s" : ""} need{needsBoost.length === 1 ? "s" : ""} a boost
             </span>
           </div>
-          <p className="text-[12px] text-[#6b7280]">
-            AI detected low bookings for these room types and suggests applying a discount to attract more guests.
-          </p>
         </div>
       )}
 
@@ -220,12 +211,7 @@ export default function RoomDemandInsights() {
               )}
             >
               <div className="flex items-start justify-between mb-3">
-                <div>
-                  <h3 className="text-[14px] font-bold text-[#1a1d26]">{row.roomType}</h3>
-                  <p className="text-[11px] text-[#6b7280]">
-                    {row.totalRooms} room{row.totalRooms !== 1 ? "s" : ""} &middot; {row.upcomingBookings} upcoming booking{row.upcomingBookings !== 1 ? "s" : ""}
-                  </p>
-                </div>
+                <h3 className="text-[14px] font-bold text-[#1a1d26]">{row.roomType}</h3>
                 <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold", trend.bg, trend.color)}>
                   <TrendIcon className="h-3 w-3" />
                   {trend.label}
@@ -243,18 +229,11 @@ export default function RoomDemandInsights() {
                     style={{ width: `${Math.min(row.occupancy, 100)}%` }}
                   />
                 </div>
-                <p className="text-[10px] text-[#6b7280] mt-0.5">
-                  {occLabel(row.occupancy)} &middot; {row.bookedNights}/{row.capacity} nights booked
-                </p>
               </div>
 
-              <div className="flex items-center justify-between mb-3 text-[11px]">
-                <span className="text-[#6b7280]">
-                  90-day avg: <span className="font-semibold text-[#1a1d26]">{row.historicalOccupancy}%</span>
-                </span>
-                <span className="text-[#6b7280]">
-                  Rate: <span className="font-semibold text-[#1a1d26]">{formatCurrency(row.baseRate)}</span>/night
-                </span>
+              <div className="mb-3 flex items-center justify-between text-[11px]">
+                <span className="text-[#6b7280]">Rate</span>
+                <span className="font-semibold text-[#1a1d26]">{formatCurrency(row.baseRate)}/night</span>
               </div>
 
               {isApplied ? (
@@ -273,13 +252,9 @@ export default function RoomDemandInsights() {
                 </div>
               ) : showSuggestion ? (
                 <div className="rounded-[8px] bg-[#82285f]/5 p-3">
-                  <p className="text-[11px] text-[#6b7280] mb-2">{row.reason}</p>
-                  <div className="flex items-center justify-between mb-2">
-                    <div>
-                      <span className="text-[18px] font-bold text-[#82285f]">{row.suggestedDiscount}% off</span>
-                      <span className="ml-2 text-[12px] text-[#6b7280] line-through">{formatCurrency(row.baseRate)}</span>
-                      <span className="ml-1 text-[13px] font-bold text-[#1a1d26]">{formatCurrency(row.discountedRate)}</span>
-                    </div>
+                  <div className="mb-2 flex items-baseline justify-between">
+                    <span className="text-[18px] font-bold text-[#82285f]">{row.suggestedDiscount}% off</span>
+                    <span className="text-[13px] font-bold text-[#1a1d26]">{formatCurrency(row.discountedRate)}</span>
                   </div>
                   <button
                     onClick={() => handleApply(row)}
@@ -291,7 +266,7 @@ export default function RoomDemandInsights() {
                 </div>
               ) : (
                 <div className="rounded-[8px] bg-gray-50 px-3 py-2 text-[11px] text-[#6b7280]">
-                  Demand looks healthy. No discount needed.
+                  No discount needed
                 </div>
               )}
             </div>

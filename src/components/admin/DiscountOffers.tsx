@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from "react"
+import { Check, Tag } from "lucide-react"
 import { cn } from "@/lib/utils"
 import ConfirmDialog from "@/components/ui/confirm-dialog"
 import { useToast } from "@/contexts/ToastContext"
@@ -8,6 +9,7 @@ import {
   getDiscountSuggestions,
   applyDiscountSuggestion,
 } from "@/services/adminService"
+import { Skeleton } from "@/components/ui/skeleton"
 
 const shortDate = (iso: string) =>
   new Date(`${iso.slice(0, 10)}T00:00:00`).toLocaleDateString("en-PH", { month: "short", day: "numeric" })
@@ -59,8 +61,10 @@ export default function DiscountOffers({ loading }: DiscountOffersProps) {
     [suggestions],
   )
 
-  const approvedSuggestions = useMemo(
-    () => suggestions.filter((s) => s.state === "approved"),
+  // One list, original order: approving flips the card in place instead of
+  // moving it to a separate section further down the page.
+  const visibleSuggestions = useMemo(
+    () => suggestions.filter((s) => s.state !== "dismissed"),
     [suggestions],
   )
 
@@ -114,146 +118,132 @@ export default function DiscountOffers({ loading }: DiscountOffersProps) {
 
   if (loading || !ready) {
     return (
-      <div className="flex flex-col gap-4">
-        <div className="h-40 skeleton rounded-[8px]" />
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="rounded-[12px] border border-[#e5e7eb] bg-white p-4">
+            <div className="flex items-start justify-between mb-3">
+              <Skeleton className="h-4 w-36" />
+              <Skeleton className="h-5 w-16 rounded-full" />
+            </div>
+            <div className="mb-3 space-y-2">
+              <Skeleton className="h-3 w-44" />
+              <Skeleton className="h-3 w-32" />
+            </div>
+            <Skeleton className="mb-3 h-3 w-full" />
+            <div className="flex items-center gap-2 rounded-[8px] bg-[#f8f9fb] p-3">
+              <Skeleton className="h-8 flex-1 rounded-[8px]" />
+              <Skeleton className="h-8 w-20 rounded-[8px]" />
+            </div>
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  if (!visibleSuggestions.length) {
+    return (
+      <div className="py-16 text-center text-[13px] text-[#6b7280]">
+        No promo suggestions right now.
       </div>
     )
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      {/* AI Holiday Suggestions */}
-      <div className="rounded-[8px] border border-[#e2e4e8] bg-white">
-        <div className="flex items-center justify-between gap-2 px-6 py-4 border-b border-[#e2e4e8]">
-          <div>
-            <h3 className="font-display text-lg font-semibold text-foreground">AI Holiday Suggestions</h3>
-            <p className="text-[13px] text-muted mt-0.5">Promos for holidays and local events. Approve to create offers, or dismiss to hide them.</p>
-          </div>
-          {pendingSuggestions.length > 0 && (
-            <span className="shrink-0 rounded-[4px] bg-[#82285f]/10 px-2.5 py-1 text-[13px] font-semibold text-[#82285f]">
-              {pendingSuggestions.length} pending
+    <div className="space-y-6">
+      {pendingSuggestions.length > 0 && (
+        <div className="rounded-[12px] border border-[#82285f]/20 bg-[#82285f]/5 p-4">
+          <div className="flex items-center gap-2">
+            <Tag className="h-4 w-4 text-[#82285f]" />
+            <span className="text-[13px] font-bold text-[#82285f]">
+              {pendingSuggestions.length} promo suggestion{pendingSuggestions.length !== 1 ? "s" : ""} waiting for approval
             </span>
-          )}
+          </div>
         </div>
+      )}
 
-        {pendingSuggestions.length > 0 ? (
-          <div className="p-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-              {pendingSuggestions.map((s) => (
-                <div key={s.event} className="flex flex-col gap-2 rounded-[8px] border border-[#e2e4e8] p-4">
-                  <div className="flex items-start justify-between gap-2">
-                    <span className="text-[15px] font-bold text-foreground">{s.event}</span>
-                    <span
-                      className={cn(
-                        "shrink-0 rounded-[4px] px-2 py-1 text-[13px] font-semibold",
-                        s.phase === "live"
-                          ? "bg-[#82285f]/10 text-[#82285f]"
-                          : "bg-[#f0f1f3] text-[#5c6070]",
-                      )}
-                    >
-                      {s.phase === "live" ? "Live now" : `in ${s.daysUntilStart} days`}
-                    </span>
-                  </div>
-
-                  <p className="text-[13px] text-muted">
-                    {shortDate(s.validFrom)} to {longDate(s.validTo)}
-                    {" · "}
-                    {s.roomTypes.length} room type{s.roomTypes.length === 1 ? "" : "s"}
-                    {" · "}
-                    {s.percentRange[0]}-{s.percentRange[1]}% off
-                  </p>
-
-                  <p className="text-[13px] text-[#4a4f59]">
-                    {s.roomTypes.map((r) => `${r.roomType} ${r.percent}%`).join(" · ")}
-                  </p>
-
-                  <p className="text-[13px] text-muted">{s.reasoning}</p>
-                  {s.estimatedImpact && (
-                    <p className="text-[13px] text-muted">
-                      <span className="font-semibold text-foreground">Estimate:</span> {s.estimatedImpact}
-                    </p>
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        {visibleSuggestions.map((s) => {
+          const approved = s.state === "approved"
+          return (
+            <div
+              key={s.event}
+              className={cn(
+                "rounded-[12px] border p-4 transition-shadow",
+                approved
+                  ? "border-[#e5e7eb] bg-white"
+                  : "border-[#82285f]/30 shadow-[0_0_0_1px_rgba(130,40,95,0.08)]",
+              )}
+            >
+              <div className="mb-3 flex items-start justify-between gap-2">
+                <h3 className="text-[14px] font-bold text-[#1a1d26]">{s.event}</h3>
+                <span
+                  className={cn(
+                    "inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                    s.phase === "live" ? "bg-[#82285f]/10 text-[#82285f]" : "bg-gray-100 text-gray-600",
                   )}
+                >
+                  {s.phase === "live" ? "Live now" : `in ${s.daysUntilStart} days`}
+                </span>
+              </div>
 
-                  <div className="mt-1 flex items-center gap-2 pt-3 border-t border-[#e2e4e8]">
-                    <button
-                      type="button"
-                      onClick={() => setDialog({ kind: "approve", suggestion: s })}
-                      className="rounded-[6px] bg-[#82285f] px-3 py-1.5 text-[13px] font-semibold text-[#FBF9F4] hover:bg-[#6d2050] transition-colors cursor-pointer"
-                    >
-                      Approve
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setDialog({ kind: "dismiss", suggestion: s })}
-                      className="rounded-[6px] border border-[#e2e4e8] px-3 py-1.5 text-[13px] font-medium text-muted hover:border-[#c9ccd3] hover:text-foreground transition-colors cursor-pointer"
-                    >
-                      Dismiss
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : (
-          <div className="p-6 text-center">
-            <p className="text-[13px] text-muted">No pending promo suggestions right now.</p>
-          </div>
-        )}
-      </div>
-
-      {/* Approved holiday promos — previously invisible after approve, which
-          left admins with no way to turn a holiday promo off. */}
-      {approvedSuggestions.length > 0 && (
-        <div className="rounded-[8px] border border-[#e2e4e8] bg-white">
-          <div className="px-6 py-4 border-b border-[#e2e4e8]">
-            <h3 className="text-[14px] font-semibold text-foreground">Approved holiday promos</h3>
-            <p className="text-[12px] text-muted mt-0.5">
-              Live on their dates below. Cancelling turns off the offers this promo created.
-            </p>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-6">
-            {approvedSuggestions.map((s) => (
-              <div key={s.event} className="rounded-[8px] border border-[#e2e4e8] p-4 space-y-2.5">
-                <div className="flex items-start justify-between gap-2">
-                  <h4 className="text-[14px] font-semibold text-foreground">{s.event}</h4>
-                  <span
-                    className={cn(
-                      "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium",
-                      s.phase === "live"
-                        ? "bg-[#82285f]/10 text-[#82285f]"
-                        : "bg-[#f0f1f3] text-[#5c6070]",
-                    )}
-                  >
-                    {s.phase === "live" ? "Live now" : `in ${s.daysUntilStart} days`}
+              <div className="mb-3 space-y-1 text-[11px]">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[#6b7280]">Dates</span>
+                  <span className="text-right font-semibold text-[#1a1d26]">
+                    {shortDate(s.validFrom)} to {longDate(s.validTo)}
                   </span>
                 </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[#6b7280]">Discount</span>
+                  <span className="font-bold text-[#82285f]">
+                    {s.percentRange[0]}-{s.percentRange[1]}% off
+                  </span>
+                </div>
+              </div>
 
-                <p className="text-[13px] text-muted">
-                  {shortDate(s.validFrom)} to {longDate(s.validTo)}
-                  {" · "}
-                  {s.roomTypes.length} room type{s.roomTypes.length === 1 ? "" : "s"}
-                  {" · "}
-                  {s.percentRange[0]}-{s.percentRange[1]}% off
-                </p>
+              <p className="mb-3 text-[11px] leading-relaxed text-[#4a4f59]">
+                {s.roomTypes.map((r) => `${r.roomType} ${r.percent}%`).join(" · ")}
+              </p>
 
-                <p className="text-[13px] text-[#4a4f59]">
-                  {s.roomTypes.map((r) => `${r.roomType} ${r.percent}%`).join(" · ")}
-                </p>
-
-                <div className="flex items-center gap-2 pt-3 border-t border-[#e2e4e8]">
+              {approved ? (
+                <div className="rounded-[8px] bg-emerald-50 px-3 py-2">
+                  <div className="flex items-center gap-1.5 text-[12px] font-semibold text-emerald-700">
+                    <Check className="h-3.5 w-3.5" />
+                    Promo approved
+                  </div>
                   <button
                     type="button"
                     onClick={() => setDialog({ kind: "cancel", suggestion: s })}
-                    className="rounded-[6px] border border-[#e2e4e8] px-3 py-1.5 text-[13px] font-medium text-muted hover:border-[#c9ccd3] hover:text-foreground transition-colors cursor-pointer"
+                    disabled={dialogBusy}
+                    className="mt-2 w-full cursor-pointer rounded-[6px] border border-emerald-200 px-3 py-1.5 text-[11px] font-medium text-emerald-700 transition-colors hover:bg-emerald-100 disabled:opacity-50"
                   >
                     Cancel promo
                   </button>
                 </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+              ) : (
+                <div className="flex items-center gap-2 rounded-[8px] bg-[#82285f]/5 p-3">
+                  <button
+                    type="button"
+                    onClick={() => setDialog({ kind: "approve", suggestion: s })}
+                    disabled={dialogBusy}
+                    className="flex-1 cursor-pointer rounded-[8px] bg-[#82285f] px-3 py-2 text-[12px] font-semibold text-white transition-colors hover:bg-[#6b1f4d] disabled:opacity-50"
+                  >
+                    Approve
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDialog({ kind: "dismiss", suggestion: s })}
+                    disabled={dialogBusy}
+                    className="cursor-pointer rounded-[8px] border border-[#e2e4e8] bg-white px-3 py-2 text-[12px] font-medium text-[#6b7280] transition-colors hover:border-[#c9ccd3] hover:text-[#1a1d26] disabled:opacity-50"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
 
       <ConfirmDialog
         open={dialog !== null}
