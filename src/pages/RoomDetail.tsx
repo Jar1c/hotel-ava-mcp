@@ -307,12 +307,14 @@ export default function RoomDetail() {
     })
   }, [searchParams])
 
-  // Overnight stays are locked to 24 hours — check-out is always check-in + 1 day
+  // Overnight stays default to a 1-night check-out (check-in + 1 day), but a
+  // guest may pick any later date — keep their choice unless it becomes
+  // invalid (same day or earlier than check-in).
   useEffect(() => {
     if (stayType !== "overnight" || !checkIn) return
     const nextDay = new Date(checkIn.getTime() + 24 * 60 * 60 * 1000)
     // Compare as local date strings to avoid timezone issues
-    if (!checkOut || toISODate(checkOut) !== toISODate(nextDay)) {
+    if (!checkOut || toISODate(checkOut) <= toISODate(checkIn)) {
       setCheckOut(nextDay)
     }
   }, [checkIn, checkOut, stayType])
@@ -462,10 +464,10 @@ export default function RoomDetail() {
   }, [room, checkIn, checkOut, stayType, startTime, dayDuration])
 
   const nights = useMemo(() => {
-    if (stayType !== "overnight") return 1
-    // Overnight stays are locked to 24 hours: always exactly 1 night
-    return 1
-  }, [stayType])
+    if (stayType !== "overnight" || !checkIn || !checkOut) return 1
+    const diff = Math.ceil((checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60 * 24))
+    return Math.max(1, diff)
+  }, [stayType, checkIn, checkOut])
 
   if (loading) return <DetailSkeleton />
 
@@ -1237,16 +1239,17 @@ export default function RoomDetail() {
                     {checkIn && (
                       <div>
                         <label className="typo-caption text-muted block mb-xs">Check-out</label>
-                        <div className="w-full flex items-center gap-sm px-base py-2.5 rounded-[12px] border border-hairline bg-surface-soft/60">
-                          <span className="typo-body-sm font-semibold text-ink truncate">
-                            {checkOut
-                              ? checkOut.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
-                              : "—"}
-                          </span>
-                          <span className="ml-auto shrink-0 text-[10px] font-semibold uppercase tracking-wider text-primary bg-primary/10 rounded-full px-1.5 py-0.5">
-                            Auto
-                          </span>
-                        </div>
+                        <DatePicker
+                          selected={checkOut}
+                          onChange={(date: Date | null) => setCheckOut(date)}
+                          startDate={checkIn}
+                          endDate={checkOut}
+                          minDate={new Date(checkIn.getTime() + 24 * 60 * 60 * 1000)}
+                          maxDate={maxBookingDate()}
+                          dateFormat="MMM d, yyyy"
+                          customInput={<DateInput placeholder="Select date" />}
+                          placeholderText="Select date"
+                        />
                       </div>
                     )}
                   </div>

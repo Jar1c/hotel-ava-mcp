@@ -91,7 +91,7 @@ export const FAQ_ITEMS: FaqItem[] = [
     category: "Check-in & Stay",
     q: "What are the check-in and check-out times?",
     keywords: ["check in", "check-in", "check out", "checkout", "time", "2pm", "2 pm", "arrive"],
-    a: "Check-in starts at 2:00 PM, and overnight stays are exactly 24 hours, so your auto check-out is 2:00 PM the next day. Once checked in, changes go through the front desk.",
+    a: "Check-in starts at 2:00 PM and overnight stays are booked by the night — pick your check-out date when booking (check-out is 12:00 PM noon, or later mornings for longer stays). Once checked in, changes go through the front desk.",
   },
   {
     id: "day-use",

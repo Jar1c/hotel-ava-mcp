@@ -111,14 +111,16 @@ useEffect(() => {
 
   // All booking params come from URL — read-only, no state needed
   const checkIn = searchParams.get("checkIn") ? parseDateParam(searchParams.get("checkIn")!) : null
-  // Overnight stays are locked to 24 hours: check-out is always check-in + 1 day,
-  // regardless of what the URL says (no 2-day / 3-day bookings).
+  // Overnight check-out comes from the URL when the guest picked a range
+  // (any number of nights); default to 1 night only when it's missing or
+  // not after check-in.
+  const urlCheckOut = searchParams.get("checkOut") ? parseDateParam(searchParams.get("checkOut")!) : null
   const checkOut =
     searchParams.get("stayType") !== "day" && checkIn
-      ? new Date(checkIn.getTime() + 24 * 60 * 60 * 1000)
-      : searchParams.get("checkOut")
-        ? parseDateParam(searchParams.get("checkOut")!)
-        : null
+      ? urlCheckOut && urlCheckOut.getTime() > checkIn.getTime()
+        ? urlCheckOut
+        : new Date(checkIn.getTime() + 24 * 60 * 60 * 1000)
+      : urlCheckOut
   const guests = {
     adults: Number(searchParams.get("adults")) || 2,
     children: Number(searchParams.get("children")) || 0,
@@ -206,8 +208,8 @@ useEffect(() => {
   const isOvernight = stayType === "overnight"
   const hasDate = checkIn !== null
   const hasDates = isOvernight ? (checkIn !== null && checkOut !== null) : hasDate
-  // Overnight bookings are always exactly 1 night (24 hours)
-  const nights = isOvernight && hasDates ? Math.min(1, Math.ceil((checkOut!.getTime() - checkIn!.getTime()) / (1000 * 60 * 60 * 24))) : 0
+  // Overnight stays are priced per night — the guest picks the range
+  const nights = isOvernight && hasDates ? Math.max(1, Math.ceil((checkOut!.getTime() - checkIn!.getTime()) / (1000 * 60 * 60 * 24))) : 0
   const validNights = isOvernight ? nights > 0 : true
   // Discount-aware pricing — same precedence the Rooms grid and RoomDetail use.
   // The server quote wins when it covers a real stay (same math create_booking

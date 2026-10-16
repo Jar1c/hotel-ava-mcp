@@ -147,8 +147,15 @@ export default function SearchBar() {
       setCheckOut(date)
       return
     }
-    // Overnight stays are locked to 24 hours — check-out is always check-in + 1 day
     setCheckOut(date ? new Date(date.getTime() + 24 * 60 * 60 * 1000) : null)
+  }
+
+  // Overnight: a real date range — first click sets check-in, second sets
+  // check-out (any number of nights, capped at 6 months ahead).
+  const handleRangeChange = ([start, end]: [Date | null, Date | null]) => {
+    setCheckIn(start)
+    setCheckOut(end)
+    setDayUseTime("")
   }
 
   const handleSearch = () => {
@@ -179,12 +186,23 @@ export default function SearchBar() {
     setBudget(BUDGET_MAX)
   }
 
+  const rangeNights =
+    checkIn && checkOut
+      ? Math.max(1, Math.round((checkOut.getTime() - checkIn.getTime()) / 86_400_000))
+      : 0
+
   const calendarFooter = (
     <div className="mt-3 border-t border-hairline-soft pt-3">
+      {!isDayUse && checkIn && !checkOut && (
+        <p className="px-2 mb-2.5 flex items-center gap-1.5 text-[11px] font-medium text-muted">
+          <Clock className="h-3 w-3 shrink-0" />
+          Pick your check-out date
+        </p>
+      )}
       {!isDayUse && checkIn && checkOut && (
         <p className="px-2 mb-2.5 flex items-center gap-1.5 text-[11px] font-medium text-primary">
           <Clock className="h-3 w-3 shrink-0" />
-          Auto check-out {format(checkOut, "MMM d, yyyy")} · 24 hours
+          {rangeNights} night{rangeNights === 1 ? "" : "s"} · check-out {format(checkOut, "MMM d, yyyy")}
         </p>
       )}
       <div className="flex items-center justify-between px-2">
@@ -244,7 +262,7 @@ export default function SearchBar() {
 
       {/* Fields Row */}
       <div className="flex flex-col md:flex-row md:items-stretch">
-        {/* Stay dates — for overnight stays check-out is locked to check-in + 24h */}
+        {/* Stay dates — day use picks a single date; overnight picks a range (any nights) */}
         <div className="flex-1 min-w-0 px-3 py-3.5 border-b border-hairline/60 md:border-b-0 relative">
           <span className="text-[11px] font-display font-semibold text-ink uppercase tracking-wider block mb-1.5">
             {isDayUse ? "Date" : "Stay Dates"}
@@ -273,22 +291,44 @@ export default function SearchBar() {
           </button>
 
           <div className="absolute left-0 bottom-0 h-0 w-0">
-            <DatePicker
-              selected={checkIn}
-              onChange={handleCheckInChange}
-              monthsShown={1}
-              minDate={new Date()}
-              maxDate={maxBookingDate()}
-              open={checkInOpen}
-              onCalendarOpen={() => setCheckInOpen(true)}
-              onClickOutside={() => setCheckInOpen(false)}
-              popperPlacement="bottom-start"
-              popperProps={{ strategy: "fixed" }}
-              calendarClassName="ava-dual-calendar border border-hairline rounded-[12px] shadow-dropdown"
-              customInput={<span className="inline-block w-0 h-0 overflow-hidden" />}
-            >
-              {calendarFooter}
-            </DatePicker>
+            {isDayUse ? (
+              <DatePicker
+                selected={checkIn}
+                onChange={handleCheckInChange}
+                monthsShown={1}
+                minDate={new Date()}
+                maxDate={maxBookingDate()}
+                open={checkInOpen}
+                onCalendarOpen={() => setCheckInOpen(true)}
+                onClickOutside={() => setCheckInOpen(false)}
+                popperPlacement="bottom-start"
+                popperProps={{ strategy: "fixed" }}
+                calendarClassName="ava-dual-calendar border border-hairline rounded-[12px] shadow-dropdown"
+                customInput={<span className="inline-block w-0 h-0 overflow-hidden" />}
+              >
+                {calendarFooter}
+              </DatePicker>
+            ) : (
+              <DatePicker
+                selected={checkIn}
+                startDate={checkIn}
+                endDate={checkOut}
+                selectsRange
+                onChange={handleRangeChange}
+                monthsShown={1}
+                minDate={new Date()}
+                maxDate={maxBookingDate()}
+                open={checkInOpen}
+                onCalendarOpen={() => setCheckInOpen(true)}
+                onClickOutside={() => setCheckInOpen(false)}
+                popperPlacement="bottom-start"
+                popperProps={{ strategy: "fixed" }}
+                calendarClassName="ava-dual-calendar border border-hairline rounded-[12px] shadow-dropdown"
+                customInput={<span className="inline-block w-0 h-0 overflow-hidden" />}
+              >
+                {calendarFooter}
+              </DatePicker>
+            )}
           </div>
         </div>
 

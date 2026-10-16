@@ -132,10 +132,16 @@ export default function SearchFilters({ initialFilters, onFilterChange }: Search
       return
     }
     updateDraft("checkIn", format(date, "yyyy-MM-dd"))
-    // Overnight stays are locked to 24 hours — check-out is always check-in + 1 day.
-    // Day use stays within a single day.
-    const nextDay = new Date(date.getTime() + 24 * 60 * 60 * 1000)
-    updateDraft("checkOut", format(draft.stayType === "day" ? date : nextDay, "yyyy-MM-dd"))
+    // Day use stays within a single day; overnight defaults to 1 night here
+    // (the range picker below handles multi-night stays).
+    updateDraft("checkOut", format(draft.stayType === "day" ? date : new Date(date.getTime() + 24 * 60 * 60 * 1000), "yyyy-MM-dd"))
+  }
+
+  // Overnight: a real date range — first click sets check-in, second sets
+  // check-out (any number of nights, capped at 6 months ahead).
+  const handleRangeChange = ([start, end]: [Date | null, Date | null]) => {
+    updateDraft("checkIn", start ? format(start, "yyyy-MM-dd") : "")
+    updateDraft("checkOut", end ? format(end, "yyyy-MM-dd") : "")
   }
 
   const handleSearch = () => {
@@ -148,14 +154,25 @@ export default function SearchFilters({ initialFilters, onFilterChange }: Search
     updateDraft("checkOut", "")
   }
 
+  const rangeNights =
+    draft.checkIn && draft.checkOut
+      ? Math.max(1, Math.round((new Date(draft.checkOut).getTime() - new Date(draft.checkIn).getTime()) / 86_400_000))
+      : 0
+
   const calendarFooter = (
     <div className="mt-3 border-t border-hairline-soft pt-3">
+      {draft.stayType !== "day" && draft.checkIn && !draft.checkOut && (
+        <p className="px-2 mb-2.5 flex items-center gap-1.5 text-[11px] font-medium text-muted">
+          <Clock className="h-3 w-3 shrink-0" />
+          Pick your check-out date
+        </p>
+      )}
       {draft.checkIn && draft.checkOut && (
         <p className="px-2 mb-2.5 flex items-center gap-1.5 text-[11px] font-medium text-primary">
           <Clock className="h-3 w-3 shrink-0" />
           {draft.stayType === "day"
             ? `Day use ${format(new Date(draft.checkIn), "MMM d, yyyy")}`
-            : `Auto check-out ${format(new Date(draft.checkOut), "MMM d, yyyy")} · 24 hours`}
+            : `${rangeNights} night${rangeNights === 1 ? "" : "s"} · check-out ${format(new Date(draft.checkOut), "MMM d, yyyy")}`}
         </p>
       )}
       <div className="flex items-center justify-between px-2">
@@ -215,7 +232,7 @@ export default function SearchFilters({ initialFilters, onFilterChange }: Search
 
       {/* Fields Row */}
       <div className="flex flex-col md:flex-row md:items-stretch">
-        {/* Stay dates — check-out is locked to check-in + 24h for overnight stays */}
+        {/* Stay dates — day use picks a single date; overnight picks a range (any nights) */}
         <div className="w-full md:flex-1 min-w-0 px-3 py-3.5 border-b border-hairline/60 md:border-b-0 relative">
           <span className="text-[11px] font-display font-semibold text-ink uppercase tracking-wider block mb-1.5">
             Stay Dates
@@ -246,23 +263,46 @@ export default function SearchFilters({ initialFilters, onFilterChange }: Search
           </button>
 
           <div className="absolute left-0 bottom-0 h-0 w-0">
-            <DatePicker
-              ref={datePickerRef}
-              selected={draft.checkIn ? new Date(draft.checkIn) : null}
-              onChange={handleDateChange}
-              monthsShown={2}
-              minDate={new Date()}
-              maxDate={maxBookingDate()}
-              open={isCalendarOpen}
-              onCalendarOpen={() => setIsCalendarOpen(true)}
-              onClickOutside={() => setIsCalendarOpen(false)}
-              popperPlacement="bottom-start"
-              popperProps={{ strategy: "fixed" }}
-              calendarClassName="ava-dual-calendar border border-hairline rounded-[12px] shadow-dropdown"
-              customInput={<span className="inline-block w-0 h-0 overflow-hidden" />}
-            >
-              {calendarFooter}
-            </DatePicker>
+            {draft.stayType === "day" ? (
+              <DatePicker
+                ref={datePickerRef}
+                selected={draft.checkIn ? new Date(draft.checkIn) : null}
+                onChange={handleDateChange}
+                monthsShown={2}
+                minDate={new Date()}
+                maxDate={maxBookingDate()}
+                open={isCalendarOpen}
+                onCalendarOpen={() => setIsCalendarOpen(true)}
+                onClickOutside={() => setIsCalendarOpen(false)}
+                popperPlacement="bottom-start"
+                popperProps={{ strategy: "fixed" }}
+                calendarClassName="ava-dual-calendar border border-hairline rounded-[12px] shadow-dropdown"
+                customInput={<span className="inline-block w-0 h-0 overflow-hidden" />}
+              >
+                {calendarFooter}
+              </DatePicker>
+            ) : (
+              <DatePicker
+                ref={datePickerRef}
+                selected={draft.checkIn ? new Date(draft.checkIn) : null}
+                startDate={draft.checkIn ? new Date(draft.checkIn) : null}
+                endDate={draft.checkOut ? new Date(draft.checkOut) : null}
+                selectsRange
+                onChange={handleRangeChange}
+                monthsShown={2}
+                minDate={new Date()}
+                maxDate={maxBookingDate()}
+                open={isCalendarOpen}
+                onCalendarOpen={() => setIsCalendarOpen(true)}
+                onClickOutside={() => setIsCalendarOpen(false)}
+                popperPlacement="bottom-start"
+                popperProps={{ strategy: "fixed" }}
+                calendarClassName="ava-dual-calendar border border-hairline rounded-[12px] shadow-dropdown"
+                customInput={<span className="inline-block w-0 h-0 overflow-hidden" />}
+              >
+                {calendarFooter}
+              </DatePicker>
+            )}
           </div>
         </div>
 
