@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Link } from "react-router"
-import { QrCode, UserPlus } from "lucide-react"
+import { ChevronRight, QrCode, UserPlus } from "lucide-react"
 import StatCard from "@/components/admin/StatCard"
 import DashboardInsightsRotator from "@/components/admin/DashboardInsightsRotator"
 import VerifyQrDialog from "@/components/admin/VerifyQrDialog"
@@ -18,6 +18,12 @@ import {
 import { dashboardApi } from "@/services/api"
 import { getStale, setCache } from "@/lib/cache"
 import { cn, formatCurrency } from "@/lib/utils"
+
+type AttentionRow = {
+  label: string
+  detail: string
+  to: string
+}
 
 const percentDelta = new Intl.NumberFormat("en-PH", {
   style: "percent",
@@ -101,6 +107,27 @@ export default function Dashboard() {
   // Skeletons show instantly and stay at least 500ms (anti-flicker), then
   // the sections below fade in via .content-fade.
   const showSkeleton = useMinSkeleton(!summary && !error)
+
+  const bookingsWord = (n: number) => `${n} booking${n === 1 ? "" : "s"}`
+  const attention: AttentionRow[] = summary
+    ? [
+        {
+          label: "Unpaid",
+          detail: bookingsWord(summary.pendingUnpaid),
+          to: "/admin/bookings?view=unpaid",
+        },
+        {
+          label: "Extend requests",
+          detail: bookingsWord(summary.pendingExtendRequests),
+          to: "/admin/bookings?view=extending",
+        },
+        {
+          label: "Refunds to process",
+          detail: `${bookingsWord(summary.pendingRefunds)}, ${formatCurrency(summary.pendingRefundsAmount ?? 0)}`,
+          to: "/admin/bookings?view=refunds",
+        },
+      ].filter((row) => !row.detail.startsWith("0 "))
+    : []
 
   const arrivals = summary?.arrivals ?? []
   const prevSameDays = summary?.prevMonthSameDaysRevenue ?? 0
@@ -260,6 +287,39 @@ export default function Dashboard() {
                   </div>
                 </div>
               )
+            )}
+          </section>
+
+          {/* Needs attention */}
+          <section>
+            <h2 className={sectionHeading}>Needs attention</h2>
+            {showSkeleton ? (
+              <div className="rounded-[8px] border border-[#e5e7eb] bg-white">
+                <div className="flex items-center justify-between px-5 py-4">
+                  <SkeletonLine className="h-4 w-28" />
+                  <SkeletonLine className="h-3 w-16" />
+                </div>
+              </div>
+            ) : attention.length > 0 ? (
+              <div className="content-fade rounded-[8px] border border-[#e5e7eb] bg-white divide-y divide-[#e5e7eb]">
+                {attention.map((row) => (
+                  <Link
+                    key={row.label}
+                    to={row.to}
+                    className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left transition-colors hover:bg-[#f5f6f8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#82285f]/50"
+                  >
+                    <span className="text-[14px] text-[#1a1d26]">{row.label}</span>
+                    <span className="flex items-center gap-2">
+                      <span className="text-[13px] text-[#6b7280] tabular-nums">{row.detail}</span>
+                      <ChevronRight className="size-4 text-[#9ca3af]" />
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            ) : (
+              <div className="content-fade rounded-[8px] border border-[#e5e7eb] bg-white px-5 py-6">
+                <p className="text-[14px] text-[#6b7280]">Nothing needs attention.</p>
+              </div>
             )}
           </section>
 

@@ -50,6 +50,15 @@ _sb_base: Client = supabase
 _sb_authed: dict[str, Client] = {}
 _sb_authed_lock = threading.Lock()
 
+# Shared ANON client for public requests — built ONCE, reused across requests.
+# Constructing a fresh client per request costs ~420ms AND starts with a cold
+# connection pool, so every query on it paid ~700ms instead of ~130ms (pages
+# loaded in 3-4s). This instance NEVER has a JWT set on it (postgrest.auth() is
+# only ever called on per-token clients in _authed_client), so there is no auth
+# header to leak across threads — the very bug the per-request design guards
+# against does not apply to an auth-free anon client.
+_anon_client: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
 
 def _sb() -> Client:
     """Client for THIS request's queries — never the shared global one.
@@ -155,7 +164,7 @@ def set_auth(token):
     """
     global supabase_admin
     if not token:
-        _set_request_client(create_client(SUPABASE_URL, SUPABASE_KEY))
+        _set_request_client(_anon_client)
         if not _SERVICE_ROLE_OK:
             supabase_admin = _sb()
         return
@@ -170,9 +179,9 @@ def set_auth(token):
 
 
 def clear_auth():
-    """Bind this request thread to a private anon client (public queries)."""
+    """Bind this request thread to the shared anon client (public queries)."""
     global supabase_admin
-    _set_request_client(create_client(SUPABASE_URL, SUPABASE_KEY))
+    _set_request_client(_anon_client)
     if not _SERVICE_ROLE_OK:
         supabase_admin = _sb()
 
@@ -5424,6 +5433,10 @@ _AUTO_COMPLETE_LAST = 0.0
 _AUTO_COMPLETE_TTL = 15  # seconds
 _PAY_SWEEP_LAST = 0.0
 _PAY_SWEEP_TTL = 60  # seconds — each row costs a PayMongo API call
+# The DB sweep now runs in a background thread (so a request never waits ~2s on
+# it every TTL). This lock keeps at most ONE sweep in flight — if the TTL
+# re-arms while a run is still going, the next spawn skips instead of stacking.
+_SWEEP_LOCK = threading.Lock()
 
 
 def _reminder_sent(user_id, booking_id, title) -> bool:
@@ -5634,11 +5647,16 @@ def _heal_payment_markers():
             print(f"awaiting sweep error ({r.get('id')}): {e}")
 
 
-def _maybe_auto_complete():
-    global _AUTO_COMPLETE_LAST, _PAY_SWEEP_LAST
-    now_t = time.time()
-    if now_t - _AUTO_COMPLETE_LAST >= _AUTO_COMPLETE_TTL:
-        _AUTO_COMPLETE_LAST = now_t  # stamp first so parallel requests don't stampede
+def _run_sweeps_bg():
+    """Background worker: auto-complete + reminders, OFF the request path.
+
+    Only one sweep runs at a time — if the TTL re-arms while a run is still
+    in flight (e.g. a slow SMTP send in send_booking_email), the next spawn
+    skips rather than stacking a second concurrent sweep.
+    """
+    if not _SWEEP_LOCK.acquire(blocking=False):
+        return  # a sweep is already running
+    try:
         try:
             _run_auto_complete()
         except Exception as e:
@@ -5647,6 +5665,19 @@ def _maybe_auto_complete():
             _send_due_reminders()
         except Exception as e:
             print(f"reminder sweep error: {e}")
+    finally:
+        _SWEEP_LOCK.release()
+
+
+def _maybe_auto_complete():
+    global _AUTO_COMPLETE_LAST, _PAY_SWEEP_LAST
+    now_t = time.time()
+    if now_t - _AUTO_COMPLETE_LAST >= _AUTO_COMPLETE_TTL:
+        _AUTO_COMPLETE_LAST = now_t  # stamp first so parallel requests don't stampede
+        try:
+            threading.Thread(target=_run_sweeps_bg, daemon=True).start()
+        except Exception as e:
+            print(f"sweep spawn error: {e}")
     if now_t - _PAY_SWEEP_LAST >= _PAY_SWEEP_TTL:
         _PAY_SWEEP_LAST = now_t
         try:

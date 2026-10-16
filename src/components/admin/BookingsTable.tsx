@@ -903,17 +903,6 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
                             >
                               Process refund online · ₱{(selectedBooking.amount_paid ?? 0).toLocaleString()}
                             </button>
-                            <button
-                              type="button"
-                              disabled={actingId === (selectedBooking.fullId || selectedBooking.id)}
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                openConfirm(selectedBooking, "refund-manual", "Mark as refunded")
-                              }}
-                              className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-[8px] border border-[#e2e4e8] bg-white py-2 text-[12px] font-semibold text-[#6b7280] transition-colors hover:border-[#82285f]/40 hover:text-[#82285f] disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                              Mark as refunded (already returned)
-                            </button>
                           </div>
                         )}
                       </>
