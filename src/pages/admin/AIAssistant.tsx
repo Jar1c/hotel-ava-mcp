@@ -343,20 +343,6 @@ export default function AIAssistant() {
       {/* ── Tab: Hotel Stats ────────────────────────────────── */}
       {activeTab === "stats" && (
         <SkeletonRegion loading={showStats} className="space-y-6">
-          {perfError ? (
-            <ErrorBox onRetry={retryStats} />
-          ) : showStats ? (
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-              <Skeleton className="h-72" />
-              <Skeleton className="h-72" />
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-              <SeasonalChart data={seasonalData} loading={false} />
-              <RoomPerformance data={roomPerformance} loading={false} />
-            </div>
-          )}
-
           {insError ? (
             <ErrorBox onRetry={retryStats} />
           ) : showIns ? (
@@ -378,6 +364,20 @@ export default function AIAssistant() {
           ) : (
             <div className="bg-white rounded-[6px] border border-[#e2e4e8] p-6 text-center">
               <p className="text-sm text-muted">No key insights yet. Needs more booking data.</p>
+            </div>
+          )}
+
+          {perfError ? (
+            <ErrorBox onRetry={retryStats} />
+          ) : showStats ? (
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+              <Skeleton className="h-72" />
+              <Skeleton className="h-72" />
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+              <SeasonalChart data={seasonalData} loading={false} />
+              <RoomPerformance data={roomPerformance} loading={false} />
             </div>
           )}
         </SkeletonRegion>
