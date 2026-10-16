@@ -226,9 +226,13 @@ function receiptFor(d: VerifyBookingData): ReceiptData {
 interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** Booking id to auto-verify the moment the dialog opens — the arrivals
+   *  "Check-in" button passes one so the desk never has to scan a guest who
+   *  is standing right there. Behaves exactly like the code was scanned. */
+  initialCode?: string | null
 }
 
-export default function VerifyQrDialog({ open, onOpenChange }: Props) {
+export default function VerifyQrDialog({ open, onOpenChange, initialCode }: Props) {
   const [value, setValue] = useState("")
   const [result, setResult] = useState<Result>({ kind: "idle" })
   const [busy, setBusy] = useState(false)
@@ -291,6 +295,20 @@ export default function VerifyQrDialog({ open, onOpenChange }: Props) {
       setBusy(false)
     }
   }, [])
+
+  // Auto-verify a pre-filled code (arrivals "Check-in" button) once per code;
+  // closing the dialog re-arms it so the next open re-fetches fresh state.
+  const autoRunRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!open) autoRunRef.current = null
+  }, [open])
+  useEffect(() => {
+    if (!open || !initialCode) return
+    if (autoRunRef.current === initialCode) return
+    autoRunRef.current = initialCode
+    setValue(initialCode)
+    void verifyCode(initialCode)
+  }, [open, initialCode, verifyCode])
 
   const startCamera = useCallback(async () => {
     const Ctor = (window as unknown as { BarcodeDetector?: BarcodeCtor }).BarcodeDetector

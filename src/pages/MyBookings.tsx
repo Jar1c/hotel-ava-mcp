@@ -163,7 +163,7 @@ function receiptFor(b: BookingDetail): ReceiptData {
   const balanceDue = Math.max(0, (b.total_price ?? 0) - amountPaid)
 
   return {
-    reference: b.id.slice(0, 8).toUpperCase(),
+    reference: (b.id || "").slice(0, 8).toUpperCase() || "—",
     fullReference: b.id,
     issuedAt: b.created_at,
     guestName: b.full_name || "Guest",

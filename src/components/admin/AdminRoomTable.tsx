@@ -27,7 +27,7 @@ const statusFilters: { label: string; value: RoomStatus | "all" }[] = [
   { label: "Maintenance", value: "maintenance" },
 ]
 
-type RoomSortKey = "nameAsc" | "nameDesc" | "priceAsc" | "priceDesc" | "bookingsDesc" | "revenueDesc" | "numberAsc"
+type RoomSortKey = "tierAsc" | "nameAsc" | "nameDesc" | "priceAsc" | "priceDesc" | "bookingsDesc" | "revenueDesc" | "numberAsc"
 
 // Cheapest → most expensive tier. Keeps the type filter, form and AI tabs
 // reading in the same order the rooms are actually priced.
@@ -39,6 +39,7 @@ const typeRank = (t: string) => {
 }
 
 const sortOptions: { value: RoomSortKey; label: string }[] = [
+  { value: "tierAsc", label: "Room tier · price order" },
   { value: "nameAsc", label: "Room name · A to Z" },
   { value: "nameDesc", label: "Room name · Z to A" },
   { value: "priceAsc", label: "Price · low to high" },
@@ -49,6 +50,8 @@ const sortOptions: { value: RoomSortKey; label: string }[] = [
 ]
 
 const sorters: Record<RoomSortKey, (a: AdminRoom, b: AdminRoom) => number> = {
+  // Default: type tier (price order) → nightly price → room name.
+  tierAsc: (a, b) => typeRank(a.type) - typeRank(b.type) || a.price - b.price || a.name.localeCompare(b.name),
   nameAsc: (a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id),
   nameDesc: (a, b) => b.name.localeCompare(a.name) || a.id.localeCompare(b.id),
   priceAsc: (a, b) => a.price - b.price,
@@ -64,7 +67,7 @@ export default function AdminRoomTable({ rooms, onEdit, onDelete, highlightId }:
   const [filter, setFilter] = useState<RoomStatus | "all">("all")
   const [query, setQuery] = useState("")
   const [typeFilter, setTypeFilter] = useState("")
-  const [sort, setSort] = useState<RoomSortKey>("nameAsc")
+  const [sort, setSort] = useState<RoomSortKey>("tierAsc")
   const [page, setPage] = useState(1)
 
   const types = useMemo(

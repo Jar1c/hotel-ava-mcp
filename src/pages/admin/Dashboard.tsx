@@ -41,6 +41,9 @@ export default function Dashboard() {
   const [error, setError] = useState(false)
   const [retryToken, setRetryToken] = useState(0)
   const [verifyOpen, setVerifyOpen] = useState(false)
+  // Booking id handed to the QR dialog by an arrivals "Check-in" button —
+  // the dialog verifies it as if the guest's QR code was scanned.
+  const [verifyCode, setVerifyCode] = useState<string | null>(null)
   const [walkInOpen, setWalkInOpen] = useState(false)
   const hasDataRef = useRef(false)
 
@@ -252,11 +255,22 @@ export default function Dashboard() {
                                     )}
                                   </p>
                                 </div>
-                                {/* Same destination as the card link — a span
-                                    avoids nesting <a> in <a> (invalid HTML). */}
-                                <span className="shrink-0 text-[13px] font-medium text-[#82285f] group-hover:underline">
+                                {/* Same destination as the card link when the
+                                    card itself is clicked — but this button
+                                    opens the QR verify with the booking
+                                    pre-loaded, exactly like scanning the guest. */}
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.preventDefault()
+                                    e.stopPropagation()
+                                    setVerifyCode(a.id)
+                                    setVerifyOpen(true)
+                                  }}
+                                  className="shrink-0 cursor-pointer text-[13px] font-medium text-[#82285f] group-hover:underline"
+                                >
                                   Check-in
-                                </span>
+                                </button>
                               </li>
                             ))}
                           </ul>
@@ -382,9 +396,13 @@ export default function Dashboard() {
           dialog re-reads the summary so arrivals/in-house reflect the stamp. */}
       <VerifyQrDialog
         open={verifyOpen}
+        initialCode={verifyCode}
         onOpenChange={(open) => {
           setVerifyOpen(open)
-          if (!open) void load()
+          if (!open) {
+            setVerifyCode(null)
+            void load()
+          }
         }}
       />
 
