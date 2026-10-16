@@ -13,6 +13,7 @@ const mainItems = [
   { label: "Calendar", path: "/admin/calendar" },
   { label: "Reviews", path: "/admin/reviews" },
   { label: "AI Assistant", path: "/admin/ai" },
+  { label: "Reports", path: "/admin/reports" },
 ]
 
 const otherItems = [
