@@ -4,6 +4,7 @@ import { format } from "date-fns"
 import DatePicker from "react-datepicker"
 import { Calendar, ChevronDown, Clock, Search } from "lucide-react"
 import GuestSelector, { type GuestCount } from "@/components/ui/guest-selector"
+import { maxBookingDate } from "@/lib/utils"
 import type { StayType } from "@/components/home/SearchBar"
 
 interface SearchFiltersProps {
@@ -251,6 +252,7 @@ export default function SearchFilters({ initialFilters, onFilterChange }: Search
               onChange={handleDateChange}
               monthsShown={2}
               minDate={new Date()}
+              maxDate={maxBookingDate()}
               open={isCalendarOpen}
               onCalendarOpen={() => setIsCalendarOpen(true)}
               onClickOutside={() => setIsCalendarOpen(false)}

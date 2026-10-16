@@ -5,6 +5,7 @@ import DatePicker from "react-datepicker"
 import { format, isToday } from "date-fns"
 import { Calendar, ChevronDown, Clock, Search } from "lucide-react"
 import GuestSelector, { type GuestCount } from "@/components/ui/guest-selector"
+import { maxBookingDate } from "@/lib/utils"
 
 export type StayType = "overnight" | "day"
 
@@ -277,6 +278,7 @@ export default function SearchBar() {
               onChange={handleCheckInChange}
               monthsShown={1}
               minDate={new Date()}
+              maxDate={maxBookingDate()}
               open={checkInOpen}
               onCalendarOpen={() => setCheckInOpen(true)}
               onClickOutside={() => setCheckInOpen(false)}

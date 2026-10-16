@@ -3977,6 +3977,26 @@ def create_booking():
     if stay_type == "overnight" and not check_out:
         return jsonify({"error": "check_out is required for overnight bookings"}), 400
 
+    # Booking window: guests may reserve at most 6 months ahead. The date
+    # pickers grey out anything further; this gate makes it server-authoritative
+    # so a direct API call can't bypass it. Walk-in desk reservations use their
+    # own admin endpoint and are unaffected. (Uses only `date` — datetime and
+    # timedelta are locally re-imported further down in this function.)
+    try:
+        ci_date = date.fromisoformat(str(check_in))
+    except ValueError:
+        return jsonify({"error": "Invalid check_in date"}), 400
+    _now_h = hotel_now()
+    _m_i = _now_h.month - 1 + 6
+    _y_i = _now_h.year + _m_i // 12
+    _m_i = _m_i % 12 + 1
+    _next_first = date(_y_i + (1 if _m_i == 12 else 0), 1 if _m_i == 12 else _m_i + 1, 1)
+    _last_day = (_next_first - date(_y_i, _m_i, 1)).days
+    if ci_date > date(_y_i, _m_i, min(_now_h.day, _last_day)):
+        return jsonify({
+            "error": "You can only book up to 6 months in advance. Please choose a closer date."
+        }), 400
+
     # For day-use, set check_out to next day to satisfy DB constraint
     if stay_type == "day":
         from datetime import datetime, timedelta

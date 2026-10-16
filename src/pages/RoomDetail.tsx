@@ -36,7 +36,7 @@ import { getRoomDiscount } from "@/lib/discountEngine"
 import { getActiveOffers, offerCoversDate, offerTitle, reasonWithUntil, type ActiveOffer } from "@/services/discountService"
 import { useDiscountApproval } from "@/hooks/useDiscountApproval"
 import { useDiscountRooms } from "@/hooks/useDiscountRooms"
-import { cn } from "@/lib/utils"
+import { cn, maxBookingDate } from "@/lib/utils"
 
 const lucideIconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   Wifi, Wind, Wine, ConciergeBell, Building2, BedDouble,
@@ -1228,6 +1228,7 @@ export default function RoomDetail() {
                         startDate={checkIn}
                         endDate={checkOut}
                         minDate={new Date()}
+                        maxDate={maxBookingDate()}
                         dateFormat="MMM d, yyyy"
                         customInput={<DateInput placeholder="Select date" />}
                         placeholderText="Select date"
@@ -1310,6 +1311,7 @@ export default function RoomDetail() {
                       selected={checkIn}
                       onChange={(date: Date | null) => setCheckIn(date)}
                       minDate={new Date()}
+                      maxDate={maxBookingDate()}
                       dateFormat="MMM d, yyyy"
                       customInput={<DateInput placeholder="Select date" />}
                       placeholderText="Select date"

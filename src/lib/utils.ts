@@ -13,3 +13,11 @@ export function formatCurrency(value: number): string {
     maximumFractionDigits: 0,
   }).format(value)
 }
+
+// Booking calendar cap — guests can reserve at most 6 months ahead.
+// Matches the server-side gate in create_booking (backend/app.py).
+export function maxBookingDate(): Date {
+  const d = new Date()
+  d.setMonth(d.getMonth() + 6)
+  return d
+}
