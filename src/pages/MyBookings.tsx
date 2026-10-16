@@ -70,30 +70,12 @@ function matchesTab(b: UserBookingData, tab: TabFilter): boolean {
   return status === tab
 }
 
-/** Anchor for ordering — day use has only one date. */
-function stayEndMs(b: UserBookingData): number {
-  const t = new Date(b.stay_type === "day" ? b.check_in : b.check_out).getTime()
-  return Number.isNaN(t) ? 0 : t
-}
-
-/** Upcoming stays first (soonest check-in first), then past/cancelled by most recent. */
-function orderBookings(list: UserBookingData[], seen: Record<string, number>): UserBookingData[] {
-  const now = Date.now()
-  const isUpcoming = (b: UserBookingData) =>
-    (b.status === "pending" || b.status === "confirmed") && stayEndMs(b) >= now
-  // Fresh bookings (last 48 hours, not yet opened) pin to the very top, newest
-  // first — they get the NEW badge so they can't be missed.
-  const fresh = list
-    .filter((b) => isNewBooking(b, seen))
-    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-  const rest = list.filter((b) => !isNewBooking(b, seen))
-  return [
-    ...fresh,
-    ...rest
-      .filter(isUpcoming)
-      .sort((a, b) => new Date(a.check_in).getTime() - new Date(b.check_in).getTime()),
-    ...rest.filter((b) => !isUpcoming(b)).sort((a, b) => stayEndMs(b) - stayEndMs(a)),
-  ]
+/** Order bookings by when they were CREATED — newest first, regardless of
+ *  stay date or status. A booking the guest just made always lands on top. */
+function orderBookings(list: UserBookingData[], _seen: Record<string, number>): UserBookingData[] {
+  return [...list].sort(
+    (a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime(),
+  )
 }
 
 /** Bookings made in the last 48 hours — pinned on top and badged NEW, but only

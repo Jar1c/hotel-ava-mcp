@@ -437,7 +437,7 @@ export default function RoomDetail() {
   // Check room availability when dates change
   useEffect(() => {
     if (!room) return
-    if (stayType === "overnight" && !checkIn) {
+    if (stayType === "overnight" && (!checkIn || !checkOut)) {
       setIsAvailable(null)
       return
     }

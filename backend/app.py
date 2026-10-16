@@ -428,6 +428,44 @@ def parse_clock_label(minutes):
     return f"{display}:{mins:02d} {period}"
 
 
+# ── Transient network retry ─────────────────────────────────────────────────────
+# Windows raises OSError 10035 ("A non-blocking socket operation could not be
+# completed immediately") — and friends like 10054/10060 — when a Supabase or
+# PayMongo connection is briefly unavailable. They self-recover in under a
+# second, so retry before giving up: a booking must never fail (or show a raw
+# socket error) because of one blip.
+
+_TRANSIENT_NET_MARKERS = (
+    "winerror 10035", "winerror 10054", "winerror 10060", "winerror 10061",
+    "non-blocking socket", "connection reset", "connection aborted",
+    "connection refused", "connection error", "read timed out",
+    "failed to establish a new connection", "remote end closed connection",
+    "all connection attempts failed",
+)
+
+
+def _is_transient_net_error(e) -> bool:
+    """True for the flaky Windows/httpx socket errors that self-recover."""
+    if isinstance(e, (ConnectionError, TimeoutError)):
+        return True
+    if getattr(e, "winerror", None) in (10035, 10054, 10060, 10061):
+        return True
+    msg = str(e).lower()
+    return any(m in msg for m in _TRANSIENT_NET_MARKERS)
+
+
+def _retry_net(fn, attempts=3, delay=0.7):
+    """Run fn() with short retries on transient network/socket errors."""
+    for i in range(attempts):
+        try:
+            return fn()
+        except Exception as e:
+            if i == attempts - 1 or not _is_transient_net_error(e):
+                raise
+            print(f"transient network error (attempt {i + 1}/{attempts}): {e}")
+            time.sleep(delay * (i + 1))
+
+
 # ── Notifications ────────────────────────────────────────────────────────────────
 
 MAX_NOTIFICATIONS = 30
@@ -3033,7 +3071,7 @@ def create_paymongo_checkout(booking_id, amount, email, description, success_pat
         success_url = f"{frontend_url}{success_path or f'/booking/confirmation/{booking_id}'}"
         cancel_url = f"{frontend_url}{cancel_path or f'/booking/failed?booking={booking_id}'}"
 
-        res = http_requests.post(
+        res = _retry_net(lambda: http_requests.post(
             f"{PAYMONGO_BASE_URL}/checkout_sessions",
             headers={
                 "Authorization": f"Basic {encoded_key}",
@@ -3063,7 +3101,7 @@ def create_paymongo_checkout(booking_id, amount, email, description, success_pat
                 }
             },
             timeout=15,
-        )
+        ))
 
         if res.status_code in (200, 201):
             data = res.json()
@@ -3938,7 +3976,7 @@ def create_booking():
 
     try:
         # Verify room exists and is available
-        room_res = _sb().table("rooms").select("*").eq("id", room_id).execute()
+        room_res = _retry_net(lambda: _sb().table("rooms").select("*").eq("id", room_id).execute())
         if not room_res.data:
             return jsonify({"error": "Room not found"}), 404
 
@@ -3970,9 +4008,9 @@ def create_booking():
         if stay_type == "overnight":
             # Same two-chained-filters overlap check as check_room_availability:
             # check_in < check_out AND check_out > check_in (see that function).
-            overlap_res = supabase_admin.table("bookings").select("id").eq("room_id", room_id) \
+            overlap_res = _retry_net(lambda: supabase_admin.table("bookings").select("id").eq("room_id", room_id) \
                 .in_("status", ["pending", "confirmed"]) \
-                .lt("check_in", check_out).gt("check_out", check_in).execute()
+                .lt("check_in", check_out).gt("check_out", check_in).execute())
             if overlap_res.data and len(overlap_res.data) > 0:
                 return jsonify({"error": "Room is not available for the selected dates"}), 409
         else:
@@ -4029,7 +4067,8 @@ def create_booking():
         booking_res = None
         for _ in range(len(optional_cols) + 1):
             try:
-                booking_res = supabase_admin.table("bookings").insert(booking_insert).execute()
+                booking_res = _retry_net(
+                    lambda: supabase_admin.table("bookings").insert(booking_insert).execute())
                 break
             except Exception as ins_err:
                 msg = str(ins_err)
@@ -4105,6 +4144,10 @@ def create_booking():
             return jsonify({"error": "Unable to save your booking due to a permissions issue. Please try again or contact support."}), 500
         if "exclusion constraint" in err or "conflicting key" in err or "23P01" in err:
             return jsonify({"error": "This room was just booked by someone else for these dates. Please choose a different room or time."}), 409
+        if _is_transient_net_error(e):
+            # Windows socket blips (WinError 10035 etc.) self-recover — the
+            # guest just needs to press Pay again, never a raw socket error.
+            return jsonify({"error": "We had trouble connecting to our payment service. Please try again in a moment."}), 503
         return jsonify({"error": err}), 500
 
 
@@ -4534,7 +4577,7 @@ def retry_booking_payment(booking_id):
         return jsonify({"error": "Unauthorized"}), 401
 
     try:
-        booking_res = _sb().table("bookings").select("user_id, status, total_price, email").eq("id", booking_id).execute()
+        booking_res = _retry_net(lambda: _sb().table("bookings").select("user_id, status, total_price, email").eq("id", booking_id).execute())
         if not booking_res.data:
             return jsonify({"error": "Booking not found"}), 404
 
@@ -4557,10 +4600,12 @@ def retry_booking_payment(booking_id):
             return jsonify({"error": "Failed to create checkout session"}), 500
 
         if session_id:
-            supabase_admin.table("bookings").update({"payment_method": f"awaiting:{session_id}"}).eq("id", booking_id).execute()
+            _retry_net(lambda: supabase_admin.table("bookings").update({"payment_method": f"awaiting:{session_id}"}).eq("id", booking_id).execute())
 
         return jsonify({"checkout_url": checkout_url}), 200
     except Exception as e:
+        if _is_transient_net_error(e):
+            return jsonify({"error": "We had trouble connecting to our payment service. Please try again in a moment."}), 503
         return jsonify({"error": str(e)}), 500
 
 
@@ -5277,6 +5322,13 @@ def get_bookings():
         return jsonify({"error": str(e)}), 500
 
 
+# Unpaid (pending) bookings are held this long after creation before the lazy
+# sweep auto-cancels them — a guest who never finishes PayMongo checkout frees
+# the room instead of holding it indefinitely. 24 hours matches the free-
+# cancellation window the guests are told about.
+PENDING_HOLD_SECONDS = 24 * 60 * 60
+
+
 def _run_auto_complete():
     """Auto-complete confirmed bookings past their scheduled checkout time (no-shows
     AND checked-in guests — a stay that is due out flips to completed on its own),
@@ -5336,7 +5388,12 @@ def _run_auto_complete():
     cancelled_ids = []
     for b in pending:
         check_in = b.get("check_in", "")
-        if check_in and check_in < today_s:
+        # Auto-cancel when the stay date has already passed (payment never came)
+        # OR the booking sat unpaid past the hold window — a guest who abandons
+        # the PayMongo checkout frees the room instead of holding it forever.
+        created = _parse_ts(b.get("created_at"))
+        too_old = bool(created) and (now - created).total_seconds() > PENDING_HOLD_SECONDS
+        if (check_in and check_in < today_s) or too_old:
             result = _update_booking_fields(
                 lambda f: supabase_admin.table("bookings").update(f).eq("id", b["id"]).eq("status", "pending"),
                 {"status": "cancelled",

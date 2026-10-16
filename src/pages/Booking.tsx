@@ -400,10 +400,13 @@ useEffect(() => {
         const raw = data.error || "Booking failed"
         const looksInternal =
           /exclusion constraint|conflicting key|23P01|row-level security|postgrest/i.test(raw) ||
+          /winerror|socket|connection (reset|aborted|refused|error)|non-blocking/i.test(raw) ||
           raw.trim().startsWith("{'message'")
         throw new Error(
           looksInternal
-            ? "This room was just booked by someone else for these dates. Please choose a different room or time."
+            ? (/winerror|socket|non-blocking/i.test(raw)
+                ? "We had trouble connecting to our payment service. Please try again in a moment."
+                : "This room was just booked by someone else for these dates. Please choose a different room or time.")
             : raw,
         )
       }

@@ -39,15 +39,35 @@ function statusInfoFor(b: Booking) {
   return statusStyles[b.status] || statusStyles.pending
 }
 
-const roomTypeColors: Record<string, { bg: string; text: string; border: string }> = {
-  "Standard Room": { bg: "bg-[#7A7A70]/10", text: "text-[#7A7A70]", border: "border-[#7A7A70]/30" },
+// 5 canonical room types — one distinct color each. Class strings must stay
+// literal so Tailwind's scanner picks them up (no runtime-constructed classes).
+const ROOM_TYPE_STYLE: Record<string, { bg: string; text: string; border: string }> = {
   "Standard": { bg: "bg-[#7A7A70]/10", text: "text-[#7A7A70]", border: "border-[#7A7A70]/30" },
-  "Deluxe Room": { bg: "bg-[#455d58]/10", text: "text-[#455d58]", border: "border-[#455d58]/30" },
   "Deluxe": { bg: "bg-[#455d58]/10", text: "text-[#455d58]", border: "border-[#455d58]/30" },
-  "Executive Deluxe": { bg: "bg-[#455d58]/10", text: "text-[#455d58]", border: "border-[#455d58]/30" },
+  "Executive Deluxe": { bg: "bg-[#3E5C76]/10", text: "text-[#3E5C76]", border: "border-[#3E5C76]/30" },
   "Junior Suite": { bg: "bg-[#82285f]/10", text: "text-[#82285f]", border: "border-[#82285f]/30" },
-  "Suite": { bg: "bg-[#82285f]/10", text: "text-[#82285f]", border: "border-[#82285f]/30" },
   "Superior Suite": { bg: "bg-[#D4A853]/10", text: "text-[#9a7b2f]", border: "border-[#D4A853]/30" },
+}
+
+// Legacy aliases → canonical type name
+const ROOM_TYPE_ALIASES: Record<string, string> = {
+  "Standard Room": "Standard",
+  "Deluxe Room": "Deluxe",
+  "Suite": "Junior Suite",
+}
+
+// Legend: only the 5 real room types, each with its solid swatch color.
+const ROOM_TYPE_LEGEND: { name: string; swatch: string }[] = [
+  { name: "Standard", swatch: "#7A7A70" },
+  { name: "Deluxe", swatch: "#455d58" },
+  { name: "Executive Deluxe", swatch: "#3E5C76" },
+  { name: "Junior Suite", swatch: "#82285f" },
+  { name: "Superior Suite", swatch: "#D4A853" },
+]
+
+function roomTypeColor(type: string): { bg: string; text: string; border: string } {
+  return ROOM_TYPE_STYLE[ROOM_TYPE_ALIASES[type] || type]
+    || { bg: "bg-gray-100", text: "text-gray-600", border: "border-gray-200" }
 }
 
 function getMonthDays(year: number, month: number) {
@@ -80,6 +100,8 @@ export default function AvailabilityCalendar() {
   const [calLoading, setCalLoading] = useState(true)
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
+  // Day cell whose "+N more" row is expanded — only one at a time.
+  const [expandedDay, setExpandedDay] = useState<string | null>(null)
 
   // Poll bookings every 20 seconds for live updates
   usePolling(
@@ -107,11 +129,13 @@ export default function AvailabilityCalendar() {
   }, [bookings])
 
   const prevMonth = () => {
+    setExpandedDay(null)
     if (month === 0) { setYear(y => y - 1); setMonth(11) }
     else setMonth(m => m - 1)
   }
 
   const nextMonth = () => {
+    setExpandedDay(null)
     if (month === 11) { setYear(y => y + 1); setMonth(0) }
     else setMonth(m => m + 1)
   }
@@ -127,7 +151,7 @@ export default function AvailabilityCalendar() {
   }
 
   const statusInfo = selectedBooking ? statusInfoFor(selectedBooking) : statusStyles.pending
-  const roomColor = selectedBooking ? (roomTypeColors[selectedBooking.roomType] || { bg: "bg-gray-50", text: "text-gray-600", border: "border-gray-200" }) : { bg: "bg-gray-50", text: "text-gray-600", border: "border-gray-200" }
+  const roomColor = selectedBooking ? roomTypeColor(selectedBooking.roomType) : { bg: "bg-gray-50", text: "text-gray-600", border: "border-gray-200" }
 
   return (
     <>
@@ -177,6 +201,8 @@ export default function AvailabilityCalendar() {
             const dayBookings = bookingsByDate.get(dateStr) || []
             const isToday = today.getFullYear() === year && today.getMonth() === month && today.getDate() === day
             const isPast = new Date(year, month, day) < new Date(today.getFullYear(), today.getMonth(), today.getDate())
+            const isExpanded = expandedDay === dateStr
+            const visibleCount = isExpanded ? dayBookings.length : 3
 
             return (
               <div
@@ -196,8 +222,8 @@ export default function AvailabilityCalendar() {
                   {day}
                 </span>
                 <div className="flex flex-col gap-0.5">
-                  {dayBookings.slice(0, 3).map((b) => {
-                    const colors = roomTypeColors[b.roomType] || { bg: "bg-gray-100", text: "text-gray-600", border: "border-gray-200" }
+                  {dayBookings.slice(0, visibleCount).map((b) => {
+                    const colors = roomTypeColor(b.roomType)
                     return (
                       <button
                         key={b.id}
@@ -213,9 +239,12 @@ export default function AvailabilityCalendar() {
                     )
                   })}
                   {dayBookings.length > 3 && (
-                    <span className="text-[9px] text-[#9ca3af] font-medium px-1">
-                      +{dayBookings.length - 3} more
-                    </span>
+                    <button
+                      onClick={() => setExpandedDay(isExpanded ? null : dateStr)}
+                      className="text-left text-[9px] font-semibold text-[#82285f] hover:text-[#5d1a44] hover:underline px-1 cursor-pointer transition-colors"
+                    >
+                      {isExpanded ? "Show less" : `+${dayBookings.length - 3} more`}
+                    </button>
                   )}
                 </div>
               </div>
@@ -223,12 +252,12 @@ export default function AvailabilityCalendar() {
           })}
         </div>
 
-        {/* Legend */}
+        {/* Legend — the 5 canonical room types, each with its swatch color */}
         <div className="flex items-center gap-4 px-5 py-3 border-t border-[#e2e4e8] flex-wrap">
           <span className="text-[10px] font-semibold text-[#9ca3af] uppercase tracking-wider mr-1">Legend:</span>
-          {Object.entries(roomTypeColors).map(([name, colors]) => (
+          {ROOM_TYPE_LEGEND.map(({ name, swatch }) => (
             <div key={name} className="flex items-center gap-1.5">
-              <span className={cn("h-2.5 w-2.5 rounded-[2px]", colors.bg.replace("/10", "").replace("bg-", "bg-"))} />
+              <span className="h-2.5 w-2.5 rounded-[2px]" style={{ backgroundColor: swatch }} />
               <span className="text-[10px] text-[#6b7280]">{name}</span>
             </div>
           ))}
