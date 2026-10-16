@@ -23,6 +23,10 @@ from config import (
 
 HOTEL_NAME = "Hotel Ava"
 HOTEL_PHONE = "+63 926 006 8565"
+# Overnight house clock (mirrors DEFAULT_CHECK_IN/OUT_TIME in app.py and
+# OVERNIGHT_CHECK_IN/OUT in stayWindow.ts) so emails show times, not bare dates.
+OVERNIGHT_CHECK_IN_TIME = "2:00 PM"
+OVERNIGHT_CHECK_OUT_TIME = "12:00 PM"
 PLUM = "#82285f"
 INK = "#2A2A28"
 CANVAS = "#F4F6F8"
@@ -158,6 +162,8 @@ def build_email(event: str, booking: dict, room_name: str, extra: dict = None,
         check_in_row = f"{check_in_row}, from {start_time}"
         if duration:
             check_in_row += f" ({duration} hrs)"
+    elif stay_type != "day":
+        check_in_row = f"{check_in_row}, from {OVERNIGHT_CHECK_IN_TIME}"
 
     stay_label = "Day use" if stay_type == "day" else "Overnight"
     if booking.get("stays"):
@@ -170,7 +176,7 @@ def build_email(event: str, booking: dict, room_name: str, extra: dict = None,
         rows += _row("Room type", _esc(room_type))
     rows += _row("Check-in", _esc(check_in_row))
     if stay_type != "day" and check_out:
-        rows += _row("Check-out", _esc(_fmt_date(check_out)))
+        rows += _row("Check-out", _esc(f"{_fmt_date(check_out)}, by {OVERNIGHT_CHECK_OUT_TIME}"))
     rows += _row("Stay", _esc(stay_label))
     if guests_bits:
         rows += _row("Guests", _esc(" - ".join(guests_bits)))
@@ -352,7 +358,7 @@ You are receiving this email because a booking was made for you at {HOTEL_NAME}.
     if room_type:
         text_lines.insert(text_lines.index(f"Room: {room_name}") + 1, f"Room type: {room_type}")
     if stay_type != "day" and check_out:
-        text_lines.append(f"Check-out: {_fmt_date(check_out)}")
+        text_lines.append(f"Check-out: {_fmt_date(check_out)}, by {OVERNIGHT_CHECK_OUT_TIME}")
     text_lines.append(f"Stay: {stay_label}")
     if guests_bits:
         text_lines.append(f"Guests: {' - '.join(guests_bits)}")
