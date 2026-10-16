@@ -230,20 +230,32 @@ export default function RoomDetail() {
   // the client-side fallbacks keep working.
   const [quote, setQuote] = useState<RoomQuote | null>(null)
   useEffect(() => {
-    if (!room?.id) return
+    if (!id) return
     let cancelled = false
-    setQuote(null)
+    const checkInISO = checkIn ? toISODate(checkIn) : undefined
+    const checkOutISO = stayType === "overnight" && checkOut ? toISODate(checkOut) : undefined
+    const duration = stayType === "day" ? dayDuration : undefined
+    // Same params = same cached quote, so the discounted price shows with the
+    // page instead of a beat later; the fresh quote overwrites when it lands.
+    const cacheKey = `room_quote_${id}_${stayType}_${checkInISO ?? ""}_${checkOutISO ?? ""}_${duration ?? ""}`
+    const cached = getCached<RoomQuote>(cacheKey)
+    setQuote(cached)
     publicRoomsApi.quote({
-      room_ids: [room.id],
-      check_in: checkIn ? toISODate(checkIn) : undefined,
-      check_out: stayType === "overnight" && checkOut ? toISODate(checkOut) : undefined,
+      room_ids: [id],
+      check_in: checkInISO,
+      check_out: checkOutISO,
       stay_type: stayType,
-      duration: stayType === "day" ? dayDuration : undefined,
+      duration,
     })
-      .then((list) => { if (!cancelled) setQuote(list[0] ?? null) })
+      .then((list) => {
+        if (cancelled) return
+        const q = list[0] ?? null
+        setQuote(q)
+        if (q) setCache(cacheKey, q)
+      })
       .catch(() => { if (!cancelled) setQuote(null) })
     return () => { cancelled = true }
-  }, [room?.id, checkIn, checkOut, stayType, dayDuration])
+  }, [id, checkIn, checkOut, stayType, dayDuration])
 
   // Master amenities list — union of all amenities across all room types
   const allAmenities = useMemo(() => {

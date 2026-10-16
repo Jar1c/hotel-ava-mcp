@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react"
-import { TrendingDown, TrendingUp, Minus, Tag, Check } from "lucide-react"
+import { TrendingDown, TrendingUp, Minus, Tag, Check, Sparkles } from "lucide-react"
 import { cn, formatCurrency } from "@/lib/utils"
 import { useToast } from "@/contexts/ToastContext"
 import {
@@ -19,12 +19,6 @@ const TREND_CONFIG = {
   stable: { icon: Minus, label: "Stable", color: "text-gray-500", bg: "bg-gray-50" },
 } as const
 
-function occColor(occ: number): string {
-  if (occ < 20) return "bg-red-500"
-  if (occ < 40) return "bg-amber-500"
-  return "bg-emerald-500"
-}
-
 // Local calendar day (Manila) — toISOString() is UTC, which is *yesterday*
 // between midnight and 8 AM here and pushed the offer window a day off.
 const isoDayLocal = (d: Date) =>
@@ -36,6 +30,10 @@ function futureWindow(): { from: string; to: string } {
   const end = new Date(now.getTime() + 30 * 86400000)
   return { from, to: isoDayLocal(end) }
 }
+
+// "2026-11-15" → "Nov 15"
+const fmtDay = (iso: string) =>
+  new Date(`${iso}T00:00:00`).toLocaleDateString("en-PH", { month: "short", day: "numeric" })
 
 export default function RoomDemandInsights() {
   const { toast } = useToast()
@@ -72,10 +70,12 @@ export default function RoomDemandInsights() {
     setApplying(row.roomType)
     try {
       const w = futureWindow()
+      // Use the AI-recommended window when the backend provided one.
+      const validTo = row.suggestedUntil ?? w.to
       let created = await createDiscountOffer({
         roomType: row.roomType,
         validFrom: w.from,
-        validTo: w.to,
+        validTo,
         name: `AI boost: ${row.roomType}`,
         discountPercent: row.suggestedDiscount,
       })
@@ -98,7 +98,7 @@ export default function RoomDemandInsights() {
       getDiscountOffersFresh().then(setExistingOffers).catch(() => {})
       toast({
         title: "Discount applied",
-        description: `${row.suggestedDiscount}% discount applied to ${row.roomType} for the next 30 days`,
+        description: `${row.suggestedDiscount}% discount applied to ${row.roomType}${row.suggestedUntil ? ` until ${fmtDay(row.suggestedUntil)}` : ""}`,
         variant: "success",
       })
     } catch (err) {
@@ -180,6 +180,14 @@ export default function RoomDemandInsights() {
 
   const needsBoost = data.filter((r) => r.suggestedDiscount && !hasExistingOffer(r.roomType))
 
+  // Rooms the AI flagged keep their spot even after the admin applies the
+  // discount — the order is decided once from the loaded demand rows.
+  const sortedData = [...data].sort((a, b) => {
+    const aFlagged = a.suggestedDiscount ? 0 : 1
+    const bFlagged = b.suggestedDiscount ? 0 : 1
+    return aFlagged - bFlagged
+  })
+
   return (
     <div className="space-y-6">
       {needsBoost.length > 0 && (
@@ -193,24 +201,25 @@ export default function RoomDemandInsights() {
         </div>
       )}
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {data.map((row) => {
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 auto-rows-fr">
+        {sortedData.map((row) => {
           const trend = TREND_CONFIG[row.trend]
           const TrendIcon = trend.icon
-          const isApplied = hasExistingOffer(row.roomType)
+          const offer = findOffer(row.roomType)
+          const isApplied = !!offer
           const showSuggestion = row.suggestedDiscount && !isApplied
 
           return (
             <div
               key={row.roomType}
               className={cn(
-                "rounded-[12px] border p-4 transition-shadow",
+                "flex flex-col rounded-[12px] border p-4 transition-shadow",
                 showSuggestion
                   ? "border-[#82285f]/30 shadow-[0_0_0_1px_rgba(130,40,95,0.08)]"
                   : "border-[#e5e7eb] bg-white",
               )}
             >
-              <div className="flex items-start justify-between mb-3">
+              <div className="flex items-start justify-between mb-2">
                 <h3 className="text-[14px] font-bold text-[#1a1d26]">{row.roomType}</h3>
                 <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold", trend.bg, trend.color)}>
                   <TrendIcon className="h-3 w-3" />
@@ -218,20 +227,13 @@ export default function RoomDemandInsights() {
                 </span>
               </div>
 
-              <div className="mb-3">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-[11px] text-[#6b7280]">Next 30 days</span>
-                  <span className="text-[12px] font-bold text-[#1a1d26]">
-                    {row.bookedNights} of {row.capacity} nights booked
-                  </span>
+              {/* What the AI sees — its plain-language read on this room type */}
+              {row.reason && (
+                <div className="mb-3 flex items-start gap-1.5">
+                  <Sparkles className="mt-0.5 h-3 w-3 shrink-0 text-[#82285f]" />
+                  <p className="text-[11px] italic leading-relaxed text-[#6b7280]">{row.reason}</p>
                 </div>
-                <div className="h-2 rounded-full bg-[#f3f4f6] overflow-hidden">
-                  <div
-                    className={cn("h-full rounded-full transition-all duration-500", occColor(row.occupancy))}
-                    style={{ width: `${Math.min(row.occupancy, 100)}%` }}
-                  />
-                </div>
-              </div>
+              )}
 
               <div className="mb-3 flex items-center justify-between text-[11px]">
                 <span className="text-[#6b7280]">Rate</span>
@@ -239,35 +241,48 @@ export default function RoomDemandInsights() {
               </div>
 
               {isApplied ? (
-                <div className="rounded-[8px] bg-emerald-50 px-3 py-2">
-                  <div className="flex items-center gap-1.5 text-[12px] font-semibold text-emerald-700">
-                    <Check className="h-3.5 w-3.5" />
-                    Discount applied
+                <div className="flex flex-1 flex-col rounded-[8px] bg-emerald-50 px-3 py-2">
+                  <div className="flex items-center justify-between text-[12px] font-semibold text-emerald-700">
+                    <span className="inline-flex items-center gap-1.5">
+                      <Check className="h-3.5 w-3.5" />
+                      Discount applied
+                    </span>
+                    {offer && <span className="font-bold">{offer.discountPercent}% off</span>}
                   </div>
+                  {offer && (
+                    <div className="mt-0.5 mb-2 text-[11px] text-emerald-700/80">
+                      {formatCurrency(offer.discountedRate)}/night · until {fmtDay(offer.validTo)}
+                    </div>
+                  )}
                   <button
                     onClick={() => handleCancel(row.roomType)}
                     disabled={cancelling === row.roomType}
-                    className="mt-2 w-full rounded-[6px] border border-emerald-200 px-3 py-1.5 text-[11px] font-medium text-emerald-700 transition-colors hover:bg-emerald-100 disabled:opacity-50 cursor-pointer"
+                    className="mt-auto w-full rounded-[6px] border border-emerald-200 px-3 py-1.5 text-[11px] font-medium text-emerald-700 transition-colors hover:bg-emerald-100 disabled:opacity-50 cursor-pointer"
                   >
                     {cancelling === row.roomType ? "Cancelling..." : "Cancel Discount"}
                   </button>
                 </div>
               ) : showSuggestion ? (
-                <div className="rounded-[8px] bg-[#82285f]/5 p-3">
+                <div className="flex flex-1 flex-col rounded-[8px] bg-[#82285f]/5 p-3">
                   <div className="mb-2 flex items-baseline justify-between">
                     <span className="text-[18px] font-bold text-[#82285f]">{row.suggestedDiscount}% off</span>
                     <span className="text-[13px] font-bold text-[#1a1d26]">{formatCurrency(row.discountedRate)}</span>
                   </div>
+                  {row.suggestedUntil && (
+                    <div className="mb-2 text-[11px] text-[#6b7280]">
+                      AI recommends {row.suggestedDays} days · until {fmtDay(row.suggestedUntil)}
+                    </div>
+                  )}
                   <button
                     onClick={() => handleApply(row)}
                     disabled={applying === row.roomType}
-                    className="w-full rounded-[8px] bg-[#82285f] px-3 py-2 text-[12px] font-semibold text-white transition-colors hover:bg-[#6b1f4d] disabled:opacity-50"
+                    className="mt-auto w-full rounded-[8px] bg-[#82285f] px-3 py-2 text-[12px] font-semibold text-white transition-colors hover:bg-[#6b1f4d] disabled:opacity-50"
                   >
                     {applying === row.roomType ? "Applying..." : "Apply Discount"}
                   </button>
                 </div>
               ) : (
-                <div className="rounded-[8px] bg-gray-50 px-3 py-2 text-[11px] text-[#6b7280]">
+                <div className="flex flex-1 items-center rounded-[8px] bg-gray-50 px-3 py-2 text-[11px] text-[#6b7280]">
                   No discount needed
                 </div>
               )}

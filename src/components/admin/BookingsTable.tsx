@@ -627,7 +627,6 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
               {paged.map((booking) => {
                 const status = badgeFor(booking, now)
                 const refund = refundBadge(booking)
-                const actions = getActions(booking, now)
                 return (
                   <tr
                     key={booking.id}
@@ -706,17 +705,12 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
                         </span>
                       )}
                     </td>
-                    <td className="px-5 py-3">
-                      <div className="flex items-center justify-end gap-1.5">
-                        {actions.length > 0 ? actions : <span className="text-[10px] text-[#9ca3af]">—</span>}
-                      </div>
-                    </td>
                   </tr>
                 )
               })}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="px-5 py-10 text-center text-[#9ca3af]">
+                  <td colSpan={8} className="px-5 py-10 text-center text-[#9ca3af]">
                     {query || roomFilter || filter !== "all"
                       ? "No bookings match your search."
                       : "No bookings found."}
@@ -1078,7 +1072,6 @@ function TableHeadRow() {
       <th className="px-5 py-3 text-left text-[10px] font-semibold text-[#9ca3af] uppercase tracking-wider">Type</th>
       <th className="px-5 py-3 text-right text-[10px] font-semibold text-[#9ca3af] uppercase tracking-wider">Amount</th>
       <th className="px-5 py-3 text-left text-[10px] font-semibold text-[#9ca3af] uppercase tracking-wider">Status</th>
-      <th className="px-5 py-3 text-right text-[10px] font-semibold text-[#9ca3af] uppercase tracking-wider">Actions</th>
     </tr>
   )
 }

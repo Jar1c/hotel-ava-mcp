@@ -1036,6 +1036,8 @@ export interface RoomDemandData {
   trend: "up" | "down" | "stable"
   baseRate: number
   suggestedDiscount: number | null
+  suggestedDays: number | null
+  suggestedUntil: string | null
   discountedRate: number
   reason: string
 }

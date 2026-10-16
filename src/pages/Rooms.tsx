@@ -163,25 +163,35 @@ export default function Rooms() {
   // create_booking charges). Without dates the backend prices from today, so
   // browsing shows live promos too. Quote wins over every client-side path.
   const [quoteMap, setQuoteMap] = useState<Record<string, RoomQuote>>({})
+  // Fire the quote in parallel with getAll() — it does not need the room list —
+  // so the "% OFF" badge paints with the picture instead of after it. Cached
+  // quotes make repeat visits instant; filters still refetch fresh.
   useEffect(() => {
-    if (roomsData.length === 0) return
     let cancelled = false
-    setQuoteMap({})
+    const stay = filters.stayType === "day" ? "day" : "overnight"
+    const checkInISO = filters.checkIn ? toISODate(parseDateParam(filters.checkIn)) : undefined
+    const checkOutISO =
+      filters.stayType === "overnight" && filters.checkOut
+        ? toISODate(parseDateParam(filters.checkOut))
+        : undefined
+    const cacheKey = `room_quotes_${stay}_${checkInISO ?? ""}_${checkOutISO ?? ""}`
+    const cached = getCached<Record<string, RoomQuote>>(cacheKey)
+    if (cached) setQuoteMap(cached)
+    else setQuoteMap({})
     publicRoomsApi.quote({
-      check_in: filters.checkIn ? toISODate(parseDateParam(filters.checkIn)) : undefined,
-      check_out:
-        filters.stayType === "overnight" && filters.checkOut
-          ? toISODate(parseDateParam(filters.checkOut))
-          : undefined,
-      stay_type: filters.stayType === "day" ? "day" : "overnight",
+      check_in: checkInISO,
+      check_out: checkOutISO,
+      stay_type: stay,
     })
       .then((list) => {
         if (cancelled) return
-        setQuoteMap(Object.fromEntries(list.map((q) => [q.room_id, q])))
+        const map = Object.fromEntries(list.map((q) => [q.room_id, q]))
+        setQuoteMap(map)
+        setCache(cacheKey, map)
       })
       .catch(() => undefined)
     return () => { cancelled = true }
-  }, [roomsData, filters.checkIn, filters.checkOut, filters.stayType])
+  }, [filters.checkIn, filters.checkOut, filters.stayType])
 
   // Check availability for all rooms when date filters are present.
   // checkingAvailability stays true until every room answered, so the grid

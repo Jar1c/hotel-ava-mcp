@@ -29,6 +29,15 @@ const statusFilters: { label: string; value: RoomStatus | "all" }[] = [
 
 type RoomSortKey = "nameAsc" | "nameDesc" | "priceAsc" | "priceDesc" | "bookingsDesc" | "revenueDesc" | "numberAsc"
 
+// Cheapest → most expensive tier. Keeps the type filter, form and AI tabs
+// reading in the same order the rooms are actually priced.
+const ROOM_TYPE_ORDER = ["Standard", "Deluxe", "Junior Suite", "Executive Deluxe", "Superior Suite"]
+
+const typeRank = (t: string) => {
+  const i = ROOM_TYPE_ORDER.indexOf(t)
+  return i === -1 ? ROOM_TYPE_ORDER.length : i
+}
+
 const sortOptions: { value: RoomSortKey; label: string }[] = [
   { value: "nameAsc", label: "Room name · A to Z" },
   { value: "nameDesc", label: "Room name · Z to A" },
@@ -59,7 +68,7 @@ export default function AdminRoomTable({ rooms, onEdit, onDelete, highlightId }:
   const [page, setPage] = useState(1)
 
   const types = useMemo(
-    () => Array.from(new Set(rooms.map((r) => r.type).filter(Boolean))).sort((a, b) => a.localeCompare(b)),
+    () => Array.from(new Set(rooms.map((r) => r.type).filter(Boolean))).sort((a, b) => typeRank(a) - typeRank(b) || a.localeCompare(b)),
     [rooms],
   )
 

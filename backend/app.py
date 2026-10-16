@@ -8105,8 +8105,22 @@ def _build_room_demand():
             trend = "stable"
 
         suggested = None
-        reason = ""
+        suggested_days = None
+        suggested_until = None
         gap = hist_occ - fwd_occ
+
+        # Plain-language read the admin sees on the card — the AI's actual basis.
+        if trend == "down":
+            note = (f"Next 30 days look slow at {fwd_occ}% occupancy vs "
+                    f"{hist_occ}% the past 90 days.")
+        elif trend == "up":
+            note = (f"Next 30 days look strong at {fwd_occ}% occupancy vs "
+                    f"{hist_occ}% the past 90 days.")
+        else:
+            note = (f"Next 30 days are steady at {fwd_occ}% occupancy "
+                    f"({hist_occ}% the past 90 days).")
+        reason = note
+
         if fwd_occ < 25:
             if gap > 30:
                 suggested = 25
@@ -8116,13 +8130,23 @@ def _build_room_demand():
                 suggested = 15
             else:
                 suggested = 10
-            reason = (f"Only {fwd_occ}% projected occupancy for the next 30 days "
-                      f"(90-day average: {hist_occ}%). A {suggested}% discount "
-                      f"can stimulate bookings.")
+            # Weaker forward demand → longer boost window (7–30 days).
+            if fwd_occ < 10:
+                suggested_days = 30
+            elif fwd_occ < 15:
+                suggested_days = 21
+            elif fwd_occ < 20:
+                suggested_days = 14
+            else:
+                suggested_days = 7
+            suggested_until = today + timedelta(days=suggested_days)
+            reason = (note + f" A {suggested}% discount for {suggested_days} days "
+                             f"(until {suggested_until.isoformat()}) can stimulate bookings.")
         elif gap > 20 and fwd_occ < 50:
             suggested = 15
-            reason = (f"Demand is trending down: {fwd_occ}% forward occupancy vs "
-                      f"{hist_occ}% average. A {suggested}% discount could reverse it.")
+            suggested_days = 7
+            suggested_until = today + timedelta(days=7)
+            reason = (note + " A 15% discount for 7 days could reverse the drop.")
 
         results.append({
             "roomType": room_type,
@@ -8135,9 +8159,27 @@ def _build_room_demand():
             "trend": trend,
             "baseRate": base,
             "suggestedDiscount": suggested,
+            "suggestedDays": suggested_days,
+            "suggestedUntil": suggested_until.isoformat() if suggested_until else None,
             "discountedRate": round(base * (1 - suggested / 100)) if suggested and base else base,
             "reason": reason,
+            "_trendNote": note,
         })
+
+    # Flag only the two weakest types — with this data almost everything reads
+    # as underbooked, and "every room needs a discount" is no insight at all.
+    # Weakest forward occupancy first, then the bigger drop vs the 90-day avg.
+    eligible = [r for r in results if r["suggestedDiscount"] is not None]
+    eligible.sort(key=lambda r: (r["occupancy"], -(r["historicalOccupancy"] - r["occupancy"])))
+    keep = {id(r) for r in eligible[:2]}
+    for r in results:
+        note = r.pop("_trendNote", "")
+        if r["suggestedDiscount"] is not None and id(r) not in keep:
+            r["suggestedDiscount"] = None
+            r["suggestedDays"] = None
+            r["suggestedUntil"] = None
+            r["discountedRate"] = r["baseRate"]
+            r["reason"] = note
 
     return results
 
