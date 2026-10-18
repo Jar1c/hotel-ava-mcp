@@ -2,8 +2,13 @@ import { Navigate, Outlet } from "react-router"
 import { useAuth } from "@/contexts/AuthContext"
 import LoadingDots from "@/components/LoadingDots"
 
-export default function ProtectedRoute({ requireAdmin = false }) {
-  const { isAuthenticated, isAdmin, loading } = useAuth()
+/**
+ * requireAdmin + allowStaff = the admin portal entry (role in admin|staff).
+ * Staff who reach an admin-only route are bounced to their front desk
+ * (/admin/bookings) by AdminOnly inside the admin layout.
+ */
+export default function ProtectedRoute({ requireAdmin = false, allowStaff = false }) {
+  const { isAuthenticated, isAdmin, isStaff, loading } = useAuth()
 
   if (loading) {
     return (
@@ -17,8 +22,8 @@ export default function ProtectedRoute({ requireAdmin = false }) {
     return <Navigate to={requireAdmin ? "/admin" : "/login"} replace />
   }
 
-  if (requireAdmin && !isAdmin) {
-    return <Navigate to="/" replace />
+  if (requireAdmin && !isAdmin && !(allowStaff && isStaff)) {
+    return <Navigate to={isStaff ? "/admin/bookings" : "/"} replace />
   }
 
   return <Outlet />

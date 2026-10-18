@@ -212,12 +212,25 @@ _ADMIN_PROFILE_TTL = 30  # seconds — role/email move rarely
 def _admin_profile_row(user_id: str) -> dict:
     """role + email for a user, memoized for 30s. Saves a Supabase round-trip on
     every admin request; a demotion can lag that long. Session revocation is
-    deliberately NOT memoized — logout has to land immediately."""
+    deliberately NOT memoized — logout has to land immediately.
+
+    The effective role folds in auth app_metadata: staff accounts carry
+    role="staff" there (service-role-admin-API-only field) because the
+    users.role CHECK constraint predates them and only allows guest|admin.
+    """
     now = time.time()
     hit = _admin_profile_cache.get(user_id)
     if hit and now - hit[0] < _ADMIN_PROFILE_TTL:
         return hit[1]
     row = _sb().table("users").select("role,email").eq("id", user_id).single().execute().data or {}
+    if row and row.get("role") != "admin":
+        try:
+            auth_user = supabase_admin.auth.admin.get_user_by_id(user_id)
+            if (getattr(auth_user.user, "app_metadata", None) or {}).get("role") == "staff":
+                row = dict(row)
+                row["role"] = "staff"
+        except Exception:
+            pass
     _admin_profile_cache[user_id] = (now, row)
     if len(_admin_profile_cache) > 200:
         _admin_profile_cache.pop(next(iter(_admin_profile_cache)), None)
@@ -238,6 +251,25 @@ def require_admin(token):
     except Exception:
         pass
     if not row or row.get("role") != "admin":
+        return None
+    return user_id
+
+
+def require_front_desk(token):
+    """Get user_id for admin OR staff — the front-desk surface (bookings list,
+    arrivals, QR check-in, status changes, walk-ins, balance settlement).
+    Everything else (analytics, reports, rooms, guests, settings, refunds,
+    staff management) stays admin-only via require_admin."""
+    user_id = get_user_from_token(token)
+    if not user_id:
+        return None
+    set_auth(token)
+    row = _admin_profile_row(user_id)
+    try:
+        g.admin_profile = row
+    except Exception:
+        pass
+    if not row or row.get("role") not in ("admin", "staff"):
         return None
     return user_id
 
@@ -1226,12 +1258,27 @@ def login():
             except Exception:
                 profile_data = {}
 
+        # Effective role — staff accounts are marked in auth app_metadata (only
+        # writable through the service-role admin API; clients can't touch it).
+        # The users.role column stays "guest" for them: its CHECK constraint
+        # predates staff and only allows guest|admin. One GoTrue lookup for
+        # non-admin logins only; admins short-circuit on the column value.
+        effective_role = (profile_data or {}).get("role", "guest")
+        if effective_role != "admin":
+            try:
+                auth_user = supabase_admin.auth.admin.get_user_by_id(user.id)
+                meta_role = (getattr(auth_user.user, "app_metadata", None) or {}).get("role")
+                if meta_role == "staff":
+                    effective_role = "staff"
+            except Exception:
+                pass
+
         # Step-up verification — unfamiliar device or a brand-new location →
         # email a one-time code instead of handing back tokens. Fail-open when
         # the challenge email can't be sent: a login must never be bricked.
-        # Admin skips the step-up entirely — password only, no code screen.
+        # Admin and staff skip the step-up entirely — password only, no code screen.
         try:
-            reason = "" if (profile_data or {}).get("role") == "admin" else _step_up_reason(user.id)
+            reason = "" if effective_role in ("admin", "staff") else _step_up_reason(user.id)
         except Exception:
             reason = ""
         if reason:
@@ -1269,7 +1316,7 @@ def login():
                 "id": user.id,
                 "email": user.email,
                 "name": profile_data.get("name", user.email.split("@")[0]),
-                "role": profile_data.get("role", "guest"),
+                "role": effective_role,
                 "avatar_url": profile_data.get("avatar_url", ""),
                 "name_changed_at": profile_data.get("name_changed_at", ""),
             }
@@ -4809,7 +4856,7 @@ def admin_create_booking():
     is standing at the desk, so there is no checkout session to await.
     """
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    admin_id = require_admin(token)
+    admin_id = require_front_desk(token)
     if not admin_id:
         return jsonify({"error": "Admin access required"}), 403
 
@@ -4985,10 +5032,11 @@ def admin_create_booking():
 def settle_booking_balance(booking_id):
     """Front desk: record the remaining downpayment balance as paid at the hotel.
 
-    Admin-only — this is the step that lifts the "cannot book again" block.
+    Front-desk surface (admin or staff) — this is the step that lifts the
+    "cannot book again" block.
     """
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    if not require_admin(token):
+    if not require_front_desk(token):
         return jsonify({"error": "Admin access required"}), 403
 
     try:
@@ -5172,7 +5220,7 @@ def check_in_booking(booking_id):
     Admin-only: the public /verify/<code> page never calls this.
     """
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    if not require_admin(token):
+    if not require_front_desk(token):
         return jsonify({"error": "Admin access required"}), 403
 
     try:
@@ -5269,10 +5317,18 @@ def get_bookings():
     if not user_id:
         return jsonify({"error": "Unauthorized"}), 401
 
+    # Back-office list only (the guest list is /mine). Staff reads through the
+    # service role — RLS on their own JWT would only expose their personal
+    # rows; admins keep the original token-scoped path unchanged.
+    role = (_admin_profile_row(user_id) or {}).get("role")
+    if role not in ("admin", "staff"):
+        return jsonify({"error": "Admin access required"}), 403
+    reader = supabase_admin if role == "staff" else _sb()
+
     try:
         limit = request.args.get("limit", type=int)
         if limit:
-            bookings = _sb().table("bookings").select("*") \
+            bookings = reader.table("bookings").select("*") \
                 .order("created_at", desc=True).limit(limit).execute().data or []
         else:
             # Supabase caps a single select at 1000 rows and the admin list
@@ -5281,7 +5337,7 @@ def get_bookings():
             bookings = []
             offset = 0
             while True:
-                chunk = _sb().table("bookings").select("*") \
+                chunk = reader.table("bookings").select("*") \
                     .order("created_at", desc=True) \
                     .range(offset, offset + 999).execute().data or []
                 bookings.extend(chunk)
@@ -5295,12 +5351,12 @@ def get_bookings():
 
         users_map = {}
         if user_ids:
-            users_res = _sb().table("users").select("id, name, email, avatar_url").in_("id", user_ids).execute()
+            users_res = reader.table("users").select("id, name, email, avatar_url").in_("id", user_ids).execute()
             users_map = {u["id"]: u for u in (users_res.data or [])}
 
         rooms_map = {}
         if room_ids:
-            rooms_res = _sb().table("rooms").select("id, name, type, images").in_("id", room_ids).execute()
+            rooms_res = reader.table("rooms").select("id, name, type, images").in_("id", room_ids).execute()
             rooms_map = {r["id"]: r for r in (rooms_res.data or [])}
 
         result = []
@@ -5727,7 +5783,7 @@ def auto_complete_bookings():
 @app.route("/api/bookings/<booking_id>/status", methods=["PUT"])
 def update_booking_status(booking_id):
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    if not require_admin(token):
+    if not require_front_desk(token):
         return jsonify({"error": "Admin access required"}), 403
 
     data = request.get_json()
@@ -6497,10 +6553,144 @@ def _build_dashboard_stats():
 
 # �"?�"? Admin Dashboard Summary (exact counts, Asia/Manila) �"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?
 
+# ── Staff accounts (admin-managed, limited front-desk role) ───────────────────
+# Staff sign in through the same /admin portal but only reach the front-desk
+# surface (bookings, arrivals, check-in, walk-ins). Every admin-only endpoint
+# still rejects them server-side via require_admin — the UI merely matches it.
+# The role marker lives in GoTrue app_metadata (writable only through the
+# service-role admin API); the users.role CHECK constraint predates staff and
+# only allows guest|admin, so the profile row keeps role="guest".
+
+def _auth_staff_ids():
+    """Auth user ids whose app_metadata marks them as staff (paginated scan)."""
+    ids = []
+    page = 1
+    while page <= 20:  # safety cap — 4,000 auth users
+        batch = supabase_admin.auth.admin.list_users(page=page, per_page=200) or []
+        for u in batch:
+            if (getattr(u, "app_metadata", None) or {}).get("role") == "staff":
+                ids.append(u.id)
+        if len(batch) < 200:
+            break
+        page += 1
+    return ids
+
+
+@app.route("/api/admin/staff", methods=["GET"])
+def list_staff():
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    if not require_admin(token):
+        return jsonify({"error": "Admin access required"}), 403
+    try:
+        staff_ids = _auth_staff_ids()
+        if not staff_ids:
+            return jsonify([]), 200
+        rows = supabase_admin.table("users") \
+            .select("id, name, email, created_at") \
+            .in_("id", staff_ids).execute().data or []
+        by_id = {r["id"]: r for r in rows}
+        out = [{
+            "id": sid,
+            "name": (by_id.get(sid) or {}).get("name", ""),
+            "email": (by_id.get(sid) or {}).get("email", ""),
+            "created_at": (by_id.get(sid) or {}).get("created_at", ""),
+        } for sid in staff_ids]
+        out.sort(key=lambda r: r.get("created_at") or "", reverse=True)
+        return jsonify(out), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/admin/staff", methods=["POST"])
+def create_staff():
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    if not require_admin(token):
+        return jsonify({"error": "Admin access required"}), 403
+
+    data = request.get_json() or {}
+    name = str(data.get("name") or "").strip()
+    email = str(data.get("email") or "").strip().lower()
+    password = str(data.get("password") or "")
+
+    if len(name) < 2:
+        return jsonify({"error": "Name is required."}), 400
+    if "@" not in email or "." not in email.rsplit("@", 1)[-1]:
+        return jsonify({"error": "Enter a valid email address."}), 400
+    if len(password) < 8:
+        return jsonify({"error": "Password must be at least 8 characters."}), 400
+
+    try:
+        dup = supabase_admin.table("users").select("id").eq("email", email).execute().data
+        if dup:
+            return jsonify({"error": "That email is already registered."}), 400
+    except Exception:
+        pass  # lookup is best-effort — GoTrue still rejects real duplicates
+
+    try:
+        res = supabase_admin.auth.admin.create_user({
+            "email": email,
+            "password": password,
+            # Confirmed on creation — the admin is standing right there; no inbox step.
+            "email_confirm": True,
+            # The staff marker (see module note above). Session hydration on the
+            # frontend reads app_metadata.role; require_front_desk reads it too.
+            "app_metadata": {"role": "staff"},
+            "user_metadata": {"name": name},
+        })
+        auth_id = res.user.id
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+    try:
+        # Cosmetic profile row (names for the bookings list). role stays
+        # "guest" — the column's CHECK constraint predates staff accounts.
+        supabase_admin.table("users").upsert({
+            "id": auth_id, "name": name, "email": email,
+            "role": "guest", "avatar_url": "",
+        }).execute()
+    except Exception:
+        pass  # non-fatal: the auth user already carries the staff role
+
+    return jsonify({
+        "id": auth_id, "name": name, "email": email, "role": "staff",
+        "created_at": datetime.utcnow().isoformat() + "Z",
+    }), 201
+
+
+@app.route("/api/admin/staff/<staff_id>", methods=["DELETE"])
+def delete_staff(staff_id):
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    actor = require_admin(token)
+    if not actor:
+        return jsonify({"error": "Admin access required"}), 403
+    if staff_id == actor:
+        return jsonify({"error": "You can't remove your own account here."}), 400
+
+    try:
+        auth_user = supabase_admin.auth.admin.get_user_by_id(staff_id)
+        meta = getattr(auth_user.user, "app_metadata", None) or {}
+    except Exception:
+        meta = {}
+    if meta.get("role") != "staff":
+        return jsonify({"error": "Only staff accounts can be removed here."}), 400
+
+    try:
+        supabase_admin.table("users").delete().eq("id", staff_id).execute()
+    except Exception:
+        pass  # profile row is cosmetic — the auth delete is what matters
+    try:
+        supabase_admin.auth.admin.delete_user(staff_id)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    return jsonify({"success": True}), 200
+
+
 @app.route("/api/admin/dashboard-summary", methods=["GET"])
 def admin_dashboard_summary():
+    # Front-desk surface: staff see arrivals/occupancy counts on their
+    # dashboard; non-staff/non-admin tokens still get blocked here.
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    user_id = require_admin(token)
+    user_id = require_front_desk(token)
     if not user_id:
         return jsonify({"error": "Unauthorized"}), 401
     set_auth(token)
@@ -6777,6 +6967,10 @@ def get_seasonal_data():
     user_id = get_user_from_token(token)
     if not user_id:
         return jsonify({"error": "Unauthorized"}), 401
+    # Front-desk surface: staff may view these hotel-wide aggregates (the
+    # dashboard charts); public/guest tokens are still blocked here.
+    if not require_front_desk(token):
+        return jsonify({"error": "Admin access required"}), 403
 
     try:
         payload = cached_json("analytics-seasonal", _build_seasonal_data, ttl=60)
@@ -6810,6 +7004,10 @@ def get_room_performance():
     user_id = get_user_from_token(token)
     if not user_id:
         return jsonify({"error": "Unauthorized"}), 401
+    # Front-desk surface: staff may view these hotel-wide aggregates (the
+    # dashboard charts); public/guest tokens are still blocked here.
+    if not require_front_desk(token):
+        return jsonify({"error": "Admin access required"}), 403
 
     try:
         payload = cached_json("analytics-room-perf", _build_room_performance, ttl=60)
@@ -6854,6 +7052,10 @@ def get_insights():
     user_id = get_user_from_token(token)
     if not user_id:
         return jsonify({"error": "Unauthorized"}), 401
+    # Front-desk surface: staff may view these hotel-wide aggregates (the
+    # dashboard charts); public/guest tokens are still blocked here.
+    if not require_front_desk(token):
+        return jsonify({"error": "Admin access required"}), 403
 
     try:
         payload = cached_json("analytics-insights", _build_insights, ttl=60)
@@ -6903,6 +7105,10 @@ def get_occupancy_forecast():
     user_id = get_user_from_token(token)
     if not user_id:
         return jsonify({"error": "Unauthorized"}), 401
+    # Front-desk surface: staff may view these hotel-wide aggregates (the
+    # dashboard charts); public/guest tokens are still blocked here.
+    if not require_front_desk(token):
+        return jsonify({"error": "Admin access required"}), 403
 
     try:
         payload = cached_json("analytics-occ-fc", _build_occupancy_forecast, ttl=60)
@@ -6961,6 +7167,10 @@ def get_revenue_forecast():
     user_id = get_user_from_token(token)
     if not user_id:
         return jsonify({"error": "Unauthorized"}), 401
+    # Front-desk surface: staff may view these hotel-wide aggregates (the
+    # dashboard charts); public/guest tokens are still blocked here.
+    if not require_front_desk(token):
+        return jsonify({"error": "Admin access required"}), 403
 
     try:
         payload = cached_json("analytics-rev-fc", _build_revenue_forecast, ttl=60)
@@ -7005,6 +7215,10 @@ def get_forecast_accuracy():
     user_id = get_user_from_token(token)
     if not user_id:
         return jsonify({"error": "Unauthorized"}), 401
+    # Front-desk surface: staff may view these hotel-wide aggregates (the
+    # dashboard charts); public/guest tokens are still blocked here.
+    if not require_front_desk(token):
+        return jsonify({"error": "Admin access required"}), 403
 
     try:
         payload = cached_json("analytics-forecast-accuracy", _build_forecast_accuracy, ttl=300)
@@ -7865,6 +8079,10 @@ def set_demand_insight_status():
     user_id = get_user_from_token(token)
     if not user_id:
         return jsonify({"error": "Unauthorized"}), 401
+    # Front-desk surface: staff may view these hotel-wide aggregates (the
+    # dashboard charts); public/guest tokens are still blocked here.
+    if not require_front_desk(token):
+        return jsonify({"error": "Admin access required"}), 403
 
     data = request.get_json() or {}
     insight_id = data.get("id")
@@ -8016,6 +8234,10 @@ def get_demand_insights():
     user_id = get_user_from_token(token)
     if not user_id:
         return jsonify({"error": "Unauthorized"}), 401
+    # Front-desk surface: staff may view these hotel-wide aggregates (the
+    # dashboard charts); public/guest tokens are still blocked here.
+    if not require_front_desk(token):
+        return jsonify({"error": "Admin access required"}), 403
 
     try:
         payload = cached_json("analytics-demand", _build_demand_insights, ttl=60)
@@ -8064,6 +8286,10 @@ def get_discount_offers():
     user_id = get_user_from_token(token)
     if not user_id:
         return jsonify({"error": "Unauthorized"}), 401
+    # Front-desk surface: staff may view these hotel-wide aggregates (the
+    # dashboard charts); public/guest tokens are still blocked here.
+    if not require_front_desk(token):
+        return jsonify({"error": "Admin access required"}), 403
 
     try:
         payload = cached_json("analytics-discounts", _build_discount_offers, ttl=60)
@@ -8144,6 +8370,10 @@ def get_room_demand():
     user_id = get_user_from_token(token)
     if not user_id:
         return jsonify({"error": "Unauthorized"}), 401
+    # Front-desk surface: staff may view these hotel-wide aggregates (the
+    # dashboard charts); public/guest tokens are still blocked here.
+    if not require_front_desk(token):
+        return jsonify({"error": "Admin access required"}), 403
 
     try:
         payload = cached_json("analytics-room-demand", _build_room_demand, ttl=120)
@@ -8550,6 +8780,10 @@ def ai_recommendations():
     user_id = get_user_from_token(token)
     if not user_id:
         return jsonify({"error": "Unauthorized"}), 401
+    # Front-desk surface: staff may view these hotel-wide aggregates (the
+    # dashboard charts); public/guest tokens are still blocked here.
+    if not require_front_desk(token):
+        return jsonify({"error": "Admin access required"}), 403
 
     try:
         # Heaviest endpoint (sklearn + 2 full scans). Cache 90s so the 30s

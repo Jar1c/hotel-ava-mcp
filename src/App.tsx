@@ -2,6 +2,7 @@ import { lazy, Suspense } from "react"
 import { BrowserRouter, Routes, Route, Navigate } from "react-router"
 import RootLayout from "./layouts/RootLayout"
 import ProtectedRoute from "./components/ProtectedRoute"
+import AdminOnly from "./components/admin/AdminOnly"
 import LoadingDots from "./components/LoadingDots"
 import CapstoneNotice from "./components/layout/CapstoneNotice"
 import { NotificationProvider } from "./contexts/NotificationContext"
@@ -41,6 +42,7 @@ const AIAssistant = lazy(() => import("./pages/admin/AIAssistant"))
 const AdminSettings = lazy(() => import("./pages/admin/Settings"))
 const AdminReviews = lazy(() => import("./pages/admin/Reviews"))
 const AdminReports = lazy(() => import("./pages/admin/Reports"))
+const AdminStaff = lazy(() => import("./pages/admin/Staff"))
 
 function PageLoader() {
   return (
@@ -93,21 +95,26 @@ export default function App() {
           {/* Admin side — completely separate */}
           <Route path="admin">
             <Route index element={<AdminLogin />} />
-            <Route element={<ProtectedRoute requireAdmin />}>
+            <Route element={<ProtectedRoute requireAdmin allowStaff />}>
               <Route element={<Admin />}>
+                {/* Front-desk basics — admin AND staff */}
                 <Route path="dashboard" element={<Dashboard />} />
                 <Route path="bookings" element={<Bookings />} />
                 <Route path="rooms" element={<AdminRooms />} />
-                <Route path="guests" element={<Guests />} />
                 <Route path="calendar" element={<Calendar />} />
-                <Route path="reviews" element={<AdminReviews />} />
-                <Route path="ai" element={<AIAssistant />} />
-                <Route path="reports" element={<AdminReports />} />
                 <Route path="notifications" element={<Notifications />} />
-                <Route path="analytics" element={<Navigate to="/admin/ai" replace />} />
-                <Route path="ai-insights" element={<Navigate to="/admin/ai" replace />} />
-                <Route path="discounts" element={<Navigate to="/admin/ai?tab=discounts" replace />} />
-                <Route path="settings" element={<AdminSettings />} />
+                {/* Admin-only management — staff bounce to /admin/bookings */}
+                <Route element={<AdminOnly />}>
+                  <Route path="guests" element={<Guests />} />
+                  <Route path="reviews" element={<AdminReviews />} />
+                  <Route path="ai" element={<AIAssistant />} />
+                  <Route path="reports" element={<AdminReports />} />
+                  <Route path="staff" element={<AdminStaff />} />
+                  <Route path="analytics" element={<Navigate to="/admin/ai" replace />} />
+                  <Route path="ai-insights" element={<Navigate to="/admin/ai" replace />} />
+                  <Route path="discounts" element={<Navigate to="/admin/ai?tab=discounts" replace />} />
+                  <Route path="settings" element={<AdminSettings />} />
+                </Route>
               </Route>
             </Route>
           </Route>

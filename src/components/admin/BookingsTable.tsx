@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react"
 import { cn } from "@/lib/utils"
 import { bookingsApi, ApiError } from "@/services/api"
 import { useToast } from "@/contexts/ToastContext"
+import { useAuth } from "@/contexts/AuthContext"
 import type { Booking } from "@/data/admin"
 import LoadingDots from "@/components/LoadingDots"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -303,6 +304,7 @@ function receiptFor(b: Booking): ReceiptData {
 }
 
 export default function BookingsTable({ bookings, showFilters = true, loading, onStatusChange, initialFilter }: BookingsTableProps) {
+  const { isStaff } = useAuth()
   const [filter, setFilter] = useState<FilterValue>(() => sanitizeFilter(initialFilter))
   const [query, setQuery] = useState("")
   const [roomFilter, setRoomFilter] = useState("")
@@ -890,7 +892,8 @@ export default function BookingsTable({ bookings, showFilters = true, loading, o
                           }
                           valueClass={selectedBooking.refunded_at ? "font-semibold text-[#3D6B4F]" : "font-semibold text-[#b45309]"}
                         />
-                        {!selectedBooking.refunded_at && (
+                        {/* Refunds move money — admin-only (backend 403s staff too). */}
+                        {!isStaff && !selectedBooking.refunded_at && (
                           <div className="space-y-2 pt-0.5">
                             <button
                               type="button"

@@ -178,7 +178,9 @@ export default function AdminRoomTable({ rooms, onEdit, onDelete, highlightId }:
               <th className="px-5 py-3 text-left text-[10px] font-semibold text-[#9ca3af] uppercase tracking-wider">Status</th>
               <th className="px-5 py-3 text-center text-[10px] font-semibold text-[#9ca3af] uppercase tracking-wider">Bookings</th>
               <th className="px-5 py-3 text-right text-[10px] font-semibold text-[#9ca3af] uppercase tracking-wider">Revenue</th>
-              <th className="px-5 py-3 text-center text-[10px] font-semibold text-[#9ca3af] uppercase tracking-wider w-20">Actions</th>
+              {(onEdit || onDelete) && (
+                <th className="px-5 py-3 text-center text-[10px] font-semibold text-[#9ca3af] uppercase tracking-wider w-20">Actions</th>
+              )}
             </tr>
           </thead>
           <tbody>

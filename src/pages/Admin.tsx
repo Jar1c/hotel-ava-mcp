@@ -40,7 +40,7 @@ function formatTime(dateStr: string) {
 }
 
 export default function Admin() {
-  const { user } = useAuth()
+  const { user, isAdmin } = useAuth()
   const { notifications, unreadCount, loading, fetchNotifications, markRead, markAllRead, trustDevice, openNewLoginDialog } = useNotifications()
   const navigate = useNavigate()
   const [searchQuery, setSearchQuery] = useState("")
@@ -75,13 +75,18 @@ export default function Admin() {
     }
   }
 
+  // Staff = front desk: the quick-search menu only points at pages they can open.
+  const visibleSuggestions = isAdmin
+    ? searchSuggestions
+    : searchSuggestions.filter((s) => ["bookings", "rooms"].includes(s.category))
+
   const filteredSuggestions = searchQuery
-    ? searchSuggestions.filter(
+    ? visibleSuggestions.filter(
         (s) =>
           s.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
           s.description.toLowerCase().includes(searchQuery.toLowerCase())
       )
-    : searchSuggestions
+    : visibleSuggestions
 
   return (
     <div className="flex h-[calc(100vh-var(--capstone-h,0px))] bg-[#f0f1f3] overflow-hidden">

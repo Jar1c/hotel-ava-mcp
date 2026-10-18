@@ -5,7 +5,7 @@ import { getAccessToken, getRefreshToken, setAccess, setRefresh, clearTokens } f
 import { setLastSignIn } from "@/lib/lastSignIn"
 import LoginChallengeDialog from "@/components/auth/LoginChallengeDialog"
 
-export type UserRole = "public" | "guest" | "admin"
+export type UserRole = "public" | "guest" | "admin" | "staff"
 
 export interface User {
   id: string
@@ -23,6 +23,8 @@ interface AuthContextValue {
   role: UserRole
   isAuthenticated: boolean
   isAdmin: boolean
+  /** Staff = limited front-desk role: bookings/arrivals only, no admin pages. */
+  isStaff: boolean
   login: (email: string, password: string, name?: string) => Promise<User | undefined>
   register: (email: string, password: string, name: string) => Promise<void>
   logout: () => Promise<void>
@@ -115,7 +117,11 @@ function userFromSession(sbUser: {
     (meta.full_name || "").trim() ||
     emailLocalPart(email)
   const role: UserRole =
-    appMeta.role === "admin" || appMeta.claims?.role === "admin" ? "admin" : "guest"
+    appMeta.role === "admin" || appMeta.claims?.role === "admin"
+      ? "admin"
+      : appMeta.role === "staff"
+        ? "staff"
+        : "guest"
   return {
     id: sbUser.id,
     email,
@@ -252,11 +258,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         (isUsableName(prev?.name) ? prev!.name : "") ||
         emailLocalPart(email)
 
+      // Staff are marked in auth app_metadata, not users.role (its CHECK
+      // constraint predates staff accounts) — the profile's "guest" must not
+      // demote a session that already signed in as staff.
+      const nextRole: UserRole =
+        prev?.role === "staff" && (!profile.role || profile.role === "guest")
+          ? "staff"
+          : ((profile.role || prev?.role || "guest") as UserRole)
+
       const userObj: User = {
         id: profile.id || prev?.id || "",
         email,
         name: isUsableName(nameCandidate) ? nameCandidate : "",
-        role: (profile.role || prev?.role || "guest") as UserRole,
+        role: nextRole,
         avatar: (profile.avatar_url || "").trim() || (isGoogleUser ? googleAvatar : "") || (prev?.avatar || ""),
         name_changed_at: profile.name_changed_at || prev?.name_changed_at || "",
         deletion_requested_at: profile.deletion_requested_at ?? null,
@@ -511,6 +525,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const role: UserRole = user?.role ?? "public"
   const isAuthenticated = user !== null
   const isAdmin = user?.role === "admin"
+  const isStaff = user?.role === "staff"
 
   const login = useCallback(async (email: string, password: string, _name?: string) => {
     const res = await authApi.login({ email, password })
@@ -676,7 +691,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [verifySession])
 
   return (
-    <AuthContext.Provider value={{ user, role, isAuthenticated, isAdmin, login, register, logout, setRole, updateUser, loading, clearSession, consumeLogoutSuppress, pendingChallenge, setChallenge, completeSession, refreshUser }}>
+    <AuthContext.Provider value={{ user, role, isAuthenticated, isAdmin, isStaff, login, register, logout, setRole, updateUser, loading, clearSession, consumeLogoutSuppress, pendingChallenge, setChallenge, completeSession, refreshUser }}>
       {children}
       {pendingChallenge && (
         <LoginChallengeDialog

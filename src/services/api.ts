@@ -1403,6 +1403,28 @@ export const notificationsApi = {
     apiFetch(`/notifications/${id}`, { method: "DELETE" }),
 }
 
+// ── Staff accounts (admin-managed, limited front-desk role) ───────────────────
+
+export interface StaffAccount {
+  id: string
+  name: string
+  email: string
+  created_at: string
+}
+
+export const staffApi = {
+  list: () => apiFetch<StaffAccount[]>("/admin/staff"),
+
+  create: (payload: { name: string; email: string; password: string }) =>
+    apiFetch<StaffAccount>("/admin/staff", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  remove: (id: string) =>
+    apiFetch<{ success: boolean }>(`/admin/staff/${id}`, { method: "DELETE" }),
+}
+
 // ── Devices (new-login security) ───────────────────────────────────────────────
 
 export interface DeviceInfo {

@@ -6,9 +6,11 @@ import type { RoomFormData } from "@/components/admin/RoomFormSheet"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { getRooms, addRoom, updateRoom, deleteRoom } from "@/services/adminService"
+import { useAuth } from "@/contexts/AuthContext"
 import type { AdminRoom } from "@/data/admin"
 
 export default function Rooms() {
+  const { isStaff } = useAuth()
   const [rooms, setRooms] = useState<AdminRoom[]>([])
   const [loading, setLoading] = useState(true)
   const [sheetOpen, setSheetOpen] = useState(false)
@@ -84,13 +86,16 @@ export default function Rooms() {
           <h1 className="text-xl font-bold text-ink">Rooms</h1>
           <p className="text-sm text-muted">Manage room inventory, pricing, and availability.</p>
         </div>
-        <button
-          onClick={handleAdd}
-          className="flex items-center gap-1.5 rounded-[5px] bg-[#82285f] px-3.5 py-2 text-[11px] font-semibold text-white hover:bg-[#6b1f4b] transition-colors"
-        >
-          <Plus className="size-4" />
-          Add Room
-        </button>
+        {/* Room writes are admin-only — staff see the inventory read-only. */}
+        {!isStaff && (
+          <button
+            onClick={handleAdd}
+            className="flex items-center gap-1.5 rounded-[5px] bg-[#82285f] px-3.5 py-2 text-[11px] font-semibold text-white hover:bg-[#6b1f4b] transition-colors"
+          >
+            <Plus className="size-4" />
+            Add Room
+          </button>
+        )}
       </div>
 
       {loading ? (
@@ -110,8 +115,8 @@ export default function Rooms() {
       ) : (
         <AdminRoomTable
           rooms={rooms}
-          onEdit={handleEdit}
-          onDelete={handleDelete}
+          onEdit={isStaff ? undefined : handleEdit}
+          onDelete={isStaff ? undefined : handleDelete}
           highlightId={highlightId}
         />
       )}

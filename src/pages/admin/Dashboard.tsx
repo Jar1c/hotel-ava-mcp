@@ -3,6 +3,7 @@ import { Link } from "react-router"
 import { ChevronRight, QrCode, UserPlus } from "lucide-react"
 import StatCard from "@/components/admin/StatCard"
 import DashboardInsightsRotator from "@/components/admin/DashboardInsightsRotator"
+import { useAuth } from "@/contexts/AuthContext"
 import VerifyQrDialog from "@/components/admin/VerifyQrDialog"
 import WalkInBookingDialog from "@/components/admin/WalkInBookingDialog"
 import { Button } from "@/components/ui/button"
@@ -35,6 +36,7 @@ const cardClass = "rounded-[8px] border border-[#e5e7eb] bg-white p-5"
 const sectionHeading = "text-[14px] font-semibold text-[#1a1d26] mb-4"
 
 export default function Dashboard() {
+  const { isStaff } = useAuth()
   const [summary, setSummary] = useState<DashboardSummary | null>(null)
   const [recommendations, setRecommendations] = useState<RecommendationsData | null>(null)
   const [insights, setInsights] = useState<Insight[]>([])
@@ -380,11 +382,15 @@ export default function Dashboard() {
                     )}
                   </div>
 
-                  <DashboardInsightsRotator
-                    recommendations={recommendations}
-                    insights={insights}
-                    loading={showSkeleton}
-                  />
+                  {/* AI insights = management view; staff dashboards show the
+                      operational numbers only (arrivals, occupancy, revenue). */}
+                  {!isStaff && (
+                    <DashboardInsightsRotator
+                      recommendations={recommendations}
+                      insights={insights}
+                      loading={showSkeleton}
+                    />
+                  )}
                 </div>
               )
             )}

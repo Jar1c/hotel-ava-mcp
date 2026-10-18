@@ -25,11 +25,13 @@ export default function AdminLogin() {
     setSubmitting(true)
     try {
       const loggedUser = await login(email, password)
-      if (loggedUser?.role !== "admin") {
-        setError("Access denied. This portal is for admins only.")
+      if (loggedUser?.role !== "admin" && loggedUser?.role !== "staff") {
+        setError("Access denied. This portal is for hotel staff only.")
         await logout()
         return
       }
+      // Staff land on the dashboard too — the arrivals/daily view is the
+      // front desk's home screen.
       navigate("/admin/dashboard")
     } catch {
       setError("Invalid credentials. Please try again.")

@@ -10,6 +10,7 @@ const mainItems = [
   { label: "Bookings", path: "/admin/bookings" },
   { label: "Rooms", path: "/admin/rooms" },
   { label: "Guests", path: "/admin/guests" },
+  { label: "Staff", path: "/admin/staff" },
   { label: "Calendar", path: "/admin/calendar" },
   { label: "Reviews", path: "/admin/reviews" },
   { label: "AI Assistant", path: "/admin/ai" },
@@ -19,6 +20,17 @@ const mainItems = [
 const otherItems = [
   { label: "Settings", path: "/admin/settings" },
 ]
+
+/** Staff = front desk: the basics they work with daily (arrivals dashboard,
+ * bookings, rooms, calendar). Guests, Reviews, AI Assistant, Reports, Staff
+ * management and Settings stay admin-only — the backend rejects staff
+ * tokens on those endpoints regardless of what the UI shows. */
+const staffAllowedPaths = new Set([
+  "/admin/dashboard",
+  "/admin/bookings",
+  "/admin/rooms",
+  "/admin/calendar",
+])
 
 /** Red "new bookings" pill — 9 and up reads as 9+. */
 function CountBadge({ count }: { count: number }) {
@@ -35,10 +47,14 @@ const navItemClass =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#82285f]/50 focus-visible:ring-offset-1"
 
 export default function AdminSidebar({ onNavigate }: { onNavigate?: () => void }) {
-  const { logout } = useAuth()
+  const { logout, isAdmin } = useAuth()
   const { unreadBookingCount } = useNotifications()
   const navigate = useNavigate()
   const location = useLocation()
+
+  const visibleMain = isAdmin
+    ? mainItems
+    : mainItems.filter((item) => staffAllowedPaths.has(item.path))
 
   const handleLogout = async () => {
     await logout()
@@ -84,14 +100,16 @@ export default function AdminSidebar({ onNavigate }: { onNavigate?: () => void }
 
       {/* Main nav — text-only */}
       <nav className="flex flex-col gap-0.5 px-3 mt-1">
-        {renderItems(mainItems, true)}
+        {renderItems(visibleMain, true)}
       </nav>
 
-      {/* Divider + Other section */}
-      <div className="px-3 mt-6">
-        <p className="px-3 mb-1.5 text-[13px] font-medium text-[#9ca3af]">Other</p>
-        {renderItems(otherItems)}
-      </div>
+      {/* Divider + Other section — admin only */}
+      {isAdmin && (
+        <div className="px-3 mt-6">
+          <p className="px-3 mb-1.5 text-[13px] font-medium text-[#9ca3af]">Other</p>
+          {renderItems(otherItems)}
+        </div>
+      )}
 
       {/* Spacer */}
       <div className="flex-1" />
