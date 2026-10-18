@@ -1,18 +1,22 @@
 import { useEffect, useMemo, useState } from "react"
 import { Download, Search } from "lucide-react"
-import * as XLSX from "xlsx"
+import { jsPDF } from "jspdf"
+import { autoTable } from "jspdf-autotable"
 import { Button } from "@/components/ui/button"
 import Pagination from "@/components/admin/Pagination"
 import { SkeletonLine } from "@/components/ui/skeleton"
 import { getBookings } from "@/services/adminService"
 import { formatPaymentMethod } from "@/lib/payment"
 import { cn } from "@/lib/utils"
+import hotelAvaLogo from "@/assets/images/Hotel Ava logo.png"
 import type { Booking, BookingStatus } from "@/data/admin"
 
 /**
- * Reports — every booking record in one table, with a one-click Excel export.
- * The CSV carries the full record (ids, contacts, stay window, money, refund
- * and cancellation notes), not just what fits on screen.
+ * Reports — every booking record in one table, with a one-click PDF export.
+ * The PDF is a landscape A4 document with the Hotel Ava Malate letterhead
+ * (logo, hotel name, export timestamp), a filter summary line, and a striped
+ * autotable of the same columns shown on screen. Amounts use "PHP" because
+ * jsPDF's core fonts have no peso glyph.
  */
 
 const PAGE_SIZE = 15
@@ -77,6 +81,31 @@ function fmtStamp(iso?: string | null): string {
 
 const peso = (n?: number | null) => `₱${(n ?? 0).toLocaleString("en-PH")}`
 
+/** PDF cells use "PHP" — jsPDF core fonts can't render the ₱ glyph. */
+const php = (n?: number | null) => `PHP ${(n ?? 0).toLocaleString("en-PH")}`
+
+/** Status → RGB for the PDF status column. */
+const statusRgb: Record<string, [number, number, number]> = {
+  confirmed: [61, 107, 79],
+  pending: [180, 83, 9],
+  completed: [62, 92, 118],
+  "checked-out": [107, 114, 128],
+  cancelled: [164, 66, 58],
+}
+
+/** "Oct 18 – 19, 2026" when both dates share a month, else the long form. */
+function fmtRange(from?: string | null, to?: string | null): string {
+  const a = (from || "").slice(0, 10)
+  const b = (to || "").slice(0, 10)
+  if (!a || !b) return `${fmtDate(from)} → ${fmtDate(to)}`
+  if (a.slice(0, 7) === b.slice(0, 7)) {
+    const d1 = new Date(`${a}T00:00:00`)
+    const d2 = new Date(`${b}T00:00:00`)
+    return `${d1.toLocaleDateString("en-PH", { month: "short", day: "numeric" })} – ${d2.getDate()}, ${d2.getFullYear()}`
+  }
+  return `${fmtDate(a)} → ${fmtDate(b)}`
+}
+
 export default function Reports() {
   const [bookings, setBookings] = useState<Booking[]>([])
   const [loading, setLoading] = useState(true)
@@ -134,64 +163,172 @@ export default function Reports() {
     setPage(1)
   }, [query, statusFilter, dateFrom, dateTo, sort, bookings])
 
-  // Real .xlsx (not CSV): column widths, autofilter, phone stays text —
-  // nothing renders as hashes or 6.4E+11 when the admin opens it in Excel.
-  const exportXlsx = () => {
-    const header = [
-      "Booking ID", "Guest Name", "Email", "Phone",
-      "Room", "Room Type", "Stay Type", "Check-in", "Check-out",
-      "Nights", "Duration (hrs)", "Start Time", "Guests",
-      "Status", "Payment Mode", "Payment Method",
-      "Total (PHP)", "Amount Paid (PHP)", "Balance (PHP)",
-      "Booked On", "Refunded At", "Cancellation Reason",
-    ]
-    const rows = filtered.map((b) => [
-      (b.fullId || b.id).toUpperCase(),
-      b.guestName,
-      b.guestEmail,
-      b.phone ? String(b.phone) : "",
-      b.roomNumber,
-      b.roomType,
-      b.stay_type === "day" ? "Day use" : "Overnight",
-      fmtDate(b.checkIn),
-      b.stay_type === "day" ? "" : fmtDate(b.checkOut),
-      b.stay_type === "day" ? "" : b.nights,
-      b.duration || "",
-      b.start_time || "",
-      b.guests ?? "",
-      statusStyles[b.status]?.label ?? b.status,
-      b.payment_mode === "downpayment" ? "Downpayment (50%)" : "Full payment",
-      formatPaymentMethod(b.payment_method, "Not set"),
-      b.amount ?? 0,
-      b.amount_paid ?? 0,
-      (b.amount ?? 0) - (b.amount_paid ?? 0),
-      b.createdAt ? fmtStamp(b.createdAt) : "",
-      b.refunded_at ? fmtStamp(b.refunded_at) : "",
-      b.cancellation_reason || "",
-    ])
-    const ws = XLSX.utils.aoa_to_sheet([header, ...rows])
-    // wch = characters wide, tuned per column so nothing shows as ########.
-    ws["!cols"] = [
-      { wch: 38 }, { wch: 22 }, { wch: 28 }, { wch: 16 },
-      { wch: 18 }, { wch: 17 }, { wch: 11 }, { wch: 14 }, { wch: 14 },
-      { wch: 8 }, { wch: 13 }, { wch: 11 }, { wch: 8 },
-      { wch: 12 }, { wch: 17 }, { wch: 18 },
-      { wch: 13 }, { wch: 16 }, { wch: 14 },
-      { wch: 22 }, { wch: 22 }, { wch: 30 },
-    ]
-    if (rows.length > 0) {
-      ws["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { c: 0, r: 0 }, e: { c: header.length - 1, r: rows.length } }) }
+  // Landscape A4 PDF with the Hotel Ava Malate letterhead: logo + hotel name
+  // + export timestamp, a filter-summary line, then a striped table of exactly
+  // what's on screen. Footer on every page carries the hotel name and page X of Y.
+  const exportPdf = async () => {
+    const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" })
+    const pageW = doc.internal.pageSize.getWidth()
+    const pageH = doc.internal.pageSize.getHeight()
+    const marginX = 14
+    const right = pageW - marginX
+    const PLUM: [number, number, number] = [130, 40, 95]
+    const INK: [number, number, number] = [26, 29, 38]
+    const GRAY: [number, number, number] = [107, 114, 128]
+
+    // Logo — load the Vite asset as a data URL for jsPDF
+    let logoW = 0
+    try {
+      const blob = await fetch(hotelAvaLogo).then((r) => r.blob())
+      const dataUrl: string = await new Promise((resolve, reject) => {
+        const fr = new FileReader()
+        fr.onload = () => resolve(String(fr.result))
+        fr.onerror = reject
+        fr.readAsDataURL(blob)
+      })
+      const img = new Image()
+      img.src = dataUrl
+      await img.decode()
+      const logoH = 12
+      logoW = logoH * (img.width / img.height)
+      doc.addImage(dataUrl, "PNG", marginX, 13, logoW, logoH)
+    } catch {
+      // logo is decoration — the report still renders without it
     }
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, "Bookings")
-    const data = XLSX.write(wb, { bookType: "xlsx", type: "array" })
-    const blob = new Blob([data], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = `hotel-ava-bookings-report-${new Date().toISOString().slice(0, 10)}.xlsx`
-    a.click()
-    URL.revokeObjectURL(url)
+
+    // Letterhead
+    const textX = marginX + (logoW || 0) + (logoW ? 5 : 0)
+    doc.setTextColor(...INK)
+    doc.setFont("helvetica", "bold")
+    doc.setFontSize(16)
+    doc.text("HOTEL AVA MALATE", textX, 20)
+    doc.setFont("helvetica", "normal")
+    doc.setFontSize(9)
+    doc.setTextColor(...PLUM)
+    doc.text("Bookings Report", textX, 25.5)
+
+    // Export timestamp, right-aligned
+    doc.setFontSize(7.5)
+    doc.setTextColor(...GRAY)
+    doc.text("Exported on", right, 17, { align: "right" })
+    doc.setFontSize(9)
+    doc.setTextColor(...INK)
+    doc.text(fmtStamp(new Date().toISOString()), right, 22, { align: "right" })
+
+    // Divider
+    doc.setDrawColor(...PLUM)
+    doc.setLineWidth(0.6)
+    doc.line(marginX, 30, right, 30)
+
+    // What this report covers — mirrors the active filters
+    const statusLabel = statusFilters.find((f) => f.value === statusFilter)?.label ?? "All statuses"
+    const sortLabel = sortOptions.find((s) => s.value === sort)?.label ?? ""
+    const parts = [
+      `${filtered.length.toLocaleString("en-PH")} record${filtered.length === 1 ? "" : "s"}`,
+      `Status: ${statusLabel}`,
+      `Check-in: ${dateFrom ? fmtDate(dateFrom) : "any"} – ${dateTo ? fmtDate(dateTo) : "any"}`,
+      `Sort: ${sortLabel}`,
+    ]
+    if (query.trim()) parts.push(`Search: "${query.trim()}"`)
+    doc.setFontSize(7.5)
+    doc.setTextColor(...GRAY)
+    doc.text(parts.join("  ·  "), marginX, 35.5)
+
+    // Table
+    autoTable(doc, {
+      startY: 39,
+      margin: { left: marginX, right: marginX, top: 14, bottom: 16 },
+      theme: "plain",
+      styles: {
+        font: "helvetica",
+        fontSize: 7,
+        cellPadding: 2.1,
+        textColor: INK,
+        lineColor: [226, 228, 232],
+        lineWidth: 0.1,
+      },
+      headStyles: { fillColor: PLUM, textColor: [255, 255, 255], fontStyle: "bold", fontSize: 7 },
+      alternateRowStyles: { fillColor: [248, 247, 244] },
+      head: [["Booking ID", "Guest", "Room", "Stay", "Gst", "Status", "Payment", "Total", "Paid", "Balance", "Booked on"]],
+      body: filtered.map((b) => {
+        const isDay = b.stay_type === "day"
+        const balance = (b.amount ?? 0) - (b.amount_paid ?? 0)
+        return [
+          `#${(b.fullId || b.id).slice(0, 8).toUpperCase()}`,
+          `${b.guestName}\n${b.guestEmail}`,
+          b.roomNumber,
+          isDay
+            ? `${fmtDate(b.checkIn)}\nDay use${b.duration ? ` · ${b.duration} hrs` : ""}`
+            : `${fmtRange(b.checkIn, b.checkOut)}\n${b.nights} night${b.nights === 1 ? "" : "s"}`,
+          String(b.guests ?? "—"),
+          statusStyles[b.status]?.label ?? b.status,
+          `${b.payment_mode === "downpayment" ? "Downpayment" : "Full payment"}\n${formatPaymentMethod(b.payment_method, "Not set")}`,
+          php(b.amount),
+          php(b.amount_paid),
+          php(balance),
+          fmtStamp(b.createdAt),
+        ]
+      }),
+      columnStyles: {
+        0: { font: "courier", cellWidth: 19, textColor: GRAY },
+        1: { cellWidth: 40 },
+        2: { cellWidth: 29 },
+        3: { cellWidth: 34 },
+        4: { halign: "center", cellWidth: 10, textColor: GRAY },
+        5: { cellWidth: 20 },
+        6: { cellWidth: 27 },
+        7: { halign: "right", fontStyle: "bold" },
+        8: { halign: "right", textColor: GRAY },
+        9: { halign: "right" },
+        10: { cellWidth: 24, textColor: GRAY },
+      },
+      didParseCell: (data) => {
+        if (data.section !== "body") return
+        if (data.column.index === 5) {
+          const rgb = statusRgb[String(data.cell.raw)]
+          if (rgb) {
+            data.cell.styles.textColor = rgb
+            data.cell.styles.fontStyle = "bold"
+          }
+        }
+        if (data.column.index === 9 && String(data.cell.raw) !== "PHP 0") {
+          data.cell.styles.textColor = [180, 83, 9]
+          data.cell.styles.fontStyle = "bold"
+        }
+      },
+      didDrawPage: (data) => {
+        // Running header on pages after the first
+        if (data.pageNumber > 1) {
+          data.doc.setFontSize(7)
+          data.doc.setTextColor(...GRAY)
+          data.doc.setFont("helvetica", "normal")
+          data.doc.text("Hotel Ava Malate — Bookings Report", marginX, 9)
+          data.doc.text(
+            `Exported ${fmtStamp(new Date().toISOString())}`,
+            right, 9, { align: "right" },
+          )
+          data.doc.setDrawColor(226, 228, 232)
+          data.doc.setLineWidth(0.2)
+          data.doc.line(marginX, 11, right, 11)
+        }
+      },
+    })
+
+    // Footer on every page: hotel name + page X of Y
+    const totalPages = doc.getNumberOfPages()
+    for (let i = 1; i <= totalPages; i++) {
+      doc.setPage(i)
+      doc.setDrawColor(226, 228, 232)
+      doc.setLineWidth(0.2)
+      doc.line(marginX, pageH - 12, right, pageH - 12)
+      doc.setFont("helvetica", "normal")
+      doc.setFontSize(7)
+      doc.setTextColor(...GRAY)
+      doc.text("Hotel Ava Malate · hotelava.vercel.app", marginX, pageH - 8)
+      doc.text(`Page ${i} of ${totalPages}`, right, pageH - 8, { align: "right" })
+    }
+
+    doc.save(`hotel-ava-bookings-report-${new Date().toISOString().slice(0, 10)}.pdf`)
   }
 
   return (
@@ -199,16 +336,16 @@ export default function Reports() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-xl font-bold text-ink">Reports</h1>
-          <p className="text-sm text-muted">All booking records — search, review, and export to Excel.</p>
+          <p className="text-sm text-muted">All booking records — search, review, and export to PDF.</p>
         </div>
         <Button
           type="button"
-          onClick={exportXlsx}
+          onClick={() => void exportPdf()}
           disabled={loading || filtered.length === 0}
           className="!rounded-[8px] gap-2 bg-[#82285f] hover:bg-[#6b1f4b] text-white"
         >
           <Download className="h-4 w-4" />
-          Export to Excel
+          Export PDF
         </Button>
       </div>
 

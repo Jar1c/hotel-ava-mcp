@@ -178,7 +178,7 @@ export default function Header() {
                     </span>
                   )}
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" sideOffset={8} positionMethod="fixed" className="w-80 !rounded-[12px] p-0 overflow-hidden origin-top-right dark:bg-surface-soft dark:border-hairline/50">
+                <DropdownMenuContent align="end" sideOffset={8} positionMethod="fixed" className="w-[min(480px,calc(100vw-1.5rem))] !rounded-[12px] p-0 overflow-hidden origin-top-right dark:bg-surface-soft dark:border-hairline/50">
                   {/* Header */}
                   <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-hairline/50">
                     <span className="text-sm font-semibold text-ink dark:text-ink-dark">Notifications</span>
@@ -191,7 +191,7 @@ export default function Header() {
                   </div>
 
                   {/* Notification list */}
-                  <div className="max-h-80 overflow-y-auto overscroll-contain">
+                  <div className="max-h-[560px] overflow-y-auto overscroll-contain">
                     {notifications.length === 0 && loading ? (
                       <div className="divide-y divide-gray-50">
                         {[1, 2, 3].map((i) => (
@@ -268,7 +268,7 @@ export default function Header() {
                   {/* Footer */}
                   <div className="border-t border-gray-100 dark:border-hairline/50 px-4 py-2.5">
                     <button
-                      onClick={() => { setDropdownOpen(false); navigate(isAdmin ? "/admin/bookings" : "/my-bookings") }}
+                      onClick={() => { setDropdownOpen(false); navigate(isAdmin ? "/admin/notifications" : "/notifications") }}
                       className="w-full text-center text-xs text-primary hover:text-primary-active font-medium cursor-pointer"
                     >
                       View all notifications

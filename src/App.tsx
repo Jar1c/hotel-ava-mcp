@@ -20,6 +20,7 @@ const PaymentFailed = lazy(() => import("./pages/PaymentFailed"))
 const MyBookings = lazy(() => import("./pages/MyBookings"))
 const VerifyBooking = lazy(() => import("./pages/VerifyBooking"))
 const MyReviews = lazy(() => import("./pages/MyReviews"))
+const Notifications = lazy(() => import("./pages/Notifications"))
 const Settings = lazy(() => import("./pages/Settings"))
 const ForgotPassword = lazy(() => import("./pages/ForgotPassword"))
 const ResetPassword = lazy(() => import("./pages/ResetPassword"))
@@ -83,6 +84,7 @@ export default function App() {
               <Route path="booking/confirmation/:id" element={<BookingConfirmation />} />
               <Route path="my-bookings" element={<MyBookings />} />
               <Route path="my-reviews" element={<MyReviews />} />
+              <Route path="notifications" element={<Notifications />} />
               <Route path="settings" element={<Settings />} />
               <Route path="profile" element={<Profile />} />
             </Route>
@@ -101,6 +103,7 @@ export default function App() {
                 <Route path="reviews" element={<AdminReviews />} />
                 <Route path="ai" element={<AIAssistant />} />
                 <Route path="reports" element={<AdminReports />} />
+                <Route path="notifications" element={<Notifications />} />
                 <Route path="analytics" element={<Navigate to="/admin/ai" replace />} />
                 <Route path="ai-insights" element={<Navigate to="/admin/ai" replace />} />
                 <Route path="discounts" element={<Navigate to="/admin/ai?tab=discounts" replace />} />
