@@ -6685,6 +6685,64 @@ def delete_staff(staff_id):
     return jsonify({"success": True}), 200
 
 
+@app.route("/api/admin/staff/<staff_id>", methods=["PUT"])
+def update_staff(staff_id):
+    """Edit a staff account: name, email, and/or password (blank = keep)."""
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    if not require_admin(token):
+        return jsonify({"error": "Admin access required"}), 403
+
+    data = request.get_json() or {}
+    name = str(data.get("name") or "").strip()
+    email = str(data.get("email") or "").strip().lower()
+    password = str(data.get("password") or "")
+
+    if len(name) < 2:
+        return jsonify({"error": "Name is required."}), 400
+    if "@" not in email or "." not in email.rsplit("@", 1)[-1]:
+        return jsonify({"error": "Enter a valid email address."}), 400
+    if password and len(password) < 8:
+        return jsonify({"error": "Password must be at least 8 characters."}), 400
+
+    try:
+        auth_user = supabase_admin.auth.admin.get_user_by_id(staff_id)
+        meta = getattr(auth_user.user, "app_metadata", None) or {}
+    except Exception:
+        return jsonify({"error": "Staff account not found."}), 404
+    if meta.get("role") != "staff":
+        return jsonify({"error": "Only staff accounts can be edited here."}), 400
+    old_email = (getattr(auth_user.user, "email", "") or "").lower()
+
+    if email != old_email:
+        try:
+            dup = supabase_admin.table("users").select("id") \
+                .eq("email", email).neq("id", staff_id).execute().data
+            if dup:
+                return jsonify({"error": "That email is already registered."}), 400
+        except Exception:
+            pass  # lookup is best-effort — GoTrue still rejects real duplicates
+
+    attrs = {}
+    if email != old_email:
+        attrs["email"] = email
+        attrs["email_confirm"] = True  # admin-made change — no inbox step
+    if password:
+        attrs["password"] = password
+    if attrs:
+        try:
+            supabase_admin.auth.admin.update_user_by_id(staff_id, attrs)
+        except Exception as e:
+            return jsonify({"error": str(e)}), 400
+
+    try:
+        supabase_admin.table("users").update({"name": name, "email": email}) \
+            .eq("id", staff_id).execute()
+    except Exception:
+        pass  # cosmetic row — the auth update already succeeded
+
+    return jsonify({"id": staff_id, "name": name, "email": email, "role": "staff"}), 200
+
+
 @app.route("/api/admin/dashboard-summary", methods=["GET"])
 def admin_dashboard_summary():
     # Front-desk surface: staff see arrivals/occupancy counts on their

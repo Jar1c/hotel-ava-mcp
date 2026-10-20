@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
-import { Trash2, UserPlus, Users } from "lucide-react"
+import { Pencil, Trash2, UserPlus, Users } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -19,8 +19,11 @@ const inputClass =
  * Staff management (admin-only). Creates limited front-desk accounts that can
  * sign in at /admin but only reach Bookings — the backend rejects their
  * tokens on every admin-only endpoint regardless of what this page shows.
+ *
+ * embedded=true renders it inside the Guests page's "Staff" tab (no own h1 —
+ * the Guests header + tabs already frame it).
  */
-export default function Staff() {
+export default function Staff({ embedded = false }: { embedded?: boolean }) {
   const { toast } = useToast()
   const [staff, setStaff] = useState<StaffAccount[]>([])
   const [loading, setLoading] = useState(true)
@@ -34,6 +37,12 @@ export default function Staff() {
 
   const [removing, setRemoving] = useState<StaffAccount | null>(null)
   const [removeBusy, setRemoveBusy] = useState(false)
+
+  // Edit mode — click a row (or its pencil) to open
+  const [editing, setEditing] = useState<StaffAccount | null>(null)
+  const [editName, setEditName] = useState("")
+  const [editEmail, setEditEmail] = useState("")
+  const [editPassword, setEditPassword] = useState("")
 
   const load = useCallback(async () => {
     try {
@@ -110,6 +119,43 @@ export default function Staff() {
     }
   }
 
+  const openEdit = (s: StaffAccount) => {
+    setEditing(s)
+    setEditName(s.name)
+    setEditEmail(s.email)
+    setEditPassword("")
+  }
+
+  const saveEdit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!editing || saving) return
+    setSaving(true)
+    try {
+      const updated = await staffApi.update(editing.id, {
+        name: editName.trim(),
+        email: editEmail.trim().toLowerCase(),
+        ...(editPassword ? { password: editPassword } : {}),
+      })
+      setStaff((prev) =>
+        prev.map((s) => (s.id === updated.id ? { ...s, ...updated, created_at: s.created_at } : s)),
+      )
+      toast({
+        title: "Staff account updated",
+        description: `${updated.name}'s details were saved.`,
+        variant: "success",
+      })
+      setEditing(null)
+    } catch (err) {
+      toast({
+        title: "Couldn't update staff account",
+        description: err instanceof Error ? err.message : "Please try again.",
+        variant: "error",
+      })
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const formatDate = (iso?: string) => {
     if (!iso) return "—"
     const d = new Date(iso)
@@ -119,22 +165,38 @@ export default function Staff() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-bold text-ink">Staff</h1>
-          <p className="text-sm text-muted">
-            Front-desk accounts — can sign in at the admin portal but only see bookings and arrivals.
+      {embedded ? (
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-[11px] text-[#9ca3af]">
+            Click a staff row to edit its name, email, or password.
           </p>
+          <Button
+            type="button"
+            onClick={() => setOpen(true)}
+            className="!rounded-[8px] gap-2 bg-[#82285f] hover:bg-[#6b1f4b] text-white"
+          >
+            <UserPlus className="h-4 w-4" />
+            Add staff
+          </Button>
         </div>
-        <Button
-          type="button"
-          onClick={() => setOpen(true)}
-          className="!rounded-[8px] gap-2 bg-[#82285f] hover:bg-[#6b1f4b] text-white"
-        >
-          <UserPlus className="h-4 w-4" />
-          Add staff
-        </Button>
-      </div>
+      ) : (
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-xl font-bold text-ink">Staff</h1>
+            <p className="text-sm text-muted">
+              Front-desk accounts — can sign in at the admin portal but only see bookings and arrivals.
+            </p>
+          </div>
+          <Button
+            type="button"
+            onClick={() => setOpen(true)}
+            className="!rounded-[8px] gap-2 bg-[#82285f] hover:bg-[#6b1f4b] text-white"
+          >
+            <UserPlus className="h-4 w-4" />
+            Add staff
+          </Button>
+        </div>
+      )}
 
       {error ? (
         <div className="rounded-[12px] border border-rose-200 bg-rose-50 px-6 py-8 text-center">
@@ -174,7 +236,8 @@ export default function Staff() {
                   : staff.map((s) => (
                       <tr
                         key={s.id}
-                        className="border-b border-[#f0f1f3] last:border-b-0 hover:bg-[#f5f6f8] transition-colors duration-150"
+                        onClick={() => openEdit(s)}
+                        className="border-b border-[#f0f1f3] last:border-b-0 hover:bg-[#f5f6f8] transition-colors duration-150 cursor-pointer"
                       >
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2.5">
@@ -187,14 +250,26 @@ export default function Staff() {
                         <td className="px-4 py-3 text-[#6b7280]">{s.email}</td>
                         <td className="px-4 py-3 text-[#6b7280] whitespace-nowrap">{formatDate(s.created_at)}</td>
                         <td className="px-4 py-3 text-right">
-                          <button
-                            type="button"
-                            onClick={() => setRemoving(s)}
-                            aria-label={`Remove ${s.name}`}
-                            className="rounded-[6px] p-1.5 text-[#9ca3af] hover:bg-rose-50 hover:text-[#A4423A] transition-colors cursor-pointer"
-                          >
-                            <Trash2 className="size-4" />
-                          </button>
+                          <div className="flex items-center justify-end gap-1">
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); openEdit(s) }}
+                              aria-label={`Edit ${s.name}`}
+                              title="Edit"
+                              className="rounded-[6px] p-1.5 text-[#9ca3af] hover:bg-[#82285f]/10 hover:text-[#82285f] transition-colors cursor-pointer"
+                            >
+                              <Pencil className="size-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); setRemoving(s) }}
+                              aria-label={`Remove ${s.name}`}
+                              title="Remove"
+                              className="rounded-[6px] p-1.5 text-[#9ca3af] hover:bg-rose-50 hover:text-[#A4423A] transition-colors cursor-pointer"
+                            >
+                              <Trash2 className="size-4" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -279,6 +354,78 @@ export default function Staff() {
                 className="!rounded-[8px] bg-[#82285f] hover:bg-[#6b1f4b] text-white"
               >
                 {saving ? "Creating…" : "Create account"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit dialog */}
+      <Dialog open={editing !== null} onOpenChange={(o) => { if (!o) setEditing(null) }}>
+        <DialogContent className="!rounded-[12px] !max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-semibold text-ink">Edit staff account</DialogTitle>
+            <DialogDescription className="text-sm text-muted">
+              Update the name or email. Leave the password blank to keep the current one.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={saveEdit} className="space-y-3 pt-2">
+            <div>
+              <label htmlFor="edit-staff-name" className="text-[11px] font-medium text-[#6b7280]">
+                Full name
+              </label>
+              <input
+                id="edit-staff-name"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                placeholder="e.g. Juan Dela Cruz"
+                required
+                className={`${inputClass} mt-1`}
+              />
+            </div>
+            <div>
+              <label htmlFor="edit-staff-email" className="text-[11px] font-medium text-[#6b7280]">
+                Email
+              </label>
+              <input
+                id="edit-staff-email"
+                type="email"
+                value={editEmail}
+                onChange={(e) => setEditEmail(e.target.value)}
+                placeholder="staff@hotelava.com"
+                required
+                className={`${inputClass} mt-1`}
+              />
+            </div>
+            <div>
+              <label htmlFor="edit-staff-password" className="text-[11px] font-medium text-[#6b7280]">
+                New password <span className="text-[#9ca3af]">(optional)</span>
+              </label>
+              <input
+                id="edit-staff-password"
+                type="password"
+                value={editPassword}
+                onChange={(e) => setEditPassword(e.target.value)}
+                placeholder="Leave blank to keep current"
+                minLength={8}
+                className={`${inputClass} mt-1`}
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setEditing(null)}
+                className="!rounded-[8px]"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={saving || !editName.trim() || !editEmail.trim()}
+                className="!rounded-[8px] bg-[#82285f] hover:bg-[#6b1f4b] text-white"
+              >
+                {saving ? "Saving…" : "Save changes"}
               </Button>
             </div>
           </form>

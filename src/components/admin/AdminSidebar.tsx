@@ -10,7 +10,6 @@ const mainItems = [
   { label: "Bookings", path: "/admin/bookings" },
   { label: "Rooms", path: "/admin/rooms" },
   { label: "Guests", path: "/admin/guests" },
-  { label: "Staff", path: "/admin/staff" },
   { label: "Calendar", path: "/admin/calendar" },
   { label: "Reviews", path: "/admin/reviews" },
   { label: "AI Assistant", path: "/admin/ai" },
@@ -22,9 +21,9 @@ const otherItems = [
 ]
 
 /** Staff = front desk: the basics they work with daily (arrivals dashboard,
- * bookings, rooms, calendar). Guests, Reviews, AI Assistant, Reports, Staff
- * management and Settings stay admin-only — the backend rejects staff
- * tokens on those endpoints regardless of what the UI shows. */
+ * bookings, rooms, calendar). The Guests page (with its Staff tab), Reviews,
+ * AI Assistant, Reports and Settings stay admin-only — the backend rejects
+ * staff tokens on those endpoints regardless of what the UI shows. */
 const staffAllowedPaths = new Set([
   "/admin/dashboard",
   "/admin/bookings",

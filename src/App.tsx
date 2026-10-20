@@ -42,7 +42,6 @@ const AIAssistant = lazy(() => import("./pages/admin/AIAssistant"))
 const AdminSettings = lazy(() => import("./pages/admin/Settings"))
 const AdminReviews = lazy(() => import("./pages/admin/Reviews"))
 const AdminReports = lazy(() => import("./pages/admin/Reports"))
-const AdminStaff = lazy(() => import("./pages/admin/Staff"))
 
 function PageLoader() {
   return (
@@ -106,10 +105,11 @@ export default function App() {
                 {/* Admin-only management — staff bounce to /admin/bookings */}
                 <Route element={<AdminOnly />}>
                   <Route path="guests" element={<Guests />} />
+                  {/* Old standalone Staff URL now lands on the Guests → Staff tab */}
+                  <Route path="staff" element={<Navigate to="/admin/guests?tab=staff" replace />} />
                   <Route path="reviews" element={<AdminReviews />} />
                   <Route path="ai" element={<AIAssistant />} />
                   <Route path="reports" element={<AdminReports />} />
-                  <Route path="staff" element={<AdminStaff />} />
                   <Route path="analytics" element={<Navigate to="/admin/ai" replace />} />
                   <Route path="ai-insights" element={<Navigate to="/admin/ai" replace />} />
                   <Route path="discounts" element={<Navigate to="/admin/ai?tab=discounts" replace />} />

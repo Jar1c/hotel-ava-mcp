@@ -1423,6 +1423,12 @@ export const staffApi = {
 
   remove: (id: string) =>
     apiFetch<{ success: boolean }>(`/admin/staff/${id}`, { method: "DELETE" }),
+
+  update: (id: string, payload: { name: string; email: string; password?: string }) =>
+    apiFetch<StaffAccount>(`/admin/staff/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
 }
 
 // ── Devices (new-login security) ───────────────────────────────────────────────
